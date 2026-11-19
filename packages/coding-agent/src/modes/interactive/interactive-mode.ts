@@ -264,6 +264,7 @@ import { SessionSelectorComponent } from "./components/session-selector.ts";
 import { SettingsSelectorComponent } from "./components/settings-selector.ts";
 import { classifyEditorInput, ShortcutOverlay, shouldShowShortcutOverlay } from "./components/shortcut-overlay.ts";
 import { SkillInvocationMessageComponent } from "./components/skill-invocation-message.ts";
+import { TranscriptNotice } from "./components/transcript-notice.ts";
 import {
 	BranchSummaryStatusIndicator,
 	CompactionStatusIndicator,
@@ -7512,7 +7513,7 @@ export class InteractiveMode {
 			...(spec.expandedLine === undefined ? {} : { expandedLine: sanitizeTuiErrorMessage(spec.expandedLine) }),
 		};
 		this.chatContainer.addChild(new Spacer(1));
-		this.chatContainer.addChild(buildNoticeBox(sanitized, { expanded: this.toolOutputExpanded }, theme));
+		this.chatContainer.addChild(new TranscriptNotice(sanitized, this.toolOutputExpanded));
 		this.ui.requestRender();
 	}
 

@@ -4,6 +4,7 @@ import { Box, Container, Markdown, type MarkdownTheme, Spacer, Text } from "@ear
 import type { MessageRenderer } from "../../../core/extensions/types.ts";
 import type { CustomMessage } from "../../../core/messages.ts";
 import { sharedMarkdownTheme, theme } from "../theme/theme.ts";
+import { isNoticeBox, noticeBoxBackground, renderNoticeBoxTitle } from "./notice-density-source.ts";
 
 /**
  * Component that renders a custom message entry from extensions.
@@ -44,6 +45,22 @@ export class CustomMessageComponent extends Container {
 	 */
 	override getRenderRevision(): number | undefined {
 		return this.childRenderRevision();
+	}
+
+	get noticeDensityEligible(): boolean {
+		return isNoticeBox(this.customComponent);
+	}
+
+	get densityExpanded(): boolean {
+		return this._expanded;
+	}
+
+	renderDensitySummary(width: number, _grouped: boolean): string[] {
+		return renderNoticeBoxTitle(this.customComponent, width) ?? [];
+	}
+
+	getBackgroundPainter(): ((text: string) => string) | undefined {
+		return noticeBoxBackground(this.customComponent);
 	}
 
 	setExpanded(expanded: boolean): void {

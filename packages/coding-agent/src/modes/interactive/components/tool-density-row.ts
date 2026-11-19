@@ -21,6 +21,29 @@ import { toolDensitySummary } from "./tool-density-summary.ts";
 import type { ToolExecutionComponent } from "./tool-execution.ts";
 
 const paintGroup = (text: string) => theme.bg("toolSuccessBg", text);
+const noBackground = (text: string) => text;
+
+/** A notice or assistant detail that participates in the tool-card layout. */
+export interface DensityCardSource extends Component {
+	readonly densityExpanded: boolean;
+	renderDensitySummary(width: number, grouped: boolean): string[];
+	getBackgroundPainter(): ((text: string) => string) | undefined;
+	setExpanded(expanded: boolean): void;
+}
+
+export function isDensityCardSource(component: Component): component is DensityCardSource {
+	return (
+		"renderDensitySummary" in component &&
+		typeof component.renderDensitySummary === "function" &&
+		(!("noticeDensityEligible" in component) || component.noticeDensityEligible === true)
+	);
+}
+
+function narrowLightning(line: string): string {
+	return /^\s*\u26A1\uFE0F? Cache-warm\b/u.test(stripTerminalSequences(line))
+		? line.replace(/\u26A1\uFE0F?/u, "↯")
+		: line;
+}
 
 function contentBounds(lines: readonly string[]): { start: number; end: number } {
 	const sources = getLineSources(lines);
@@ -33,12 +56,13 @@ function contentBounds(lines: readonly string[]): { start: number; end: number }
 
 /** A non-owning summary with the original tool card as its click-to-expand detail. */
 export class ToolDensityRow implements Component {
-	private readonly card: ToolExecutionComponent;
+	private readonly card: ToolExecutionComponent | DensityCardSource;
 	private readonly requestRender: () => void;
 	private grouped = false;
 	private first = true;
 	private last = true;
 	private revision = 0;
+	private foldedHeight = 0;
 	private detailLayout:
 		| {
 				readonly original: readonly string[];
@@ -48,7 +72,7 @@ export class ToolDensityRow implements Component {
 		  }
 		| undefined;
 
-	constructor(card: ToolExecutionComponent, requestRender: () => void) {
+	constructor(card: ToolExecutionComponent | DensityCardSource, requestRender: () => void) {
 		this.card = card;
 		this.requestRender = requestRender;
 	}
@@ -63,22 +87,51 @@ export class ToolDensityRow implements Component {
 	}
 
 	render(width: number): string[] {
-		const state = this.card.summarySnapshot;
 		const frameRow = claimFrameRow(this);
-		if (state.expanded) return this.renderExpanded(width, frameRow);
+		if (this.expanded) return this.renderExpanded(width, frameRow);
 		this.detailLayout = undefined;
+		const left = width >= 3 ? " " : "";
+		const right = width >= 4 ? "  " : left;
+		const innerWidth = width - left.length - right.length;
+		const fold = innerWidth >= 5 ? `${theme.fg("muted", "╶─")} ` : "";
+		const available = Math.max(0, innerWidth - visibleWidth(fold));
+		const summary =
+			"densityExpanded" in this.card
+				? this.card.renderDensitySummary(available, this.grouped)
+				: (this.card.renderNoticeDensitySummary(available) ?? [this.renderToolSummary(available, this.card)]);
+		const paint = this.background;
+		const blank = applyBackgroundToLine("", width, paint);
+		const rows = summary.map((line, index) => {
+			const gutter = index === 0 ? fold : " ".repeat(visibleWidth(fold));
+			return applyBackgroundToLine(
+				left + gutter + truncateToWidth(narrowLightning(line), available, "…") + right,
+				width,
+				paint,
+				this.grouped ? "replace" : "fill",
+			);
+		});
+		this.foldedHeight = rows.length;
+		return [...(this.first ? ["", blank] : []), ...rows, ...(this.last ? [blank] : [])];
+	}
+
+	private get expanded(): boolean {
+		return "densityExpanded" in this.card ? this.card.densityExpanded : this.card.summarySnapshot.expanded;
+	}
+
+	private get background(): (text: string) => string {
+		return this.grouped ? paintGroup : (this.card.getBackgroundPainter() ?? noBackground);
+	}
+
+	private renderToolSummary(width: number, card: ToolExecutionComponent): string {
+		const state = card.summarySnapshot;
 		const summary = toolDensitySummary(state);
 		const live =
 			state.pending || summary.status === "running" || summary.status === "queued" || summary.status === "detached";
 		const failed = summary.status === "failed" || summary.status === "cancelled";
-		const paint = this.grouped ? paintGroup : this.card.getBackgroundPainter();
 		const color = failed ? "error" : live ? "warning" : "success";
 		const glyph = theme.fg(color, failed ? "✗" : live ? "○" : "✓");
-		const left = width >= 3 ? " " : "";
-		const right = width >= 4 ? "  " : left;
-		const innerWidth = width - left.length - right.length;
-		const marker = innerWidth < 5 ? glyph : `${theme.fg("muted", "╶─")} ${glyph} `;
-		const available = Math.max(0, innerWidth - visibleWidth(marker));
+		const marker = `${glyph} `;
+		const available = Math.max(0, width - visibleWidth(marker));
 		const title = theme.fg("toolTitle", summary.tool);
 		const status = ` · ${theme.fg(color, summary.status)}`;
 		const titleWidth = visibleWidth(title);
@@ -95,13 +148,7 @@ export class ToolDensityRow implements Component {
 					visibleWidth(attention) + 3 + titleWidth + visibleWidth(countSuffix) <= available ? countSuffix : ""
 				}`
 			: `${description}${title}${showStatus ? status : ""}`;
-		const header = applyBackgroundToLine(
-			left + truncateToWidth(marker, innerWidth, "") + truncateToWidth(line, available, "…") + right,
-			width,
-			paint,
-		);
-		const blank = applyBackgroundToLine("", width, paint);
-		return [...(this.first ? ["", blank] : []), header, ...(this.last ? [blank] : [])];
+		return truncateToWidth(marker, width, "") + truncateToWidth(line, available, "…");
 	}
 
 	private renderExpanded(width: number, frameRow: number | undefined): string[] {
@@ -117,7 +164,7 @@ export class ToolDensityRow implements Component {
 		}
 		this.detailLayout = { original, start, height: end - start, inset };
 		const sources = getLineSources(original);
-		const paint = this.grouped ? paintGroup : this.card.getBackgroundPainter();
+		const paint = this.background;
 		const blank = applyBackgroundToLine("", width, paint);
 		const rows = original.slice(start, end);
 		if (sources) setLineSources(rows, sources.slice(start, end));
@@ -125,7 +172,7 @@ export class ToolDensityRow implements Component {
 			if (isImageLine(line)) return line;
 			const border =
 				inset === 0 ? "" : index === 0 ? ` ${theme.fg("borderAccent", "╭─")}` : ` ${theme.fg("borderMuted", "│")} `;
-			return applyBackgroundToLine(border + line, width, paint, this.grouped ? "replace" : "fill");
+			return applyBackgroundToLine(border + narrowLightning(line), width, paint, this.grouped ? "replace" : "fill");
 		});
 		if (inset) body.push(applyBackgroundToLine(` ${theme.fg("borderMuted", "╰─")}`, width, paint));
 		const lines = [...(this.first ? ["", blank] : []), ...body, ...(this.last ? [blank] : [])];
@@ -140,9 +187,9 @@ export class ToolDensityRow implements Component {
 	}
 
 	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | TuiMouseDispatchResult | undefined {
-		const state = this.card.summarySnapshot;
+		const expanded = this.expanded;
 		const detail = this.detailLayout;
-		if (state.expanded && detail) {
+		if (expanded && detail) {
 			const row = event.y - (this.first ? 2 : 0);
 			if (row < 0 || row >= detail.height) return undefined;
 			const y = detail.start + row;
@@ -159,19 +206,21 @@ export class ToolDensityRow implements Component {
 						});
 			if (result) return result;
 			if (detail.original[y] === "" || getLineSources(detail.original)?.[y] === null) return undefined;
-		} else if (event.y !== (this.first ? 2 : 0)) {
-			return undefined;
+		} else {
+			const row = event.y - (this.first ? 2 : 0);
+			if (row < 0 || row >= this.foldedHeight) return undefined;
 		}
 		// The alternate screen derives a click after a stationary release. Leaving
 		// the initial press to it lets a drag select text from the same row.
-		if (event.type !== "click" || event.button !== "left" || state.pending) return undefined;
-		this.card.setExpanded(!state.expanded);
+		if (event.type !== "click" || event.button !== "left") return undefined;
+		if (!("densityExpanded" in this.card) && this.card.summarySnapshot.pending) return undefined;
+		this.card.setExpanded(!expanded);
 		this.requestRender();
 		return { handled: true };
 	}
 
 	getRenderRevision(): number | undefined {
-		const card = this.card.getRenderRevision();
+		const card = this.card.getRenderRevision?.();
 		return card === undefined ? undefined : Math.max(card, this.revision);
 	}
 

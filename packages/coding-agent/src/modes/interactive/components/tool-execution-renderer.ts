@@ -16,6 +16,7 @@ import type {
 	ToolRenderers,
 } from "./tool-execution-types.ts";
 import { isComponent, ToolRendererBoundary } from "./tool-renderer-boundary.ts";
+import { isRememberedNoticeBox, renderNoticeBoxTitle } from "./notice-density-source.ts";
 
 type RenderContainer = Box | Container;
 
@@ -115,6 +116,11 @@ export class ToolExecutionRenderer extends Container {
 			if (paint) return paint;
 		}
 		return undefined;
+	}
+
+	renderNoticeDensitySummary(toolName: string, width: number): string[] | undefined {
+		if (toolName !== "memory" || !isRememberedNoticeBox(this.resultRendererComponent)) return undefined;
+		return renderNoticeBoxTitle(this.resultRendererComponent, width);
 	}
 
 	update(state: ToolExecutionRenderState): void {

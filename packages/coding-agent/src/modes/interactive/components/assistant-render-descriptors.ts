@@ -11,6 +11,7 @@ import { describedProviderError } from "../provider-error-description.ts";
 import { interactiveErrorText } from "../required-compaction-wording.ts";
 import { theme } from "../theme/theme.ts";
 import { type HandoffSegment, splitHandoffBlocks } from "./handoff-fold.ts";
+import type { AssistantDensityCardDescriptor } from "./assistant-density-card.ts";
 
 type MarkdownDescriptorKind = "text-md" | "thinking-md";
 type TextDescriptorKind =
@@ -25,6 +26,7 @@ type AssistantRenderDescriptorKind = "spacer" | MarkdownDescriptorKind | TextDes
 export type AssistantRenderDescriptor = {
 	readonly kind: AssistantRenderDescriptorKind;
 	readonly text: string;
+	readonly densityCard?: AssistantDensityCardDescriptor;
 	/** Index of the thinking run this label/body belongs to; set only for thinking descriptors. */
 	readonly thinkingRun?: number;
 	/** Index of the handoff block this fold line/body belongs to; set only for handoff descriptors. */
@@ -63,21 +65,37 @@ function pushHandoffDescriptors(
 	handoffBlock: number,
 	open: boolean,
 ): void {
+	const summary = theme.fg(
+		"dim",
+		[
+			"\u25B8 Handoff",
+			...[
+				segment.now === undefined ? undefined : `Now: ${segment.now}`,
+				segment.next === undefined ? undefined : `Next: ${segment.next}`,
+			].filter((part): part is string => part !== undefined),
+		].join(" \u00B7 "),
+	);
+	const expandedTitle = theme.fg("dim", "\u25BE Handoff");
+	const densityCard: AssistantDensityCardDescriptor = {
+		kind: "handoff",
+		id: `handoff:${handoffBlock}`,
+		block: handoffBlock,
+		summary,
+		expandedTitle,
+		body: segment.block,
+	};
 	if (open) {
 		descriptors.push(
-			{ kind: "handoff-line", text: theme.fg("dim", "\u25BE Handoff"), handoffBlock },
+			{ kind: "handoff-line", text: expandedTitle, handoffBlock, densityCard },
 			{ kind: "handoff-body", text: theme.fg("dim", segment.block), handoffBlock },
 		);
 		return;
 	}
-	const parts = [
-		segment.now === undefined ? undefined : `Now: ${segment.now}`,
-		segment.next === undefined ? undefined : `Next: ${segment.next}`,
-	].filter((part): part is string => part !== undefined);
 	descriptors.push({
 		kind: "handoff-line",
-		text: theme.fg("dim", ["\u25B8 Handoff", ...parts].join(" \u00B7 ")),
+		text: summary,
 		handoffBlock,
+		densityCard,
 	});
 	if (segment.answer !== undefined) descriptors.push(SPACER_DESCRIPTOR, { kind: "text-md", text: segment.answer });
 }
@@ -175,11 +193,20 @@ export function createAssistantRenderDescriptors(
 					descriptors.push(SPACER_DESCRIPTOR);
 				break;
 			}
-			case "providerNative":
+			case "providerNative": {
+				const densitySummary = theme.fg("muted", formatProviderNativeSummary(message, content, false));
+				const expandedSummary = theme.fg("muted", formatProviderNativeSummary(message, content, true));
 				descriptors.push(
 					{
 						kind: "provider-native-summary",
-						text: theme.fg("muted", formatProviderNativeSummary(message, content, options.expanded)),
+						text: options.expanded ? expandedSummary : densitySummary,
+						densityCard: {
+							kind: "provider-native",
+							id: `provider-native:${i}`,
+							summary: densitySummary,
+							expandedSummary,
+							content,
+						},
 					},
 					{
 						kind: "provider-native-body",
@@ -189,6 +216,7 @@ export function createAssistantRenderDescriptors(
 				if (message.content.slice(i + 1).some((following) => isVisibleContent(following, true)))
 					descriptors.push(SPACER_DESCRIPTOR);
 				break;
+			}
 			case "toolCall":
 				break;
 			default:

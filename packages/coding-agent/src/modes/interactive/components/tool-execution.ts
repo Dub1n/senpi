@@ -133,6 +133,11 @@ export class ToolExecutionComponent extends Container {
 		};
 	}
 
+	renderNoticeDensitySummary(width: number): string[] | undefined {
+		if (this.identity.toolName === "memory" && this.renderer?.renderShell === "self") this.restoreReleasedContent();
+		return this.renderer?.renderNoticeDensitySummary(this.identity.toolName, width);
+	}
+
 	markExecutionStarted(): void {
 		this.executionStarted = true;
 		this.updateSpinnerAnimation();

@@ -4,6 +4,7 @@ import {
 	claimFrameRow,
 	currentRenderRevision,
 	renderAtFrameRow,
+	Spacer,
 	type TuiMouseEvent,
 } from "@earendil-works/pi-tui";
 import type { ToolDisplayDensity } from "../../../core/settings-manager.ts";
@@ -16,8 +17,9 @@ import {
 	ProgressiveTranscriptContainer,
 	type ProgressiveTranscriptOptions,
 } from "./progressive-transcript-container.ts";
-import { ToolDensityRow } from "./tool-density-row.ts";
+import { type DensityCardSource, isDensityCardSource, ToolDensityRow } from "./tool-density-row.ts";
 import { ToolExecutionComponent } from "./tool-execution.ts";
+import { TranscriptNotice } from "./transcript-notice.ts";
 
 /**
  * Original children remain the lifecycle/ID/anchor model. A non-owning projection groups their
@@ -28,7 +30,7 @@ export class ExplorationTranscriptContainer extends Container {
 	private readonly display: ProgressiveTranscriptContainer;
 	private readonly requestRender: () => void;
 	private density: ToolDisplayDensity = "default";
-	private readonly densityRows = new WeakMap<ToolExecutionComponent, ToolDensityRow>();
+	private readonly densityRows = new WeakMap<ToolExecutionComponent | DensityCardSource, ToolDensityRow>();
 	private densityProjection:
 		| {
 				readonly source: readonly Component[];
@@ -71,31 +73,39 @@ export class ExplorationTranscriptContainer extends Container {
 		const memo = this.densityProjection;
 		const clock = currentRenderRevision();
 		const grouped = this.density === "grouped";
-		if (memo && (!grouped || memo.clock === clock) && sameComponents(memo.source, this.children)) {
+		if (memo && memo.clock === clock && sameComponents(memo.source, this.children)) {
 			return memo.projected;
 		}
 
 		const projected: Component[] = [];
 		let previous: ToolDensityRow | undefined;
 		let previousFirst = true;
-		for (const child of this.children) {
-			if (child instanceof AssistantMessageComponent) {
-				child.setSuppressCompletedThinkingLabel(true);
-				if (grouped && !child.hasTranscriptRows) continue;
-			}
-			const row = child instanceof ToolExecutionComponent ? this.densityRowOf(child) : null;
+		const append = (child: Component): void => {
+			const row =
+				child instanceof ToolExecutionComponent || isDensityCardSource(child) ? this.densityRowOf(child) : null;
 			const joins = grouped && previous !== undefined && row !== null;
 			previous?.setLayout(grouped, previousFirst, !joins);
 			previous = row ?? undefined;
 			previousFirst = !joins;
 			projected.push(row ?? child);
+		};
+		for (const [index, child] of this.children.entries()) {
+			// The density card supplies the outer spacing for a transcript notice.
+			if (child instanceof Spacer && this.children[index + 1] instanceof TranscriptNotice) continue;
+			if (child instanceof AssistantMessageComponent) {
+				child.setSuppressCompletedThinkingLabel(true);
+				if (!child.hasTranscriptRows) continue;
+				for (const part of child.getDensityChildren(grouped)) append(part);
+			} else {
+				append(child);
+			}
 		}
 		previous?.setLayout(grouped, previousFirst, true);
 		this.densityProjection = { source: [...this.children], projected, clock: currentRenderRevision() };
 		return projected;
 	}
 
-	private densityRowOf(card: ToolExecutionComponent): ToolDensityRow {
+	private densityRowOf(card: ToolExecutionComponent | DensityCardSource): ToolDensityRow {
 		const cached = this.densityRows.get(card);
 		if (cached !== undefined) return cached;
 		const row = new ToolDensityRow(card, this.requestRender);

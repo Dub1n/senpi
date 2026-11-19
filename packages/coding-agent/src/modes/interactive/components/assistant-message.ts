@@ -13,6 +13,8 @@ import {
 import type { MarkdownTransformer } from "../../../core/extensions/types.ts";
 import { sharedMarkdownTheme, theme } from "../theme/theme.ts";
 import { type AssistantRenderDescriptor, createAssistantRenderDescriptors } from "./assistant-render-descriptors.ts";
+import { AssistantDensityCard } from "./assistant-density-card.ts";
+import type { AssistantDensityCardDescriptor } from "./assistant-density-card.ts";
 import { createMarkdownTransform } from "./markdown-transform.ts";
 import { createBoundedRenderSignature } from "./render-signature.ts";
 
@@ -55,6 +57,12 @@ export class AssistantMessageComponent extends Container {
 	private lastMessage?: AssistantMessage;
 	private lastMessageSignature?: string;
 	private renderDescriptors: readonly AssistantRenderDescriptor[] = [];
+	private readonly densityCards = new Map<string, AssistantDensityCard>();
+	private readonly densityCardExpandedOverrides = new Map<string, boolean>();
+	private densityProjection:
+		| { readonly revision: number; readonly grouped: boolean; readonly children: readonly Component[] }
+		| undefined;
+	private readonly densitySelfChildren: readonly Component[];
 	private hasToolCalls = false;
 	private expanded = false;
 	private providerErrorOwned = false;
@@ -80,6 +88,7 @@ export class AssistantMessageComponent extends Container {
 		this.hiddenThinkingLabel = hiddenThinkingLabel;
 		this.outputPad = outputPad;
 		this.markdownTransformers = markdownTransformers;
+		this.densitySelfChildren = [this];
 
 		// Container for text/thinking content
 		this.contentContainer = new Container();
@@ -119,6 +128,7 @@ export class AssistantMessageComponent extends Container {
 		if (this.expanded === expanded) return;
 		this.expanded = expanded;
 		this.handoffOpenOverrides.clear();
+		this.densityCardExpandedOverrides.clear();
 		this.refreshContent();
 	}
 
@@ -148,11 +158,75 @@ export class AssistantMessageComponent extends Container {
 	setOutputPad(padding: number): void {
 		this.outputPad = padding;
 		this.renderDescriptors = [];
+		this.densityProjection = undefined;
 		this.refreshContent();
 	}
 
 	override getRenderRevision(): number {
 		return this.revision;
+	}
+
+	/** Return the assistant's stable prose and foldable-card projection for a dense transcript. */
+	getDensityChildren(grouped: boolean): readonly Component[] {
+		const cached = this.densityProjection;
+		if (cached?.revision === this.revision && cached.grouped === grouped) return cached.children;
+		const hasDensityCard = this.renderDescriptors.some(
+			(descriptor) => descriptor.densityCard && (grouped || descriptor.densityCard.kind !== "handoff"),
+		);
+		if (!hasDensityCard) {
+			this.densityCards.clear();
+			this.densityCardExpandedOverrides.clear();
+			return this.densitySelfChildren;
+		}
+
+		const projected: Component[] = [];
+		const activeCards = new Set<string>();
+		for (let index = 0; index < this.renderDescriptors.length; index++) {
+			const descriptor = this.renderDescriptors[index];
+			const child = this.contentContainer.children[index];
+			if (!descriptor || !child) continue;
+			const cardDescriptor = descriptor.densityCard;
+			if (cardDescriptor) {
+				if (cardDescriptor.kind === "handoff" && !grouped) {
+					projected.push(child);
+					continue;
+				}
+				activeCards.add(cardDescriptor.id);
+				const expanded =
+					this.densityCardExpandedOverrides.get(cardDescriptor.id) ??
+					(cardDescriptor.kind === "handoff"
+						? (this.handoffOpenOverrides.get(cardDescriptor.block) ?? this.expanded)
+						: this.expanded);
+				let card = this.densityCards.get(cardDescriptor.id);
+				if (card) {
+					card.update(cardDescriptor, this.outputPad, expanded);
+				} else {
+					card = new AssistantDensityCard(cardDescriptor, this.outputPad, expanded, (nextExpanded) =>
+						this.setDensityCardExpanded(cardDescriptor, nextExpanded),
+					);
+					this.densityCards.set(cardDescriptor.id, card);
+				}
+				projected.push(card);
+				continue;
+			}
+			if (descriptor.kind === "provider-native-body" || (grouped && descriptor.kind === "handoff-body")) {
+				continue;
+			}
+			if (
+				grouped &&
+				descriptor.kind === "spacer" &&
+				this.renderDescriptors[index + 1]?.densityCard &&
+				(index === 0 || projected.at(-1) instanceof AssistantDensityCard)
+			) {
+				continue;
+			}
+			projected.push(child);
+		}
+		for (const id of this.densityCards.keys()) {
+			if (!activeCards.has(id)) this.densityCards.delete(id);
+		}
+		this.densityProjection = { revision: this.revision, grouped, children: projected };
+		return projected;
 	}
 
 	override render(width: number): string[] {
@@ -184,6 +258,7 @@ export class AssistantMessageComponent extends Container {
 		}
 		this.lastMessageSignature = messageSignature;
 		this.renderCache = undefined;
+		this.densityProjection = undefined;
 		this.revision = nextRenderRevision();
 		if (streamingChanged) this.renderDescriptors = [];
 		this.hasToolCalls = message.content.some((content) => content.type === "toolCall");
@@ -321,5 +396,11 @@ export class AssistantMessageComponent extends Container {
 		if (!this.lastMessage) return;
 		this.lastMessageSignature = undefined;
 		this.updateContent(this.lastMessage);
+	}
+
+	private setDensityCardExpanded(descriptor: AssistantDensityCardDescriptor, expanded: boolean): void {
+		this.densityCardExpandedOverrides.set(descriptor.id, expanded);
+		if (descriptor.kind === "handoff") this.handoffOpenOverrides.set(descriptor.block, expanded);
+		this.refreshContent();
 	}
 }
