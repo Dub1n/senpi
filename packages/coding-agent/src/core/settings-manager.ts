@@ -142,6 +142,7 @@ export const DEFAULT_EXTENSION_EVENT_HANDLER_WARN_MS = 60_000;
 export const DEFAULT_EXTENSION_EVENT_HANDLER_TIMEOUT_MS = 1_200_000;
 
 export type TuiMode = RendererTuiMode;
+export type ToolDisplayDensity = "default" | "compact" | "grouped";
 export type FullscreenExitOutput = "transcript" | "resume-hint";
 
 /**
@@ -223,6 +224,7 @@ export interface Settings {
 	retry?: RetrySettingsConfig;
 	fallback?: FallbackCircuitSettings;
 	hideThinkingBlock?: boolean;
+	toolDisplayDensity?: ToolDisplayDensity;
 	smoothStreaming?: boolean; // default: true
 	smoothStreamingFps?: number; // default: 60, clamped to 30-120 when read
 	showCacheMissNotices?: boolean; // default: false - show prompt-cache miss and compaction cost notices
@@ -2198,6 +2200,17 @@ export class SettingsManager {
 
 	getHideThinkingBlock(): boolean {
 		return this.settings.hideThinkingBlock ?? false;
+	}
+
+	getToolDisplayDensity(): ToolDisplayDensity {
+		const density = this.settings.toolDisplayDensity;
+		return density === "compact" || density === "grouped" ? density : "default";
+	}
+
+	setToolDisplayDensity(density: ToolDisplayDensity): void {
+		this.globalSettings.toolDisplayDensity = density;
+		this.markModified("toolDisplayDensity");
+		this.save();
 	}
 
 	getSmoothStreaming(): boolean {

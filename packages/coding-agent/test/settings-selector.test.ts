@@ -15,12 +15,14 @@ describe("SettingsSelectorComponent", () => {
 		setKeybindings(new KeybindingsManager());
 	});
 
-	it("cycles through fullscreen settings", () => {
+	it("cycles through tool display density and fullscreen settings", () => {
+		const onToolDisplayDensityChange = vi.fn();
 		const onExitOutputChange = vi.fn();
 		const onScrollbarChange = vi.fn();
 		const onCopyOnSelectChange = vi.fn();
 		const onWheelScrollLinesChange = vi.fn();
 		const config = {
+			toolDisplayDensity: "compact",
 			fullscreenExitOutput: "transcript",
 			fullscreenScrollbar: "auto",
 			fullscreenCopyOnSelect: true,
@@ -33,6 +35,7 @@ describe("SettingsSelectorComponent", () => {
 			availableThemes: [],
 		} as unknown as SettingsConfig;
 		const callbacks = {
+			onToolDisplayDensityChange,
 			onFullscreenExitOutputChange: onExitOutputChange,
 			onFullscreenScrollbarChange: onScrollbarChange,
 			onFullscreenCopyOnSelectChange: onCopyOnSelectChange,
@@ -45,6 +48,8 @@ describe("SettingsSelectorComponent", () => {
 			for (let i = 0; i < count; i++) list.handleInput("\r");
 		};
 
+		cycle("Tool display density", 3);
+		expect(onToolDisplayDensityChange.mock.calls.flat()).toEqual(["grouped", "default", "compact"]);
 		cycle("Fullscreen exit output", 2);
 		expect(onExitOutputChange.mock.calls.flat()).toEqual(["resume-hint", "transcript"]);
 		cycle("Fullscreen scrollbar", 3);

@@ -197,6 +197,7 @@ export {
 	getTerminalColorMode,
 	getWebpDimensions,
 	hyperlink,
+	isImageLine,
 	type ImageDimensions,
 	type ImageProtocol,
 	type ImageRenderOptions,
@@ -213,7 +214,7 @@ export {
 	wrapTmuxPassthrough,
 } from "./terminal-image.ts";
 export { sanitizeTerminalLabel, shortenImagePath } from "./terminal-text.ts";
-export { copyLineSources } from "./selection-source.ts";
+export { copyLineSources, getLineSources, setLineSources } from "./selection-source.ts";
 export {
 	encodeProgramStatus,
 	type ProgramStatus,
@@ -264,6 +265,7 @@ export { TuiAltScreen, type TuiAltScreenOptions } from "./tui-alt-screen.ts";
 export { TuiMainScreen, type TuiMainScreenRenderState } from "./tui-main-screen.ts";
 // Utilities
 export {
+	applyBackgroundToLine,
 	getGraphemeSegmenter,
 	getOsc8LinkAtColumn,
 	getWordSegmenter,

@@ -20,6 +20,7 @@ import type {
 	FullscreenExitOutput,
 	MermaidRenderingMode,
 	QuietStartup,
+	ToolDisplayDensity,
 	TuiMode,
 	WarningSettings,
 } from "../../../core/settings-manager.ts";
@@ -60,6 +61,12 @@ const DEFAULT_PROJECT_TRUST_BY_LABEL = new Map(
 	Object.entries(DEFAULT_PROJECT_TRUST_LABELS).map(([value, label]) => [label, value as DefaultProjectTrust]),
 );
 
+const TOOL_DISPLAY_DENSITY_LABELS = {
+	default: "Default",
+	compact: "Compact",
+	grouped: "Grouped",
+} as const satisfies Record<ToolDisplayDensity, string>;
+
 export interface SettingsConfig {
 	autoCompact: boolean;
 	showImages: boolean;
@@ -77,6 +84,7 @@ export interface SettingsConfig {
 	terminalTheme: TerminalTheme;
 	availableThemes: string[];
 	hideThinkingBlock: boolean;
+	toolDisplayDensity: ToolDisplayDensity;
 	smoothStreaming: boolean;
 	smoothStreamingFps: number;
 	mermaidRenderingMode: MermaidRenderingMode;
@@ -117,6 +125,7 @@ export interface SettingsCallbacks {
 	onThemeChange: (theme: string) => void;
 	onThemePreview?: (theme: string) => void;
 	onHideThinkingBlockChange: (hidden: boolean) => void;
+	onToolDisplayDensityChange: (density: ToolDisplayDensity) => void;
 	onSmoothStreamingChange: (enabled: boolean) => void;
 	onSmoothStreamingFpsChange: (fps: number) => void;
 	onMermaidRenderingModeChange: (mode: MermaidRenderingMode) => void;
@@ -556,6 +565,13 @@ export class SettingsSelectorComponent extends Container {
 				values: HTTP_IDLE_TIMEOUT_CHOICES.map((choice) => choice.label),
 			},
 			{
+				id: "tool-display-density",
+				label: "Tool display density",
+				description: "Choose how tool calls appear in the transcript",
+				currentValue: TOOL_DISPLAY_DENSITY_LABELS[config.toolDisplayDensity],
+				values: Object.values(TOOL_DISPLAY_DENSITY_LABELS),
+			},
+			{
 				id: "hide-thinking",
 				label: "Hide thinking",
 				description: "Hide thinking blocks in assistant responses",
@@ -882,6 +898,13 @@ export class SettingsSelectorComponent extends Container {
 					case "hide-thinking":
 						callbacks.onHideThinkingBlockChange(newValue === "true");
 						break;
+					case "tool-display-density": {
+						const density = newValue.toLowerCase();
+						if (density === "default" || density === "compact" || density === "grouped") {
+							callbacks.onToolDisplayDensityChange(density);
+						}
+						break;
+					}
 					case "smooth-streaming":
 						callbacks.onSmoothStreamingChange(newValue === "true");
 						break;

@@ -156,6 +156,7 @@ function createClassicRuntime(): AgentSessionRuntime {
 				getEditorPaddingX: () => 0,
 				getHideThinkingBlock: () => false,
 				getOutputPad: () => 1,
+				getToolDisplayDensity: () => "default",
 				getPackages: () => [],
 				getShowHardwareCursor: () => false,
 				getTuiMode: () => "regular",

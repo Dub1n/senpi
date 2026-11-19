@@ -1,6 +1,7 @@
-import { Container, Spacer, type TUI } from "@earendil-works/pi-tui";
+import { Container, joinLineArrays, Spacer, type TUI } from "@earendil-works/pi-tui";
 import { isModelOnlyText } from "../../../core/tools/model-only-text.ts";
 import { GrokToolRow } from "../grok/tool-row.ts";
+import { theme } from "../theme/theme.ts";
 import { createBoundedRenderSignature } from "./render-signature.ts";
 import { ToolExecutionAnimation, toolCardSpins, toolCardStrikes } from "./tool-execution-animation.ts";
 import { serializedToolResultBytes, ToolExecutionRenderCache } from "./tool-execution-cache.ts";
@@ -118,6 +119,20 @@ export class ToolExecutionComponent extends Container {
 		return { identity: this.identity, state: this.createRenderState(), presentation: this.presentation };
 	}
 
+	/** Compact rows need lifecycle state and metadata without walking the original result content. */
+	get summarySnapshot() {
+		return {
+			name: this.identity.toolName,
+			label: this.identity.toolDefinition?.label,
+			args: this.args,
+			details: this.result?.details,
+			pending: this.isPartial,
+			started: this.executionStarted,
+			failed: this.result?.isError ?? false,
+			expanded: this.expanded,
+		};
+	}
+
 	markExecutionStarted(): void {
 		this.executionStarted = true;
 		this.updateSpinnerAnimation();
@@ -219,13 +234,26 @@ export class ToolExecutionComponent extends Container {
 		return this.renderCache.revision;
 	}
 
-	override render(width: number): string[] {
-		if (this.presentation === "grok") return super.render(width);
-
+	private restoreReleasedContent(): void {
 		if (this.displayReleased) {
 			this.displayReleased = false;
 			this.updateDisplay();
 		}
+	}
+
+	getBackgroundPainter(): (text: string) => string {
+		if (this.renderer?.renderShell === "self") {
+			this.restoreReleasedContent();
+			const paint = this.renderer.getSelfBackgroundPainter();
+			if (paint) return paint;
+		}
+		const color = this.isPartial ? "toolPendingBg" : this.result?.isError ? "toolErrorBg" : "toolSuccessBg";
+		return (text) => theme.bg(color, text);
+	}
+
+	override render(width: number): string[] {
+		if (this.presentation === "grok") return super.render(width);
+		this.restoreReleasedContent();
 		const signature = this.createRenderSignature();
 		const cached = this.renderCache.read(width, signature);
 		if (cached) return cached;
@@ -237,7 +265,7 @@ export class ToolExecutionComponent extends Container {
 			const contentLines = renderer.render(width);
 			const imageLines = images.render(width);
 			if (contentLines.length === 0 && imageLines.length === 0) return [];
-			lines = contentLines.length > 0 ? ["", ...contentLines, ...imageLines] : imageLines;
+			lines = contentLines.length > 0 ? joinLineArrays([[""], contentLines, imageLines]) : imageLines;
 		} else {
 			lines = super.render(width);
 		}

@@ -133,6 +133,11 @@ export class AssistantMessageComponent extends Container {
 		return this.renderDescriptors.every((part) => part.kind === "spacer" || part.kind === "thinking-label");
 	}
 
+	/** Tool-only turns contribute no assistant rows to the transcript. */
+	get hasTranscriptRows(): boolean {
+		return this.renderDescriptors.length > 0;
+	}
+
 	setOutputPad(padding: number): void {
 		this.outputPad = padding;
 		this.renderDescriptors = [];

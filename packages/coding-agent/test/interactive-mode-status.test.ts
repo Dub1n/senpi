@@ -469,7 +469,7 @@ describe("InteractiveMode.setToolsExpanded", () => {
 			customHeader: undefined,
 			builtInHeader: header,
 			loadedResourcesContainer: { children: [loadedResourcesChild] },
-			chatContainer: { children: [chatChild] },
+			chatContainer: { children: [chatChild], setToolsExpanded: vi.fn() },
 			ui: { requestRender: vi.fn() },
 			showStatus: vi.fn(),
 		};

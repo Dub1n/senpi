@@ -854,6 +854,25 @@ describe("SettingsManager", () => {
 		});
 	});
 
+	describe("tool display density", () => {
+		it("defaults to the standard display and remembers each selection across restarts", async () => {
+			const manager = SettingsManager.create(projectDir, agentDir);
+			expect(manager.getToolDisplayDensity()).toBe("default");
+
+			for (const density of ["compact", "grouped", "default"] as const) {
+				manager.setToolDisplayDensity(density);
+				expect(manager.getToolDisplayDensity()).toBe(density);
+				await manager.flush();
+				expect(SettingsManager.create(projectDir, agentDir).getToolDisplayDensity()).toBe(density);
+			}
+		});
+
+		it("falls back to the standard display for an unknown saved density", () => {
+			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ toolDisplayDensity: "dense" }));
+			expect(SettingsManager.create(projectDir, agentDir).getToolDisplayDensity()).toBe("default");
+		});
+	});
+
 	describe("TUI mode", () => {
 		it("defaults to regular and persists fullscreen mode", async () => {
 			const manager = SettingsManager.create(projectDir, agentDir);

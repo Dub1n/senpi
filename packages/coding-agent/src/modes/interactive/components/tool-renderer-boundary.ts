@@ -1,4 +1,4 @@
-import type { Component } from "@earendil-works/pi-tui";
+import { type Component, copyLineSources } from "@earendil-works/pi-tui";
 
 export function isComponent(value: unknown): value is Component {
 	return (
@@ -34,7 +34,7 @@ export class ToolRendererBoundary implements Component {
 						}
 						safeLines.push(line);
 					}
-					return safeLines;
+					return copyLineSources(lines, safeLines);
 				}
 			} catch {
 				this.fail();

@@ -446,6 +446,7 @@ export {
 	type RetrySettings,
 	SettingsManager,
 	type SettingsManagerCreateOptions,
+	type ToolDisplayDensity,
 	type TuiMode,
 } from "./core/settings-manager.ts";
 // Skills

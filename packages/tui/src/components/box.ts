@@ -78,6 +78,11 @@ export class Box implements Component {
 		// Don't invalidate here - we'll detect bgFn changes by sampling output
 	}
 
+	/** The painter used for this box's surrounding padding. */
+	getBackgroundPainter(): ((text: string) => string) | undefined {
+		return this.bgFn;
+	}
+
 	private invalidateCache(): void {
 		this.cache = undefined;
 		this.composite.bump();

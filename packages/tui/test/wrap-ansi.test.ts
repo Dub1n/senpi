@@ -4,6 +4,16 @@ import { applyBackgroundToLine, visibleWidth, wrapTextWithAnsi } from "../src/ut
 
 describe("wrapTextWithAnsi", () => {
 	describe("background layering", () => {
+		it("replaces embedded backgrounds without losing foreground styles", () => {
+			const outerBg = "\x1b[48;2;40;50;40m";
+			const embedded = "\x1b[0;1;38;2;0;120;0;48;5;124m";
+			const line = `left ${embedded}tool\x1b[49m tail`;
+			const rendered = applyBackgroundToLine(line, 18, (text) => `${outerBg}${text}\x1b[49m`, "replace");
+			assert.ok(rendered.includes(`${embedded}\x1b[27m${outerBg}tool`));
+			assert.ok(rendered.includes(`\x1b[49m\x1b[27m${outerBg} tail`));
+			assert.equal(visibleWidth(rendered), 18);
+		});
+
 		it("#given inner background reset inside outer background #when applying line background #then outer background resumes", () => {
 			// given
 			const outerBg = "\x1b[48;2;40;50;40m";

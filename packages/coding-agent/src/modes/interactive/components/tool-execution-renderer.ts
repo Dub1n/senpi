@@ -108,6 +108,15 @@ export class ToolExecutionRenderer extends Container {
 		return customShell ?? this.builtInDefinition?.renderShell ?? "default";
 	}
 
+	getSelfBackgroundPainter(): ((text: string) => string) | undefined {
+		for (const component of [this.resultRendererComponent, this.callRendererComponent]) {
+			if (!(component instanceof Box)) continue;
+			const paint = component.getBackgroundPainter();
+			if (paint) return paint;
+		}
+		return undefined;
+	}
+
 	update(state: ToolExecutionRenderState): void {
 		this.state = state;
 		const background = state.isPartial

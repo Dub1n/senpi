@@ -1000,7 +1000,7 @@ export class InteractiveMode {
 	private ui: TUI;
 	private mainScreenRenderState: TuiMainScreenRenderState | undefined;
 	private loadedResourcesContainer: Container;
-	private chatContainer: Container;
+	private chatContainer: ExplorationTranscriptContainer;
 	private documentContainer: Container;
 	private transcriptScrollView: TuiLayouts.ScrollView | undefined;
 	private fullscreenLayoutRoot: Component | undefined;
@@ -1290,6 +1290,7 @@ export class InteractiveMode {
 			requestRender: () => this.ui.requestRender(),
 			historyMarker: (hidden) => theme.fg("muted", ` ${defaultHistoryMarker(hidden)}`),
 		});
+		this.chatContainer.setToolDisplayDensity(this.settingsManager.getToolDisplayDensity());
 		this.documentContainer = new Container();
 		this.documentContainer.addChild(this.headerContainer);
 		this.documentContainer.addChild(this.loadedResourcesContainer);
@@ -2973,6 +2974,7 @@ export class InteractiveMode {
 		this.footerDataProvider.setCwd(this.sessionManager.getCwd());
 		this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();
 		this.outputPad = this.settingsManager.getOutputPad();
+		this.chatContainer.setToolDisplayDensity(this.settingsManager.getToolDisplayDensity());
 		this.applySmoothStreamingRenderFps();
 		this.ui.setShowHardwareCursor(this.settingsManager.getShowHardwareCursor());
 		const clearOnShrink = this.settingsManager.getClearOnShrink();
@@ -8015,6 +8017,7 @@ export class InteractiveMode {
 					terminalTheme: this.themeController.getTerminalTheme(),
 					availableThemes: getAvailableThemes(),
 					hideThinkingBlock: this.hideThinkingBlock,
+					toolDisplayDensity: this.settingsManager.getToolDisplayDensity(),
 					smoothStreaming: this.settingsManager.getSmoothStreaming(),
 					smoothStreamingFps: this.settingsManager.getSmoothStreamingFps(),
 					mermaidRenderingMode: this.settingsManager.getMermaidRenderingMode(),
@@ -8101,6 +8104,11 @@ export class InteractiveMode {
 						this.themeController.setThemeSetting(themeSetting);
 					},
 					onThemePreview: (themeName) => this.themeController.preview(themeName),
+					onToolDisplayDensityChange: (density) => {
+						this.settingsManager.setToolDisplayDensity(density);
+						this.chatContainer.setToolDisplayDensity(this.settingsManager.getToolDisplayDensity());
+						this.ui.requestRender();
+					},
 					onHideThinkingBlockChange: (hidden) => {
 						this.hideThinkingBlock = hidden;
 						this.settingsManager.setHideThinkingBlock(hidden);
@@ -9849,6 +9857,7 @@ export class InteractiveMode {
 			this.resetExtensionUI();
 			this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();
 			this.outputPad = this.settingsManager.getOutputPad();
+			this.chatContainer.setToolDisplayDensity(this.settingsManager.getToolDisplayDensity());
 			// Reload replaces the session runner: a genuine ownership boundary, so the
 			// external-owner delegation episode ends here (settings-only rebuilds below
 			// go through rebuildChatFromMessages and must NOT reset it — post-#1188 core

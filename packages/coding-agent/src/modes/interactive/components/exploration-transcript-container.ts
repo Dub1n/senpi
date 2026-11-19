@@ -6,6 +6,7 @@ import {
 	renderAtFrameRow,
 	type TuiMouseEvent,
 } from "@earendil-works/pi-tui";
+import type { ToolDisplayDensity } from "../../../core/settings-manager.ts";
 import { AssistantMessageComponent } from "./assistant-message.ts";
 import { CustomEntryComponent } from "./custom-entry.ts";
 import { type ExplorationCall, explorationCall } from "./exploration-call.ts";
@@ -15,6 +16,7 @@ import {
 	ProgressiveTranscriptContainer,
 	type ProgressiveTranscriptOptions,
 } from "./progressive-transcript-container.ts";
+import { ToolDensityRow } from "./tool-density-row.ts";
 import { ToolExecutionComponent } from "./tool-execution.ts";
 
 /**
@@ -24,6 +26,16 @@ import { ToolExecutionComponent } from "./tool-execution.ts";
  */
 export class ExplorationTranscriptContainer extends Container {
 	private readonly display: ProgressiveTranscriptContainer;
+	private readonly requestRender: () => void;
+	private density: ToolDisplayDensity = "default";
+	private readonly densityRows = new WeakMap<ToolExecutionComponent, ToolDensityRow>();
+	private densityProjection:
+		| {
+				readonly source: readonly Component[];
+				readonly projected: Component[];
+				readonly clock: number;
+		  }
+		| undefined;
 	private groups = new WeakMap<ToolExecutionComponent, ExplorationGroup>();
 	/** A card's exploration call is a function of its state, so it is recomputed only after the card changes. */
 	private calls = new WeakMap<
@@ -39,11 +51,53 @@ export class ExplorationTranscriptContainer extends Container {
 	constructor(options: ProgressiveTranscriptOptions) {
 		super();
 		this.display = new ProgressiveTranscriptContainer(options);
+		this.requestRender = options.requestRender;
+	}
+
+	/** Select the collapsed transcript presentation. */
+	setToolDisplayDensity(density: ToolDisplayDensity): void {
+		if (this.density === density) return;
+		this.density = density;
+		this.densityProjection = undefined;
+		this.display.invalidateCache();
 	}
 
 	override render(width: number): string[] {
-		this.display.children = this.project();
+		this.display.children = this.density === "default" ? this.project() : this.projectDensity();
 		return renderAtFrameRow(this.display, width, claimFrameRow(this));
+	}
+
+	private projectDensity(): Component[] {
+		const memo = this.densityProjection;
+		const clock = currentRenderRevision();
+		const grouped = this.density === "grouped";
+		if (memo && (!grouped || memo.clock === clock) && sameComponents(memo.source, this.children)) {
+			return memo.projected;
+		}
+
+		const projected: Component[] = [];
+		let previous: ToolDensityRow | undefined;
+		let previousFirst = true;
+		for (const child of this.children) {
+			if (grouped && child instanceof AssistantMessageComponent && !child.hasTranscriptRows) continue;
+			const row = child instanceof ToolExecutionComponent ? this.densityRowOf(child) : null;
+			const joins = grouped && previous !== undefined && row !== null;
+			previous?.setLayout(grouped, previousFirst, !joins);
+			previous = row ?? undefined;
+			previousFirst = !joins;
+			projected.push(row ?? child);
+		}
+		previous?.setLayout(grouped, previousFirst, true);
+		this.densityProjection = { source: [...this.children], projected, clock: currentRenderRevision() };
+		return projected;
+	}
+
+	private densityRowOf(card: ToolExecutionComponent): ToolDensityRow {
+		const cached = this.densityRows.get(card);
+		if (cached !== undefined) return cached;
+		const row = new ToolDensityRow(card, this.requestRender);
+		this.densityRows.set(card, row);
+		return row;
 	}
 
 	/**
@@ -115,6 +169,7 @@ export class ExplorationTranscriptContainer extends Container {
 	override invalidate(): void {
 		this.display.invalidateCache();
 		this.calls = new WeakMap();
+		this.densityProjection = undefined;
 		super.invalidate();
 	}
 
@@ -122,6 +177,7 @@ export class ExplorationTranscriptContainer extends Container {
 		this.display.detachAll();
 		this.groups = new WeakMap();
 		this.projection = undefined;
+		this.densityProjection = undefined;
 		super.clear();
 	}
 
@@ -129,12 +185,14 @@ export class ExplorationTranscriptContainer extends Container {
 		this.display.detachAll();
 		this.groups = new WeakMap();
 		this.projection = undefined;
+		this.densityProjection = undefined;
 		super.detachAll();
 	}
 
 	override dispose(): void {
 		this.display.detachAll();
 		this.display.dispose();
+		this.densityProjection = undefined;
 		super.dispose();
 	}
 }

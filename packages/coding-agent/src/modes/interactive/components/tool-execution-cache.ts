@@ -1,4 +1,4 @@
-import { nextRenderRevision } from "@earendil-works/pi-tui";
+import { copyLineSources, nextRenderRevision } from "@earendil-works/pi-tui";
 import {
 	registerTuiRenderCacheSource,
 	type TuiRenderCacheTotals,
@@ -47,14 +47,14 @@ export class ToolExecutionRenderCache {
 
 	read(width: number, signature: string): string[] | undefined {
 		if (!this.#lines || this.#width !== width || this.#signature !== signature) return undefined;
-		return [...this.#lines];
+		return copyLineSources(this.#lines, [...this.#lines]);
 	}
 
 	store(width: number, signature: string, lines: readonly string[]): void {
 		this.#dropLines();
 		this.#width = width;
 		this.#signature = signature;
-		this.#lines = [...lines];
+		this.#lines = copyLineSources(lines, [...lines]);
 		totals.cachedLines += lines.length;
 		totals.cachedLinesBytes += lineArrayBytes(lines);
 	}

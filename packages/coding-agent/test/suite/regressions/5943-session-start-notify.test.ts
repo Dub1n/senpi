@@ -2,6 +2,7 @@ import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { Container, Text } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentSessionEvent } from "../../../src/core/agent-session.ts";
+import type { ToolDisplayDensity } from "../../../src/core/settings-manager.ts";
 import { InteractiveMode } from "../../../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../../../src/modes/interactive/theme/theme.ts";
 import { createHarness, createTestUiContext } from "../harness.ts";
@@ -50,6 +51,7 @@ type RebindContext = {
 
 type ReloadCommandContext = {
 	hideThinkingBlock: boolean;
+	chatContainer: { setToolDisplayDensity: (density: ToolDisplayDensity) => void };
 	session: {
 		isStreaming: boolean;
 		isCompacting: boolean;
@@ -65,6 +67,7 @@ type ReloadCommandContext = {
 		getHttpIdleTimeoutMs: () => number;
 		getHideThinkingBlock: () => boolean;
 		getOutputPad: () => 0 | 1;
+		getToolDisplayDensity: () => ToolDisplayDensity;
 		getEditorPaddingX: () => number;
 		getAutocompleteMaxVisible: () => number;
 		getShowHardwareCursor: () => boolean;
@@ -122,6 +125,7 @@ function createReloadCommandContext(overrides: ReloadCommandContextOverrides = {
 	const editor = overrides.editor ?? {};
 	return {
 		hideThinkingBlock: overrides.hideThinkingBlock ?? false,
+		chatContainer: overrides.chatContainer ?? { setToolDisplayDensity: () => {} },
 		session: {
 			isStreaming: false,
 			isCompacting: false,
@@ -139,6 +143,7 @@ function createReloadCommandContext(overrides: ReloadCommandContextOverrides = {
 			getHttpIdleTimeoutMs: () => 0,
 			getHideThinkingBlock: () => false,
 			getOutputPad: () => 1,
+			getToolDisplayDensity: () => "default",
 			getEditorPaddingX: () => 1,
 			getAutocompleteMaxVisible: () => 10,
 			getShowHardwareCursor: () => false,
@@ -415,13 +420,14 @@ describe("regression #5943: session_start transient UI", () => {
 		}
 	});
 
-	it("refreshes hideThinkingBlock before rebuilding chat during reload", async () => {
+	it("refreshes transcript settings before rebuilding chat during reload", async () => {
 		initTheme("dark", false);
 		const events: string[] = [];
 		// oxlint-disable-next-line eslint/prefer-const -- a closure reads it; const would throw in the TDZ if that closure ran before the assignment, so the rewrite is reviewed separately
 		let context: ReloadCommandContext;
 		context = createReloadCommandContext({
-			settingsManager: { getHideThinkingBlock: () => true },
+			settingsManager: { getHideThinkingBlock: () => true, getToolDisplayDensity: () => "compact" },
+			chatContainer: { setToolDisplayDensity: (density) => events.push(`density:${density}`) },
 			session: {
 				reload: async (options) => {
 					events.push("reload");
@@ -438,7 +444,7 @@ describe("regression #5943: session_start transient UI", () => {
 		await interactiveModePrototype.handleReloadCommand.call(context);
 
 		expect(context.hideThinkingBlock).toBe(true);
-		expect(events).toEqual(["reload", "rebuild:true", "start:true"]);
+		expect(events).toEqual(["reload", "density:compact", "rebuild:true", "start:true"]);
 	});
 
 	it("keeps the reload blocker focused until async reload completes", async () => {
@@ -476,7 +482,7 @@ describe("regression #5943: session_start transient UI", () => {
 		});
 
 		const reloadPromise = interactiveModePrototype.handleReloadCommand.call(context);
-		await reloadWaiting;
+		await Promise.race([reloadWaiting, reloadPromise]);
 
 		expect(chatRestored).toBe(true);
 		expect(focused).not.toBe(editor);

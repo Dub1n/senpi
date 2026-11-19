@@ -1246,9 +1246,15 @@ function sgrLeavesDefaultBackground(params: string): boolean {
  * @param line - Line of text (may contain ANSI codes)
  * @param width - Total width to pad to
  * @param bgFn - Background color function
+ * @param mode - Fill the default background or replace all embedded backgrounds
  * @returns Line with background applied and padded to width
  */
-export function applyBackgroundToLine(line: string, width: number, bgFn: (text: string) => string): string {
+export function applyBackgroundToLine(
+	line: string,
+	width: number,
+	bgFn: (text: string) => string,
+	mode: "fill" | "replace" = "fill",
+): string {
 	// Calculate padding needed
 	const visibleLen = visibleWidth(line);
 	const paddingNeeded = Math.max(0, width - visibleLen);
@@ -1265,7 +1271,8 @@ export function applyBackgroundToLine(line: string, width: number, bgFn: (text: 
 
 	const bgStart = wrappedMarker.slice(0, markerIndex);
 	const bgEnd = wrappedMarker.slice(markerIndex + marker.length);
-	const restoredLine = line.replace(/\x1b\[([0-9;]*)m/g, (sequence: string, params: string) => {
+	const restoredLine = line.replace(/\x1b\[([0-9;:]*)m/g, (sequence: string, params: string) => {
+		if (mode === "replace") return `${sequence}\x1b[27m${bgStart}`;
 		if (sgrLeavesDefaultBackground(params)) {
 			return `${sequence}${bgStart}`;
 		}

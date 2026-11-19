@@ -190,6 +190,7 @@ function createSettingsManagerStub() {
 		getTransport: () => "auto",
 		getHttpIdleTimeoutMs: () => 300_000,
 		getThemeSetting: () => "dark",
+		getToolDisplayDensity: () => "default",
 		getCollapseChangelog: () => false,
 		getEnableInstallTelemetry: () => false,
 		getDoubleEscapeAction: () => "tree",
