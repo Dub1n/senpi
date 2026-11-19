@@ -47,6 +47,7 @@ export class AssistantMessageComponent extends Container {
 	private renderCache?: { readonly lines: string[]; readonly signature: string; readonly width: number };
 	private contentContainer: Container;
 	private hideThinkingBlock: boolean;
+	private suppressCompletedThinkingLabel = false;
 	private markdownTheme: MarkdownTheme;
 	private hiddenThinkingLabel: string;
 	private outputPad: number;
@@ -99,6 +100,12 @@ export class AssistantMessageComponent extends Container {
 		if (this.hideThinkingBlock === hide) return;
 		this.hideThinkingBlock = hide;
 		this.thinkingVisibilityOverrides.clear();
+		this.refreshContent();
+	}
+
+	setSuppressCompletedThinkingLabel(suppress: boolean): void {
+		if (this.suppressCompletedThinkingLabel === suppress) return;
+		this.suppressCompletedThinkingLabel = suppress;
 		this.refreshContent();
 	}
 
@@ -185,6 +192,7 @@ export class AssistantMessageComponent extends Container {
 			providerErrorOwned: this.providerErrorOwned,
 			hiddenThinkingLabel: this.hiddenThinkingLabel,
 			hideThinkingBlock: this.hideThinkingBlock,
+			suppressCompletedThinkingLabel: this.suppressCompletedThinkingLabel,
 			thinkingVisibilityOverrides: this.thinkingVisibilityOverrides,
 			handoffOpenOverrides: this.handoffOpenOverrides,
 			hasToolCalls: this.hasToolCalls,

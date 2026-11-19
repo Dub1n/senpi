@@ -79,7 +79,10 @@ export class ExplorationTranscriptContainer extends Container {
 		let previous: ToolDensityRow | undefined;
 		let previousFirst = true;
 		for (const child of this.children) {
-			if (grouped && child instanceof AssistantMessageComponent && !child.hasTranscriptRows) continue;
+			if (child instanceof AssistantMessageComponent) {
+				child.setSuppressCompletedThinkingLabel(true);
+				if (grouped && !child.hasTranscriptRows) continue;
+			}
 			const row = child instanceof ToolExecutionComponent ? this.densityRowOf(child) : null;
 			const joins = grouped && previous !== undefined && row !== null;
 			previous?.setLayout(grouped, previousFirst, !joins);
@@ -120,6 +123,7 @@ export class ExplorationTranscriptContainer extends Container {
 			group = undefined;
 		};
 		for (const child of this.children) {
+			if (child instanceof AssistantMessageComponent) child.setSuppressCompletedThinkingLabel(false);
 			const call = child instanceof ToolExecutionComponent ? this.explorationCallOf(child) : undefined;
 			if (child instanceof ToolExecutionComponent && call) {
 				if (!group) {

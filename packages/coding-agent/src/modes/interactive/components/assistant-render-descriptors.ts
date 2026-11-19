@@ -36,6 +36,7 @@ type AssistantRenderDescriptorOptions = {
 	readonly providerErrorOwned?: boolean;
 	readonly hiddenThinkingLabel: string;
 	readonly hideThinkingBlock: boolean;
+	readonly suppressCompletedThinkingLabel?: boolean;
 	/** Per-run click overrides of `hideThinkingBlock`, keyed by thinking run index. */
 	readonly thinkingVisibilityOverrides?: ReadonlyMap<number, boolean>;
 	/** Per-block click overrides of `expanded` for handoff folds, keyed by handoff block index. */
@@ -101,6 +102,7 @@ export function createAssistantRenderDescriptors(
 	options: AssistantRenderDescriptorOptions,
 ): readonly AssistantRenderDescriptor[] {
 	const descriptors: AssistantRenderDescriptor[] = [];
+	const suppressDone = options.hideThinkingBlock && options.suppressCompletedThinkingLabel;
 	if (message.content.some((content) => isVisibleContent(content, true))) descriptors.push(SPACER_DESCRIPTOR);
 	let thinkingRunIndex = 0;
 	let handoffBlockIndex = 0;
@@ -155,17 +157,19 @@ export function createAssistantRenderDescriptors(
 						: thinkingBlocks.join("\n\n");
 					descriptors.push({ kind: hidden ? "thinking-label" : "thinking-md", text, thinkingRun });
 				} else {
-					const label = isDone
-						? theme.italic(theme.fg("thinkingText", `Thought: ${formatDuration(Math.max(0, maxEnd - minStart))}`))
-						: theme.italic(theme.fg("thinkingText", options.hiddenThinkingLabel));
-					if (hidden) {
-						descriptors.push({ kind: "thinking-label", text: label, thinkingRun });
-					} else {
-						descriptors.push(
-							{ kind: "thinking-label", text: label, thinkingRun },
-							{ kind: "thinking-md", text: thinkingBlocks.join("\n\n"), thinkingRun },
-						);
+					if (!isDone || !suppressDone) {
+						const label = isDone
+							? `Thought: ${formatDuration(Math.max(0, maxEnd - minStart))}`
+							: options.hiddenThinkingLabel;
+						descriptors.push({
+							kind: "thinking-label",
+							text: theme.italic(theme.fg("thinkingText", label)),
+							thinkingRun,
+						});
+					} else if (hidden) {
+						break;
 					}
+					if (!hidden) descriptors.push({ kind: "thinking-md", text: thinkingBlocks.join("\n\n"), thinkingRun });
 				}
 				if (message.content.slice(i + 1).some((following) => isVisibleContent(following, false)))
 					descriptors.push(SPACER_DESCRIPTOR);
@@ -190,6 +194,10 @@ export function createAssistantRenderDescriptors(
 			default:
 				assertNever(content);
 		}
+	}
+	// A hidden thinking-only segment shouldn't leave a spacer in the transcript.
+	if (suppressDone) {
+		while (descriptors.at(-1)?.kind === "spacer") descriptors.pop();
 	}
 	const addError = (text: string): void => {
 		descriptors.push(SPACER_DESCRIPTOR, { kind: "error-text", text: theme.fg("error", text) });

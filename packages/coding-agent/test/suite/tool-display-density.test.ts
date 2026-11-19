@@ -58,6 +58,46 @@ function rowIndices(lines: readonly string[]): number[] {
 }
 
 describe("tool display density", () => {
+	it.each(["compact", "grouped"] as const)("keeps only the live hidden thinking indicator in %s", async (density) => {
+		const surface = await explorationSurface();
+		try {
+			if (!(surface.chat instanceof ExplorationTranscriptContainer)) {
+				throw new TypeError("Expected the interactive transcript");
+			}
+			const live: AssistantMessage = {
+				...fauxAssistantMessage(""),
+				stopReason: "pending",
+				content: [{ type: "thinking", thinking: "Fixture reasoning", startedAt: 1_000 }],
+			};
+			const done: AssistantMessage = {
+				...live,
+				stopReason: "stop",
+				content: [{ type: "thinking", thinking: "Fixture reasoning", startedAt: 1_000, endedAt: 3_000 }],
+			};
+			const assistant = new AssistantMessageComponent(undefined, true);
+			surface.chat.setToolDisplayDensity(density);
+			surface.chat.addChild(assistant);
+			assistant.updateContent(live, true);
+			expect(surface.text(80)).toContain("Thinking...");
+			expect(surface.text(80)).not.toContain("Fixture reasoning");
+
+			assistant.updateContent(done, false);
+			expect(surface.chat.render(80)).toEqual([]);
+
+			surface.chat.setToolDisplayDensity("default");
+			expect(surface.text(80)).toContain("Thought: 2.0s");
+
+			surface.chat.setToolDisplayDensity(density);
+			assistant.setHideThinkingBlock(false);
+			expect(surface.text(80)).toContain("Thought: 2.0s");
+			expect(surface.text(80)).toContain("Fixture reasoning");
+			assistant.setHideThinkingBlock(true);
+			expect(surface.chat.render(80)).toEqual([]);
+		} finally {
+			surface.cleanup();
+		}
+	});
+
 	it.each(["compact", "grouped"] as const)("shows one row per call with %s spacing", async (density) => {
 		const surface = await fixture();
 		try {
