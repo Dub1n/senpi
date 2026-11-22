@@ -1,9 +1,13 @@
-import { nextRenderRevision, setLineSources, stripTerminalSequences } from "@earendil-works/pi-tui";
+import { nextRenderRevision, setLineSources, stripTerminalSequences, Text, TUI } from "@earendil-works/pi-tui";
 import xterm from "@xterm/headless";
 import { beforeAll, describe, expect, it } from "vitest";
+import { renderEvalCall, renderEvalResult } from "../../../senpi-codemode/src/tool/render.ts";
 import { resolveSourceSelection } from "../../../tui/src/selection-source.ts";
 import { linearRanges } from "../../../tui/src/source-ranges.ts";
+import { VirtualTerminal } from "../../../tui/test/virtual-terminal.ts";
 import { ExplorationTranscriptContainer } from "../../src/modes/interactive/components/exploration-transcript-container.ts";
+import { ToolDensityRow } from "../../src/modes/interactive/components/tool-density-row.ts";
+import { ToolExecutionComponent } from "../../src/modes/interactive/components/tool-execution.ts";
 import { initTheme, theme } from "../../src/modes/interactive/theme/theme.ts";
 
 const width = 40;
@@ -36,6 +40,71 @@ describe("semantic density card styling", () => {
 	beforeAll(() => initTheme("dark"));
 
 	describe.each(["compact", "grouped"] as const)("%s", (density) => {
+		it.each(["eval list", "opaque extension"] as const)("styles folded metadata and %s frame", async (renderer) => {
+			const opaque = renderer === "opaque extension";
+			const card = new ToolExecutionComponent(
+				"eval",
+				"legacy-tool",
+				{ action: "list" },
+				{},
+				opaque
+					? {
+							renderCall: (_args, palette) =>
+								new Text(palette.style("Custom heading", { fg: "warning", italic: true }), 0, 0),
+							renderResult: () => new Text("Retained extension body", 0, 0),
+						}
+					: { renderShell: "self", renderCall: renderEvalCall, renderResult: renderEvalResult },
+				new TUI(new VirtualTerminal()),
+				process.cwd(),
+			);
+			try {
+				card.updateResult({
+					content: [{ type: "text", text: "Original result" }],
+					details: { action: "list", cells: [{ state: "completed" }] },
+					isError: false,
+				});
+				const row = new ToolDensityRow(
+					card,
+					() => {},
+					() => ({ colorFrames: true, colorNames: true }),
+				);
+				row.setLayout(density === "grouped", true, true);
+				const folded = row.render(width);
+				card.setExpanded(true);
+				const open = row.render(width);
+				expect(folded.map(stripTerminalSequences)).toEqual(
+					["", "", " ╶─ ✓ eval list · 1 completed cell", ""].map((line, i) =>
+						i === 0 ? line : line.padEnd(width),
+					),
+				);
+				const expectedOpen = opaque
+					? [" ╭─ Custom heading", " │  Retained extension body"]
+					: [" ╭─ eval list", " │  Original result"];
+				expect(open.map(stripTerminalSequences)).toEqual(
+					["", "", ...expectedOpen, " ╰─", ""].map((line, i) => (i === 0 ? line : line.padEnd(width))),
+				);
+				using closedTerminal = await terminalRows(folded);
+				using openTerminal = await terminalRows(open);
+				using swatches = await terminalRows([
+					theme.bg("toolSuccessBg", theme.style("N", { fg: "syntaxType", bold: true })),
+					theme.bg("toolSuccessBg", theme.fg("text", "D")),
+					theme.bg("toolSuccessBg", theme.fg("syntaxType", "F")),
+					theme.bg("toolSuccessBg", theme.style("T", { fg: "warning", italic: true })),
+				]);
+				expect([
+					cellOf(closedTerminal, 2, 6),
+					cellOf(closedTerminal, 2, 18),
+					cellOf(closedTerminal, 2, 1),
+					cellOf(openTerminal, 2, 1),
+					cellOf(openTerminal, 3, 1),
+					cellOf(openTerminal, 4, 1),
+					cellOf(openTerminal, 2, 4),
+				]).toEqual([0, 1, 2, 2, 2, 2, opaque ? 3 : 0].map((i) => cellOf(swatches, i, 0)));
+			} finally {
+				card.dispose();
+			}
+		});
+
 		it.each(colorCases)("paints frames=$colorFrames and names=$colorNames independently", async (colors) => {
 			const chat = new ExplorationTranscriptContainer({
 				tailBudget: 10,

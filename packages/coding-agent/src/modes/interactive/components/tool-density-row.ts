@@ -25,7 +25,7 @@ import {
 import type { ToolDisplayColors } from "../../../core/settings-manager.ts";
 import { theme } from "../theme/theme.ts";
 import { densityCardStyle } from "./density-card-style.ts";
-import { toolDensitySummary } from "./tool-density-summary.ts";
+import { toolDensityKind, toolDensitySummary } from "./tool-density-summary.ts";
 import type { ToolExecutionComponent } from "./tool-execution.ts";
 
 const paintGroup = (text: string) => theme.bg("toolSuccessBg", text);
@@ -114,14 +114,16 @@ export class ToolDensityRow implements Component {
 		const foldWidth = innerWidth >= 5 ? 3 : 0;
 		const available = Math.max(0, innerWidth - foldWidth);
 		const densityCard = this.densityCard(available);
-		const style = densityCardStyle(this.getColors(), densityCard?.kind);
+		const style = this.cardStyle(densityCard?.kind);
 		const fold = foldWidth ? `${style.frame("╶─")} ` : "";
 		const summary =
 			densityCard !== undefined
 				? [renderDensityCardSummary(densityCard, style), ...(densityCard.foldedDetails ?? [])]
 				: "densityExpanded" in this.card
 					? this.card.renderDensitySummary(available, this.grouped)
-					: (this.card.renderNoticeDensitySummary(available) ?? [this.renderToolSummary(available, this.card)]);
+					: (this.card.renderNoticeDensitySummary(available) ?? [
+							renderToolSummary(available, this.card.summarySnapshot, style),
+						]);
 		const paint = this.background;
 		const blank = applyBackgroundToLine("", width, paint);
 		const rows = summary.map((line, index) => {
@@ -153,30 +155,11 @@ export class ToolDensityRow implements Component {
 		return this.grouped ? paintGroup : (this.card.getBackgroundPainter() ?? noBackground);
 	}
 
-	private renderToolSummary(width: number, card: ToolExecutionComponent): string {
-		const state = card.summarySnapshot;
-		const summary = toolDensitySummary(state);
-		const icon = densityStatusGlyph(summary.status);
-		const label = densityStatusLabel(summary.status);
-		const marker = `${icon} `;
-		const attention = summary.attention;
-		const description =
-			state.name === "eval" && summary.tool !== "eval list" && summary.summary !== undefined
-				? summary.summary
-				: summary.summary
-					? `${summary.tool} · ${summary.summary}`
-					: summary.tool;
-		const title = theme.fg("toolTitle", description);
-		const color =
-			summary.status === "pending" || summary.status === "queued"
-				? "muted"
-				: summary.status === "cancelled" || summary.status === "failed"
-					? "error"
-					: "warning";
-		const line = attention
-			? `${theme.fg("error", attention)} · ${title}`
-			: `${title}${label ? ` · ${theme.fg(color, label)}` : ""}`;
-		return truncateToWidth(marker, width, "") + truncateToWidth(line, width - visibleWidth(marker), "…");
+	private cardStyle(kind?: DensityCardView["kind"]) {
+		return densityCardStyle(
+			this.getColors(),
+			kind ?? ("summarySnapshot" in this.card ? toolDensityKind(this.card.summarySnapshot.name) : undefined),
+		);
 	}
 
 	private renderExpanded(width: number, frameRow: number | undefined): string[] {
@@ -198,21 +181,24 @@ export class ToolDensityRow implements Component {
 		const inset = renderInset === 0 ? 0 : 2 + Math.max(0, 1 - sourceInset);
 		this.detailLayout = { original, start, height: end - start, inset, renderInset };
 		const sources = getLineSources(original);
+		const style = this.cardStyle();
 		const paint = this.background;
 		const blank = applyBackgroundToLine("", width, paint);
 		const rows = original.slice(start, end);
 		if (sources) setLineSources(rows, sources.slice(start, end));
 		const body = rows.map((line, index) => {
+			// Only the host's gutter is ours to paint. The renderer owns its heading,
+			// body, pre-framed output, and terminal image protocols.
 			if (isImageLine(line)) return line;
 			const border =
 				renderInset === 0
 					? ""
 					: index === 0
-						? ` ${theme.fg("borderMuted", "╭─")}`
-						: ` ${theme.fg("borderMuted", "│")}${" ".repeat(Math.max(0, 1 - sourceInset))}`;
+						? ` ${style.frame("╭─")}`
+						: ` ${style.frame("│")}${" ".repeat(Math.max(0, 1 - sourceInset))}`;
 			return applyBackgroundToLine(border + narrowLightning(line), width, paint, this.grouped ? "replace" : "fill");
 		});
-		if (renderInset) body.push(applyBackgroundToLine(` ${theme.fg("borderMuted", "╰─")}`, width, paint));
+		if (renderInset) body.push(applyBackgroundToLine(` ${style.frame("╰─")}`, width, paint));
 		const lines = [...(this.first ? ["", blank] : []), ...body, ...(this.last ? [blank] : [])];
 		if (this.first) setLineSources(lines, [null, null]);
 		if (this.last || renderInset) {
@@ -226,7 +212,7 @@ export class ToolDensityRow implements Component {
 
 	private renderDensityCard(width: number, view: DensityCardView): string[] {
 		const paint = this.background;
-		const style = densityCardStyle(this.getColors(), view.kind);
+		const style = this.cardStyle(view.kind);
 		const bodyPrefix = ` ${style.frame("│")} `;
 		const renderLabel = (prefix: string, content: string): string[] => {
 			const available = Math.max(1, width - visibleWidth(prefix));
@@ -325,6 +311,30 @@ export class ToolDensityRow implements Component {
 		this.detailLayout = undefined;
 		this.card.invalidate();
 	}
+}
+
+function renderToolSummary(
+	width: number,
+	state: ToolExecutionComponent["summarySnapshot"],
+	style: ReturnType<typeof densityCardStyle>,
+): string {
+	const summary = toolDensitySummary(state);
+	const title = style.title({
+		name: summary.name,
+		detail: summary.name === undefined ? theme.fg("text", summary.detail) : summary.detail,
+	});
+	const marker = `${densityStatusGlyph(summary.status)} `;
+	const label = densityStatusLabel(summary.status);
+	const color =
+		summary.status === "pending" || summary.status === "queued"
+			? "muted"
+			: summary.status === "cancelled" || summary.status === "failed"
+				? "error"
+				: "warning";
+	const line = summary.attention
+		? `${theme.fg("error", summary.attention)} · ${title}`
+		: `${title}${label ? ` · ${theme.fg(color, label)}` : ""}`;
+	return truncateToWidth(marker, width, "") + truncateToWidth(line, width - visibleWidth(marker), "…");
 }
 
 function renderDensityCardSummary(

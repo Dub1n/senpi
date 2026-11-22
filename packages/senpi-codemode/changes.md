@@ -1,3 +1,21 @@
+## 2026-11-22 - Style the expanded dense eval list title
+
+### What changed
+
+- `packages/senpi-codemode/src/tool/render-result.ts` supplies the known list result title and retained body to the shared frame when expanded.
+
+### Why
+
+- The condensed transcript owns list counts when folded; only the original eval renderer owns the expanded result heading.
+
+### Why an extension could not handle it
+
+- Codemode is the extension that owns this rendering. The host should not infer the title from painted rows.
+
+### Expected merge conflict zones
+
+- LOW: The eval list result branch. Default output retains its original blocks.
+
 ## 2026-11-20 - Semantic eval card for dense tool display
 
 ### What changed

@@ -1,4 +1,4 @@
-import { sanitizeTerminalLabel } from "@earendil-works/pi-tui";
+import { type DensityCardKind, sanitizeTerminalLabel } from "@earendil-works/pi-tui";
 
 export type ToolDensityStatus = "pending" | "running" | "queued" | "detached" | "done" | "failed" | "cancelled";
 
@@ -12,10 +12,53 @@ type ToolSummaryInput = {
 	readonly failed: boolean;
 };
 
+/** Recognize palette roles from the tool identity, not from the rendered heading. */
+export function toolDensityKind(name: string): DensityCardKind | undefined {
+	switch (name) {
+		case "eval":
+			return "eval";
+		case "bash":
+		case "powershell":
+		case "bash_output":
+		case "bash_input":
+		case "bash_resize":
+		case "kill_bash":
+			return "shell";
+		case "read":
+			return "read";
+		case "grep":
+		case "find":
+		case "glob":
+		case "ls":
+		case "webfetch":
+			return "search";
+		case "todo":
+			return "todo";
+		case "create_goal":
+		case "update_goal":
+			return "goal";
+		case "memory":
+			return "memory";
+		case "task_send":
+			return "message";
+		case "task":
+		case "task_output":
+		case "task_cancel":
+			return "task";
+		case "edit":
+		case "write":
+		case "apply_patch":
+		case "tool_search":
+			return "tool";
+		default:
+			return undefined;
+	}
+}
+
 /** Describe a tool without painting its output or exposing raw result content. */
 export function toolDensitySummary(input: ToolSummaryInput): {
-	readonly tool: string;
-	readonly summary?: string;
+	readonly name?: string;
+	readonly detail: string;
 	readonly attention?: string;
 	readonly status: ToolDensityStatus;
 } {
@@ -24,13 +67,13 @@ export function toolDensitySummary(input: ToolSummaryInput): {
 	if (name !== "eval") {
 		const tool = text(name) ?? "Tool";
 		const label = text(input.label);
-		return { tool, summary: label !== tool ? label : undefined, status };
+		return { name: tool, detail: label && label !== tool ? ` · ${label}` : "", status };
 	}
 
 	const action = field(args, "action");
 	if (action === "list" || field(details, "action") === "list") {
 		const cells = field(details, "cells");
-		if (!Array.isArray(cells)) return { tool: "eval list", status };
+		if (!Array.isArray(cells)) return { name: "eval list", detail: "", status };
 		const counts = new Map<ToolDensityStatus, number>();
 		for (const cell of cells) {
 			const state = cellStatus(field(cell, "state"));
@@ -47,8 +90,8 @@ export function toolDensitySummary(input: ToolSummaryInput): {
 				.filter(Boolean)
 				.join(", ");
 			return {
-				tool: "eval list",
-				summary: `${cells.length} ${unit}`,
+				name: "eval list",
+				detail: ` · ${cells.length} ${unit}`,
 				attention,
 				status: failed || failedCells ? "failed" : "cancelled",
 			};
@@ -56,7 +99,7 @@ export function toolDensitySummary(input: ToolSummaryInput): {
 		const [onlyState] = counts;
 		if (counts.size === 1 && onlyState && onlyState[1] === cells.length) {
 			const state = onlyState[0] === "done" ? "completed" : onlyState[0];
-			return { tool: "eval list", summary: `${cells.length} ${state} ${unit}`, status };
+			return { name: "eval list", detail: ` · ${cells.length} ${state} ${unit}`, status };
 		}
 		const states = (["pending", "queued", "running", "detached", "done"] as const)
 			.flatMap((state) => {
@@ -64,7 +107,7 @@ export function toolDensitySummary(input: ToolSummaryInput): {
 				return count ? [`${count} ${state === "done" ? "completed" : state}`] : [];
 			})
 			.join(", ");
-		return { tool: "eval list", summary: `${cells.length} ${unit}${states ? ` (${states})` : ""}`, status };
+		return { name: "eval list", detail: ` · ${cells.length} ${unit}${states ? ` (${states})` : ""}`, status };
 	}
 
 	const cells = field(details, "cells");
@@ -73,11 +116,8 @@ export function toolDensitySummary(input: ToolSummaryInput): {
 	const language = text(field(details, "language")) ?? text(field(args, "language"));
 	const control = action === "peek" || action === "stop" ? action : undefined;
 	const title = control ? `eval ${control}` : language ? `eval ${language}` : "eval";
-	return {
-		tool: title,
-		summary,
-		status: failed ? status : (cellStatus(field(firstCell, "status")) ?? status),
-	};
+	const outcome = failed ? status : (cellStatus(field(firstCell, "status")) ?? status);
+	return summary === undefined ? { name: title, detail: "", status: outcome } : { detail: summary, status: outcome };
 }
 
 // Tool arguments and result details come from the model and extensions respectively.

@@ -1,3 +1,22 @@
+## 2026-11-22 - Style typed fallback titles in dense tool rows
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/tool-density-row.ts` paints folded metadata and host-owned fallback gutters with the shared dense style, without repainting the original expanded renderer.
+- `packages/coding-agent/src/modes/interactive/components/tool-density-summary.ts` separates names from descriptions and maps recognized tool identities to frame palettes.
+
+### Why
+
+- Generic summaries were painted as one title span, and fallback frames did not use known tool colors.
+
+### Why an extension could not handle it
+
+- The transcript projection owns the fallback summary, frame, and coordinate mapping.
+
+### Expected merge conflict zones
+
+- LOW: Dense tool-summary projection; Default still uses the original component.
+
 ## 2026-11-22 - Style and route dense transcript card variants
 
 ### What changed
