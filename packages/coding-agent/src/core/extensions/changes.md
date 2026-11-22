@@ -1,3 +1,21 @@
+## 2026-11-22 - Notices can supply a structured dense card
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/notice/spec.ts` and `packages/coding-agent/src/core/extensions/notice/box.ts`: carry optional structured density facts alongside the Default notice, projecting the notice body without box padding.
+
+### Why
+
+- A producer that knows the event kind can supply its facts directly instead of making the transcript recover them from styled text.
+
+### Why an extension could not handle it
+
+- The shared notice builder is the boundary between an extension's typed facts and the component consumed by the interactive transcript.
+
+### Expected merge conflict zones
+
+- The optional `NoticeSpec` field and the component returned by `buildNoticeBox`.
+
 ## 2026-11-17 - ExtensionToolContext.issuedByModel on hands (senpi#6920)
 
 ### What changed

@@ -66,7 +66,7 @@ describe("goal density card", () => {
 		expect(row.render(width).map(stripTerminalSequences)).toEqual([
 			"",
 			padded(""),
-			padded(" ╶─ ✓ goal complete • 731.5K tokens • 7m"),
+			padded(" ╶─ ✓ goal • complete · 731.5K tokens · 7m"),
 			padded(""),
 		]);
 
@@ -74,7 +74,7 @@ describe("goal density card", () => {
 		expect(row.render(width).map(stripTerminalSequences)).toEqual([
 			"",
 			padded(""),
-			padded(" ╭─ ✓ goal complete • 731.5K tokens • 7m"),
+			padded(" ╭─ ✓ goal • complete · 731.5K tokens · 7m"),
 			padded(" │ Verify the migration and report the result"),
 			padded(" │ created 2026-08-31T22:15:24.000Z"),
 			padded(" │ updated 2026-08-31T22:22:24.000Z"),
@@ -100,9 +100,10 @@ describe("goal density card", () => {
 		);
 		const { card } = densityRow(component);
 		const view = card.renderDensityCard?.(width, { grouped: true, expanded: false });
-		expect(view?.name).toBe("goal");
 		expect(view?.kind).toBe("goal");
-		expect(view?.title ?? "").toContain("blocked • 731.5K tokens • 7m");
+		expect(view?.format).toBe("structured");
+		if (view?.format !== "structured") throw new TypeError("Expected a structured goal card");
+		expect(view.heading.details).toEqual(["blocked", "731.5K tokens", "7m"]);
 		expect(view?.status).toBe("done");
 
 		const failure = renderGoalToolResult(
@@ -140,7 +141,7 @@ describe("goal density card", () => {
 			expect(surface.chat.render(width).map(stripTerminalSequences)).toEqual([
 				"",
 				padded(""),
-				padded(" ╭─ ✓ goal complete • 731.5K tokens • 7m"),
+				padded(" ╭─ ✓ goal • complete · 731.5K tokens · 7m"),
 				padded(" │ Verify the migration and report the result"),
 				padded(" │ created 2026-08-31T22:15:24.000Z"),
 				padded(" │ updated 2026-08-31T22:22:24.000Z"),

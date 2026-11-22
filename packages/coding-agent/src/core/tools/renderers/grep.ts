@@ -6,7 +6,12 @@
  * definition, so the tool's public shape is unchanged.
  */
 
-import { Text } from "@earendil-works/pi-tui";
+import {
+	type DensityCardRenderOptions,
+	type DensityCardStructuredView,
+	Text,
+	wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
 import { keyHint } from "../../../modes/interactive/components/keybinding-hints.ts";
 import type { Theme } from "../../../modes/interactive/theme/theme.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../../extensions/types.ts";
@@ -24,6 +29,17 @@ type GrepCallArgs = {
 	mode?: unknown;
 	skip?: unknown;
 };
+
+function parseGrepCallArgs(input: unknown): GrepCallArgs | undefined {
+	if (typeof input !== "object" || input === null) return undefined;
+	return {
+		...("pattern" in input ? { pattern: input.pattern } : {}),
+		...("path" in input ? { path: input.path } : {}),
+		...("glob" in input ? { glob: input.glob } : {}),
+		...("mode" in input ? { mode: input.mode } : {}),
+		...("skip" in input ? { skip: input.skip } : {}),
+	};
+}
 
 function isV1Details(value: unknown): value is GrepToolDetails {
 	if (!value || typeof value !== "object") return false;
@@ -44,6 +60,11 @@ function formatCallGlobs(glob: unknown): string | undefined {
 	const values = Array.isArray(glob) ? glob : [glob];
 	const joined = values.filter((entry): entry is string => typeof entry === "string").join(",");
 	return joined || undefined;
+}
+
+function densityPathDetails(path: unknown): string[] {
+	if (Array.isArray(path)) return path.filter((entry): entry is string => typeof entry === "string");
+	return [str(path) ?? "."];
 }
 
 function formatGrepCall(args: GrepCallArgs | undefined, theme: Theme, cwd: string): string {
@@ -170,14 +191,82 @@ function formatGrepResult(
 }
 
 export const grepRenderers: Pick<ToolDefinition<any, any>, "renderCall" | "renderResult"> = {
-	renderCall(args, theme, context) {
+	renderCall(rawArgs: unknown, theme, context) {
+		const args = parseGrepCallArgs(rawArgs);
 		const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-		text.setText(formatGrepCall(args as GrepCallArgs, theme, context.cwd));
-		return text;
+		text.setText(formatGrepCall(args, theme, context.cwd));
+		return Object.assign(text, {
+			renderDensityCard(): DensityCardStructuredView {
+				const pattern = str(args?.pattern);
+				const glob = formatCallGlobs(args?.glob);
+				return {
+					format: "structured",
+					kind: "grep",
+					heading: {
+						details: [
+							pattern === null ? "" : `/${pattern}/`,
+							...densityPathDetails(args?.path),
+							...(glob ? [`glob ${glob}`] : []),
+							...(typeof args?.mode === "string" && args.mode ? [args.mode] : []),
+							...(typeof args?.skip === "number" ? [`skip ${args.skip}`] : []),
+						],
+					},
+					status: context.executionStarted ? "running" : "pending",
+					body: [],
+					sections: [],
+				};
+			},
+		});
 	},
 	renderResult(result, options, theme, context) {
 		const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
 		text.setText(formatGrepResult(result as any, options, theme, context.showImages, context.cwd));
-		return text;
+		return Object.assign(text, {
+			renderDensityCard(_width: number, cardOptions: DensityCardRenderOptions): DensityCardStructuredView {
+				const args = parseGrepCallArgs(context.args);
+				const pattern = str(args?.pattern);
+				const resultDetails = isV1Details(result.details) ? result.details : undefined;
+				const headingDetails = [
+					pattern === null ? "" : `/${pattern}/`,
+					...densityPathDetails(args?.path),
+					...(resultDetails
+						? [
+								`${resultDetails.fileCount} ${resultDetails.fileCount === 1 ? "file" : "files"}`,
+								...(resultDetails.matchCount === null
+									? []
+									: [`${resultDetails.matchCount} ${resultDetails.matchCount === 1 ? "match" : "matches"}`]),
+							]
+						: []),
+				];
+				return {
+					format: "structured",
+					kind: "grep",
+					heading: { details: headingDetails },
+					status: context.isError ? "failed" : options.isPartial ? "running" : "done",
+					body: [
+						{
+							type: "rich",
+							render: (width) => {
+								const formatted = resultDetails
+									? formatGroupedResult(
+											resultDetails,
+											{ expanded: cardOptions.expanded ?? false, isPartial: options.isPartial },
+											theme,
+											context.cwd,
+										)
+									: formatTextFallback(
+											result,
+											{ expanded: cardOptions.expanded ?? false, isPartial: options.isPartial },
+											theme,
+											context.showImages,
+										);
+								return wrapTextWithAnsi(formatted.startsWith("\n") ? formatted.slice(1) : formatted, width);
+							},
+						},
+					],
+					sections: [],
+				};
+			},
+		});
 	},
 };

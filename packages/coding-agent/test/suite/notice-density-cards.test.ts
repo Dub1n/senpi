@@ -1,10 +1,12 @@
 import { Box, stripTerminalSequences, Text, TUI, visibleWidth } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it } from "vitest";
-import type { CustomMessage } from "../../src/core/messages.ts";
+import { createCompactionSummaryMessage, type CustomMessage } from "../../src/core/messages.ts";
 import type { CustomEntry } from "../../src/core/session-manager.ts";
 import { buildNoticeBox, noticeEntryRenderer, noticeMessageRenderer } from "../../src/core/extensions/notice/index.ts";
 import { CustomEntryComponent } from "../../src/modes/interactive/components/custom-entry.ts";
 import { CustomMessageComponent } from "../../src/modes/interactive/components/custom-message.ts";
+import { CompactionSummaryMessageComponent } from "../../src/modes/interactive/components/compaction-summary-message.ts";
+import { SystemPromptStatus } from "../../src/modes/interactive/components/system-prompt-status.ts";
 import { ToolDensityRow } from "../../src/modes/interactive/components/tool-density-row.ts";
 import { ToolExecutionComponent } from "../../src/modes/interactive/components/tool-execution.ts";
 import { initTheme, theme } from "../../src/modes/interactive/theme/theme.ts";
@@ -96,5 +98,34 @@ describe("notice density cards", () => {
 		expect(other.renderNoticeDensitySummary(100)).toBeUndefined();
 		memory.dispose();
 		other.dispose();
+	});
+
+	it("builds the compaction heading from recorded counts", () => {
+		const component = new CompactionSummaryMessageComponent(
+			createCompactionSummaryMessage("Keep both decisions.", 361726, new Date(0).toISOString(), {
+				schema: "senpi.compaction.openai-remote.v1",
+				transport: "responses-v2",
+				requestInputItemCount: 1151,
+				retainedInputItemCount: 2,
+			}),
+		);
+		const view = component.renderDensityCard(80, { grouped: false });
+
+		expect(view.format).toBe("structured");
+		if (view.format !== "structured") throw new Error("expected a structured compaction card");
+		expect(view.heading).toEqual({ details: ["from 361,726 tokens", "2 retained items"] });
+	});
+
+	it("offers the system-prompt card only to grouped density", () => {
+		const component = new SystemPromptStatus("System prompt: gpt-6.2");
+
+		expect(component.renderDensityCard(80, { grouped: false })).toBeUndefined();
+		const view = component.renderDensityCard(80, { grouped: true });
+		expect(view?.format).toBe("structured");
+		if (!view || view.format !== "structured") throw new Error("expected a structured system card");
+		expect(view.kind).toBe("system");
+		expect(view.heading).toEqual({ description: "System prompt: gpt-6.2" });
+		expect(view.status).toBeUndefined();
+		expect(component.densityExpandable).toBe(false);
 	});
 });

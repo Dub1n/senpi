@@ -36,7 +36,7 @@ describe("OmO tool density cards", () => {
 		expect(rows("task_send", args, details, true)).toEqual([
 			"",
 			pad(""),
-			pad(" ╭─ → messaged st_123"),
+			pad(" ╭─ → messaged • st_123"),
 			pad(" │ steered"),
 			pad(" │ first line"),
 			pad(" │ second line"),
@@ -67,7 +67,7 @@ describe("OmO tool density cards", () => {
 		expect(rows("task_output", args, details, true)).toEqual([
 			"",
 			pad(""),
-			pad(" ╭─ ◉ peek tail st_123"),
+			pad(" ╭─ ◉ peek • tail st_123"),
 			pad(" │ status: running"),
 			pad(" │ model: provider/model"),
 			pad(" │ requested tail: 9 lines"),
@@ -92,17 +92,23 @@ describe("OmO tool density cards", () => {
 			subagent_type: "worker",
 			run_in_background: true,
 		};
-		expect(rows("task", args, details, false)).toEqual(["", pad(""), pad(' ╶─ + task st_123 "Inspect it"'), pad("")]);
+		expect(rows("task", args, details, false)).toEqual([
+			"",
+			pad(""),
+			pad(' ╶─ + task • st_123 "Inspect it"'),
+			pad(""),
+		]);
 	});
 
 	it("falls back for unrecognized producer details", () => {
-		expect(
-			omoTaskDensityCard({
-				toolName: "task_output",
-				args: {},
-				result: { details: { kind: "other" }, isError: false },
-			}),
-		).toBeUndefined();
+		for (const result of [
+			undefined,
+			{ isError: false },
+			{ details: { kind: "other" }, isError: false },
+			{ details: { kind: "status" }, isError: false },
+		]) {
+			expect(omoTaskDensityCard({ toolName: "task_output", args: {}, result })).toBeUndefined();
+		}
 	});
 
 	it("keeps a failed send distinguishable with its diagnostic", () => {
@@ -120,7 +126,7 @@ describe("OmO tool density cards", () => {
 		).toEqual([
 			"",
 			pad(""),
-			pad(" ╭─ ✗ messaged st_123"),
+			pad(" ╭─ ✗ messaged • st_123"),
 			pad(" │ send failed: host unavailable"),
 			pad(" │ try again"),
 			pad(" ╰─"),
@@ -149,7 +155,7 @@ describe("OmO tool density cards", () => {
 		).toEqual([
 			"",
 			pad(""),
-			pad(" ╭─ + task st_123"),
+			pad(" ╭─ + task • st_123"),
 			pad(" │ st_123 · first · running"),
 			pad(" │ st_456 · second · pending"),
 			pad(" │ task · error · no capacity"),
@@ -186,7 +192,7 @@ describe("OmO tool density cards", () => {
 		).toEqual([
 			"",
 			pad(""),
-			pad(" ╭─ ◉ peek full st_123"),
+			pad(" ╭─ ◉ peek • full st_123"),
 			pad(" │ status: completed"),
 			pad(" │ model: provider/model"),
 			pad(" │ source: session-jsonl"),
@@ -205,7 +211,14 @@ describe("OmO tool density cards", () => {
 				{ kind: "not_found", reason: "task missing", known_tasks: [] },
 				true,
 			),
-		).toEqual(["", pad(""), pad(" ╭─ ✗ peek status st_missing"), pad(" │ error: task missing"), pad(" ╰─"), pad("")]);
+		).toEqual([
+			"",
+			pad(""),
+			pad(" ╭─ ✗ peek • status st_missing"),
+			pad(" │ error: task missing"),
+			pad(" ╰─"),
+			pad(""),
+		]);
 	});
 
 	it("renders producer-shaped status data through the real grouped transcript", async () => {
@@ -244,7 +257,7 @@ describe("OmO tool density cards", () => {
 			expect(surface.chat.render(width).map(stripTerminalSequences)).toEqual([
 				"",
 				pad(""),
-				pad(" ╭─ ◉ peek status st_123"),
+				pad(" ╭─ ◉ peek • status st_123"),
 				pad(" │ status: running"),
 				pad(" │ model: provider/model"),
 				pad(" ╰─"),

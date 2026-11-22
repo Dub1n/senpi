@@ -87,6 +87,7 @@ export interface SettingsConfig {
 	toolDisplayDensity: ToolDisplayDensity;
 	readonly toolDisplayColorFrames: boolean;
 	readonly toolDisplayColorNames: boolean;
+	readonly toolDisplayColorIcons: boolean;
 	smoothStreaming: boolean;
 	smoothStreamingFps: number;
 	mermaidRenderingMode: MermaidRenderingMode;
@@ -130,6 +131,7 @@ export interface SettingsCallbacks {
 	onToolDisplayDensityChange: (density: ToolDisplayDensity) => void;
 	readonly onToolDisplayColorFramesChange: (enabled: boolean) => void;
 	readonly onToolDisplayColorNamesChange: (enabled: boolean) => void;
+	readonly onToolDisplayColorIconsChange: (enabled: boolean) => void;
 	onSmoothStreamingChange: (enabled: boolean) => void;
 	onSmoothStreamingFpsChange: (fps: number) => void;
 	onMermaidRenderingModeChange: (mode: MermaidRenderingMode) => void;
@@ -590,6 +592,13 @@ export class SettingsSelectorComponent extends Container {
 				values: ["true", "false"],
 			},
 			{
+				id: "tool-display-color-icons",
+				label: "Color tool icons",
+				description: "Use the item name's color for its icon in Compact and Grouped tool displays",
+				currentValue: config.toolDisplayColorIcons ? "true" : "false",
+				values: ["true", "false"],
+			},
+			{
 				id: "hide-thinking",
 				label: "Hide thinking",
 				description: "Hide thinking blocks in assistant responses",
@@ -928,6 +937,9 @@ export class SettingsSelectorComponent extends Container {
 						break;
 					case "tool-display-color-names":
 						callbacks.onToolDisplayColorNamesChange(newValue === "true");
+						break;
+					case "tool-display-color-icons":
+						callbacks.onToolDisplayColorIconsChange(newValue === "true");
 						break;
 					case "smooth-streaming":
 						callbacks.onSmoothStreamingChange(newValue === "true");

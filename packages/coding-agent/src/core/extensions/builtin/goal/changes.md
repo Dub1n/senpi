@@ -1,3 +1,24 @@
+## 2026-11-22 - Dense cache wait and wake cards use journal facts
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/goal/cache-warm-renderer.ts`: supply dense wait and wake headings from the recorded phase, iteration, duration and wake-source count. Default keeps its existing notice title.
+- `packages/coding-agent/src/core/extensions/builtin/goal/renderers.ts`: emit structured dense goal cards with raw status glyphs, separate status/token/elapsed heading details, and text blocks for the objective, blocked reason, timestamps and notice; Default unchanged.
+
+### Why
+
+- The dense transcript should not need to parse the Default heading to identify a wait or its subsequent wake.
+- The shared formatter owns separation and color; the builtin owns the goal snapshot and renderer.
+
+### Why an extension could not handle it
+
+- The Goal builtin owns the typed cache-warm record and the renderer that formats it.
+
+### Expected merge conflict zones
+
+- The notice specification and heading construction in `cache-warm-renderer.ts`; same-goal replacement is unchanged.
+- `GoalResultCard.renderDensityCard`.
+
 ## 2026-11-18 - The audit-free continuation prompt follows the Astra family (senpi#6975)
 
 ### What changed

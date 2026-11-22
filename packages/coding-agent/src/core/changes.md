@@ -1,3 +1,21 @@
+## 2026-11-22 - Persist a dense transcript icon color choice
+
+### What changed
+
+- `packages/coding-agent/src/core/settings-manager.ts`: stores the independent icon color switch, off by default.
+
+### Why
+
+- Compact and Grouped can color icons by item type without requiring name or frame coloring.
+
+### Why an extension could not handle it
+
+- The preferences belong to the host settings and apply to tool cards throughout the interactive transcript.
+
+### Expected merge conflict zones
+
+- LOW: neighboring tool display color settings.
+
 ## 2026-11-22 - Persist independent dense transcript color choices
 
 ### What changed

@@ -1,3 +1,17 @@
+## 2026-11-22 - Render proxy management through structured density cards
+
+### What changed
+- `expose/proxy.ts`: search and describe call/result cards provide a structured `tool` heading with operation details and preserve the server label and returned text as body content. Unknown tools carry a structured management-error detail for the failed icon. Ordinary proxy calls retain their existing renderer.
+
+### Why
+- Proxy management cards previously used legacy title/content callbacks and could not participate in the shared semantic heading and body layout.
+
+### Why extension system couldn't handle this alone
+- The proxy tool is owned and rendered by the MCP builtin.
+
+### Expected merge conflict zones
+- LOW: `ProxyManagementCard`, `renderCall`, and `renderResult` in `expose/proxy.ts`.
+
 ## 2026-11-12 - The MCP config loader checks a candidate without loading it (senpi#6485)
 
 ### What changed

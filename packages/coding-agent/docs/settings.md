@@ -163,6 +163,7 @@ When this value is anything other than `"auto"`, it overrides any model-level `p
 | `toolDisplayDensity` | string | `"default"` | In `/settings`, choose **Tool display density**. `default` keeps the standard tool display, `compact` shortens individual tool entries, and `grouped` combines eligible consecutive entries in the transcript. |
 | `toolDisplayColorFrames` | boolean | `false` | **Color tool frames** in `/settings`. Color the left gutter by item type in Compact and Grouped; otherwise it uses the muted border color. Does not affect Default. |
 | `toolDisplayColorNames` | boolean | `false` | **Color tool names** in `/settings`. Color the bold item name by type in Compact and Grouped. The rest of the title stays in the standard text color. Cards without semantic names keep their existing title styling. Does not affect Default. |
+| `toolDisplayColorIcons` | boolean | `false` | **Color tool icons** in `/settings`. Make the title icon use the item type's name color in Compact and Grouped, even if name coloring is off. With the switch off the icon is neutral. Does not affect Default. |
 | `autocompleteMaxVisible` | number | `5` | Max visible items in autocomplete dropdown (3-20) |
 | `showHardwareCursor` | boolean | `false` | Show the terminal cursor while TUI positions it for IME support |
 | `tuiMode` | string | `"regular"` | Interactive TUI mode: `"regular"` or experimental `"fullscreen"`. Changes from `/settings` apply immediately; `--tui-mode` overrides this setting at startup |

@@ -14,6 +14,7 @@ async function rows(
 	payload: string,
 	isError = false,
 	width = 48,
+	managementError = false,
 ) {
 	const surface = await explorationSurface(true, [(pi) => pi.registerTool(gateway)]);
 	try {
@@ -25,7 +26,12 @@ async function rows(
 			timestamp: 0,
 			isError,
 			content: [{ type: "text", text: payload }],
-			details: { server: "fx", tool: "proxy", preview: payload.split("\n")[0] },
+			details: {
+				server: "fx",
+				tool: "proxy",
+				preview: payload.split("\n")[0],
+				...(managementError ? { managementError } : {}),
+			},
 		};
 		invoke(surface.mode, "renderSessionItems", [
 			fauxAssistantMessage(
@@ -50,9 +56,9 @@ describe.each(["compact", "grouped"] as const)("%s proxy management", (density) 
 	it("shows search results without inventing a count", async () => {
 		const args = { op: "search", query: "find files" } as const;
 		const payload = "Tools on 'fx':\n- find - Find files";
-		expect(await rows(density, false, args, payload)).toEqual(card(48, ' ╶─ ◉ tool "find files"'));
+		expect(await rows(density, false, args, payload)).toEqual(card(48, ' ╶─ ◉ tool • "find files"'));
 		expect(await rows(density, true, args, payload)).toEqual(
-			card(48, ' ╭─ ◉ tool "find files"', " │ server: fx", " │ Tools on 'fx':", " │ - find - Find files", " ╰─"),
+			card(48, ' ╭─ ◉ tool • "find files"', " │ server: fx", " │ Tools on 'fx':", " │ - find - Find files", " ╰─"),
 		);
 	});
 
@@ -63,7 +69,7 @@ describe.each(["compact", "grouped"] as const)("%s proxy management", (density) 
 		).toEqual(
 			card(
 				48,
-				" ╭─ ◉ tool describe find",
+				" ╭─ ◉ tool • describe find",
 				" │ server: fx",
 				" │ find: Find files",
 				" │ Input schema (JSON Schema):",
@@ -73,21 +79,21 @@ describe.each(["compact", "grouped"] as const)("%s proxy management", (density) 
 				" ╰─",
 			),
 		);
-		expect(await rows(density, true, args, "Unknown tool 'find' on 'fx'.")).toEqual(
-			card(48, " ╭─ ✗ tool describe find", " │ server: fx", " │ Unknown tool 'find' on 'fx'.", " ╰─"),
+		expect(await rows(density, true, args, "Unknown tool 'find' on 'fx'.", false, 48, true)).toEqual(
+			card(48, " ╭─ ✗ tool • describe find", " │ server: fx", " │ Unknown tool 'find' on 'fx'.", " ╰─"),
 		);
 	});
 
 	it("shows explicitly failed management results", async () => {
 		expect(await rows(density, true, { op: "search", query: "x" }, "transport failed", true)).toEqual(
-			card(48, ' ╭─ ✗ tool "x"', " │ server: fx", " │ transport failed", " ╰─"),
+			card(48, ' ╭─ ✗ tool • "x"', " │ server: fx", " │ transport failed", " ╰─"),
 		);
 	});
 
 	it("truncates long queries at narrow widths", async () => {
 		expect(
 			await rows(density, false, { op: "search", query: "a very long query for files" }, "result", false, 24),
-		).toEqual(card(24, ' ╶─ ◉ tool "a very lo…'));
+		).toEqual(card(24, ' ╶─ ◉ tool • "a very …'));
 	});
 
 	it("leaves ordinary calls on the existing fallback", async () => {

@@ -62,21 +62,20 @@ describe("dense consecutive read projection", () => {
 			await runTool(surface, { id: "doc", toolName: "read", args: { path: "skills/git/notes.md" } });
 			const following = [
 				...(density === "compact" ? [row(""), "", row("")] : []),
-				row(" ╶─ ✓ read notes.md"),
+				row(" ╶─ ✓ read • notes.md"),
 				row(""),
 			];
-			expect.soft(rows(surface)).toEqual(["", row(""), row(" ╶─ ~ skill bun team/git · 1 failed"), ...following]);
+			expect.soft(rows(surface)).toEqual(["", row(""), row(" ╶─ ~ skill • bun team/git · 1 failed"), ...following]);
 			expect.soft(click(surface, 2)?.handled).toBe(true);
 			expect
 				.soft(rows(surface))
 				.toEqual([
 					"",
 					row(""),
-					row(" ╭─ ✓ skill bun:1-2"),
+					row(" ╭─ ✓ skill • bun:1-2"),
 					row(" │ "),
 					row(" │   # Bun"),
-					row(" │ "),
-					row(" ├─ ✗ skill team/git"),
+					row(" ├─ ✗ skill • team/git"),
 					row(" │ File not found"),
 					row(" ╰─"),
 					...following,
@@ -97,7 +96,12 @@ describe("dense consecutive read projection", () => {
 			]) {
 				await runTool(surface, { id, toolName: "read", args: { path }, output: id });
 			}
-			expect(rows(surface)).toEqual(["", row(""), row(" ╶─ ✓ read one/shared/a.ts two/shared/a.ts b.ts"), row("")]);
+			expect(rows(surface)).toEqual([
+				"",
+				row(""),
+				row(" ╶─ ✓ read • one/shared/a.ts two/shared/a.ts b.ts"),
+				row(""),
+			]);
 		} finally {
 			surface.cleanup();
 		}
@@ -122,7 +126,7 @@ describe("dense consecutive read projection", () => {
 			expect(surface.chat.render(28).map(stripTerminalSequences)).toEqual([
 				"",
 				" ".repeat(28),
-				" ╶─ ~ read a-v… · 1 failed  ",
+				" ╶─ ~ read • a… · 1 failed  ",
 				" ".repeat(28),
 			]);
 		} finally {
@@ -141,13 +145,13 @@ describe("dense consecutive read projection", () => {
 			expect(rows(surface)).toEqual([
 				"",
 				row(""),
-				row(" ╶─ ✓ read a.ts b.ts"),
+				row(" ╶─ ✓ read • a.ts b.ts"),
 				row(""),
 				"",
 				row(" Between reads."),
 				"",
 				row(""),
-				row(" ╶─ ✓ read c.ts d.ts"),
+				row(" ╶─ ✓ read • c.ts d.ts"),
 				row(""),
 			]);
 		} finally {
@@ -167,16 +171,16 @@ describe("dense consecutive read projection", () => {
 					toolName: "read",
 					args: { path: "b.ts" },
 				});
-				expect.soft(rows(surface)).toEqual(["", row(""), row(" ╶─ ~ read a.ts b.ts"), row("")]);
+				expect.soft(rows(surface)).toEqual(["", row(""), row(" ╶─ ~ read • a.ts b.ts"), row("")]);
 				expect.soft(click(surface, 2)?.handled).toBe(true);
 				expect
 					.soft(rows(surface))
 					.toEqual([
 						"",
 						row(""),
-						row(" ╭─ ✓ read a.ts"),
+						row(" ╭─ ✓ read • a.ts"),
 						row(" │ first"),
-						row(" ├─ ○ read b.ts"),
+						row(" ├─ ○ read • b.ts"),
 						row(" ╰─"),
 						row(""),
 					]);
@@ -192,15 +196,15 @@ describe("dense consecutive read projection", () => {
 					.toEqual([
 						"",
 						row(""),
-						row(" ╭─ ✓ read a.ts"),
+						row(" ╭─ ✓ read • a.ts"),
 						row(" │ first"),
-						row(" ├─ ✓ read b.ts"),
+						row(" ├─ ✓ read • b.ts"),
 						row(" │ second"),
 						row(" ╰─"),
 						row(""),
 					]);
 				expect.soft(click(surface, 4)?.handled).toBe(true);
-				expect.soft(rows(surface)).toEqual(["", row(""), row(" ╶─ ✓ read a.ts b.ts"), row("")]);
+				expect.soft(rows(surface)).toEqual(["", row(""), row(" ╶─ ✓ read • a.ts b.ts"), row("")]);
 			} finally {
 				surface.cleanup();
 			}

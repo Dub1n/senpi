@@ -14,9 +14,9 @@ function compactSearchRows(...body: readonly string[]): readonly string[] {
 
 export const todoGolden = {
 	init: {
-		folded: cardRows(" ╶─ + todo · init (1 phase, 2 tasks)"),
+		folded: cardRows(" ╶─ + todo • init (1 phase, 2 tasks)"),
 		expanded: cardRows(
-			" ╭─ + todo · init (1 phase, 2 tasks)",
+			" ╭─ + todo • init (1 phase, 2 tasks)",
 			" │ I. Verification",
 			" │   [•] Verify the runtime",
 			" │   [ ] Record the result",
@@ -24,9 +24,9 @@ export const todoGolden = {
 		),
 	},
 	done: {
-		folded: cardRows(" ╶─ ✓ todo · Verify the runtime"),
+		folded: cardRows(" ╶─ ✓ todo • Verify the runtime"),
 		expanded: cardRows(
-			" ╭─ ✓ todo · Verify the runtime",
+			" ╭─ ✓ todo • Verify the runtime",
 			" │ I. Verification",
 			" │   [✓] Verify the runtime",
 			" │   [•] Record the result",
@@ -34,37 +34,37 @@ export const todoGolden = {
 		),
 	},
 	failure: {
-		folded: cardRows(" ╶─ ✗ todo · Verify the runtime"),
-		expanded: cardRows(" ╭─ ✗ todo · Verify the runtime", ' │ Errors: Task "Verify the runtime" not found', " ╰─"),
+		folded: cardRows(" ╶─ ✗ todo • Verify the runtime"),
+		expanded: cardRows(" ╭─ ✗ todo • Verify the runtime", ' │ Errors: Task "Verify the runtime" not found', " ╰─"),
 	},
 } as const;
 
 export const readGolden = {
-	folded: cardRows(" ╶─ ✓ read dev-window.mjs"),
-	expanded: cardRows(" ╭─ ✓ read scripts/dev-window.mjs:40-42", " │ ", " │     const ready = true;", " │ ", " ╰─"),
+	folded: cardRows(" ╶─ ✓ read • dev-window.mjs"),
+	expanded: cardRows(" ╭─ ✓ read • scripts/dev-window.mjs:40-42", " │ ", " │     const ready = true;", " ╰─"),
 } as const;
 
 export const searchGolden = {
 	completed: {
-		compact: compactSearchRows(" ╶─ ✓ chatgpt-subscription · web_search", "    status: completed"),
-		grouped: cardRows(" ╶─ ✓ chatgpt-subscription · web_search"),
+		compact: compactSearchRows(" ╶─ ✓ search chatgpt-subscription • web_search", "    status: completed"),
+		grouped: cardRows(" ╶─ ✓ search chatgpt-subscription • web_search"),
 	},
 	failed: {
-		compact: compactSearchRows(" ╶─ ✗ chatgpt-subscription · web_search", "    status: failed"),
-		grouped: cardRows(" ╶─ ✗ chatgpt-subscription · web_search"),
+		compact: compactSearchRows(" ╶─ ✗ search chatgpt-subscription • web_search", "    status: failed"),
+		grouped: cardRows(" ╶─ ✗ search chatgpt-subscription • web_search"),
 	},
 	unfamiliar: {
-		compact: compactSearchRows(" ╶─ chatgpt-subscription · web_search", "    status: awaiting_index"),
-		grouped: cardRows(" ╶─ chatgpt-subscription · web_search · awaiting_index"),
+		compact: compactSearchRows(" ╶─ search chatgpt-subscription • web_search", "    status: awaiting_index"),
+		grouped: cardRows(" ╶─ search chatgpt-subscription • web_search · awaiting_index"),
 	},
 	absent: {
-		compact: compactSearchRows(" ╶─ chatgpt-subscription · web_search"),
-		grouped: cardRows(" ╶─ chatgpt-subscription · web_search"),
+		compact: compactSearchRows(" ╶─ search chatgpt-subscription • web_search"),
+		grouped: cardRows(" ╶─ search chatgpt-subscription • web_search"),
 	},
 };
 
 const expandedSearch = [
-	" ╭─ ✓ chatgpt-subscription · web_search",
+	" ╭─ ✓ search chatgpt-subscription • web_search",
 	" │ status: completed",
 	" │ queries:",
 	' │ - "terminal rows"',

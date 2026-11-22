@@ -3,6 +3,8 @@
  * loop-guard detections, ttsr stream-rule interventions, goal cache-warm
  * entries, and interactive fallback transitions.
  */
+import type { DensityCardStructuredView } from "@earendil-works/pi-tui";
+
 export type NoticeTone = "accent" | "warning" | "error" | "success" | "dim";
 
 export interface NoticeLine {
@@ -12,6 +14,8 @@ export interface NoticeLine {
 }
 
 export interface NoticeSpec {
+	/** Optional structured view exposed to density-card consumers. */
+	readonly densityCard?: Omit<DensityCardStructuredView, "format" | "body" | "sections">;
 	readonly title: string;
 	/** Title tone; defaults to "accent". */
 	readonly tone?: NoticeTone;

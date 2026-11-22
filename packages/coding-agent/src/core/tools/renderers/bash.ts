@@ -6,12 +6,13 @@
  * tool definition, so the tool's public shape is unchanged.
  */
 
-import { Container, Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { Container, sanitizeTerminalLabel, Text, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { keyHint } from "../../../modes/interactive/components/keybinding-hints.ts";
 import { truncateToVisualLines } from "../../../modes/interactive/components/visual-truncate.ts";
 import { highlightCode, theme } from "../../../modes/interactive/theme/theme.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../../extensions/types.ts";
 import type { BashToolDetails } from "../bash.ts";
+import { isModelOnlyText } from "../model-only-text.ts";
 import { getTextOutput, invalidArgText, normalizeDisplayText, replaceTabs, str } from "../render-utils.ts";
 
 const BASH_PREVIEW_LINES = 5;
@@ -130,7 +131,26 @@ export function createShellRenderers(prompt: string): Pick<ToolDefinition<any, a
 			}
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
 			text.setText(formatShellCall(args as { command?: string; timeout?: number } | undefined, prompt));
-			return text;
+			return Object.assign(text, {
+				renderDensityCard() {
+					if (context.hasResult) return undefined;
+					const shellArgs = args as { command?: string; timeout?: number } | undefined;
+					const command = str(shellArgs?.command);
+					return {
+						format: "structured" as const,
+						kind: prompt === "PS>" ? ("powershell" as const) : ("shell" as const),
+						heading: {
+							details: [
+								sanitizeTerminalLabel(command || "..."),
+								...(shellArgs?.timeout ? [`timeout ${shellArgs.timeout}s`] : []),
+							],
+						},
+						status: context.executionStarted ? ("running" as const) : ("pending" as const),
+						body: [],
+						sections: [],
+					};
+				},
+			});
 		},
 		renderResult(result, options, _theme, context) {
 			const state = context.state;
@@ -155,7 +175,39 @@ export function createShellRenderers(prompt: string): Pick<ToolDefinition<any, a
 				state.endedAt,
 			);
 			component.invalidate();
-			return component;
+			return Object.assign(component, {
+				renderDensityCard() {
+					const shellArgs = context.args as { command?: string; timeout?: number } | undefined;
+					const command = str(shellArgs?.command);
+					const output = result.content.some((part) => part.type === "image")
+						? getTextOutput(result, context.showImages)
+						: result.content
+								.filter((part) => part.type === "text" && !isModelOnlyText(part))
+								.map((part) => (part.type === "text" ? part.text : ""))
+								.join("\n");
+					return {
+						format: "structured" as const,
+						kind: prompt === "PS>" ? ("powershell" as const) : ("shell" as const),
+						heading: {
+							details: [
+								sanitizeTerminalLabel(command || "..."),
+								...(shellArgs?.timeout ? [`timeout ${shellArgs.timeout}s`] : []),
+							],
+						},
+						status: context.isError
+							? ("failed" as const)
+							: options.isPartial
+								? context.executionStarted
+									? ("running" as const)
+									: ("pending" as const)
+								: ("done" as const),
+						body: output
+							? [{ type: "rich" as const, render: (width: number) => wrapTextWithAnsi(output, width) }]
+							: [],
+						sections: [],
+					};
+				},
+			});
 		},
 	};
 }

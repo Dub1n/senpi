@@ -33,7 +33,7 @@ export class ExplorationTranscriptContainer extends Container {
 	private readonly display: ProgressiveTranscriptContainer;
 	private readonly requestRender: () => void;
 	private density: ToolDisplayDensity = "default";
-	private densityColors: ToolDisplayColors = { colorFrames: false, colorNames: false };
+	private densityColors: ToolDisplayColors = { colorFrames: false, colorNames: false, colorIcons: false };
 	private readonly densityRows = new WeakMap<ToolExecutionComponent | DensityCardSource, ToolDensityRow>();
 	private readonly denseReadRuns = new WeakMap<ToolExecutionComponent, DenseReadRun>();
 	private densityProjection:
@@ -70,7 +70,11 @@ export class ExplorationTranscriptContainer extends Container {
 	}
 
 	setToolDisplayColors(colors: ToolDisplayColors): void {
-		if (this.densityColors.colorFrames === colors.colorFrames && this.densityColors.colorNames === colors.colorNames)
+		if (
+			this.densityColors.colorFrames === colors.colorFrames &&
+			this.densityColors.colorNames === colors.colorNames &&
+			this.densityColors.colorIcons === colors.colorIcons
+		)
 			return;
 		this.densityColors = colors;
 		if (this.density !== "default") this.display.invalidateCache();

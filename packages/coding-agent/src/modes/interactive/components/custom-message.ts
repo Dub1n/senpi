@@ -1,6 +1,14 @@
 import type { TextContent } from "@earendil-works/pi-ai";
 import type { Component } from "@earendil-works/pi-tui";
-import { Box, Container, Markdown, type MarkdownTheme, Spacer, Text } from "@earendil-works/pi-tui";
+import {
+	Box,
+	Container,
+	isSemanticDensityCardSource,
+	Markdown,
+	type MarkdownTheme,
+	Spacer,
+	Text,
+} from "@earendil-works/pi-tui";
 import type { MessageRenderer } from "../../../core/extensions/types.ts";
 import type { CustomMessage } from "../../../core/messages.ts";
 import { sharedMarkdownTheme, theme } from "../theme/theme.ts";
@@ -57,6 +65,7 @@ export class CustomMessageComponent extends Container {
 	get noticeDensityEligible(): boolean {
 		return (
 			(this.customRenderer === renderRemoteDelivery && agentDeliveryDensityCard(this.message) !== undefined) ||
+			(this.customComponent !== undefined && isSemanticDensityCardSource(this.customComponent)) ||
 			isNoticeBox(this.customComponent)
 		);
 	}
@@ -67,7 +76,9 @@ export class CustomMessageComponent extends Container {
 
 	renderDensitySummary(width: number, _grouped: boolean): string[] {
 		const view = this.renderDensityCard(width, { grouped: _grouped });
-		return view ? [view.title] : (renderNoticeBoxTitle(this.customComponent, width) ?? []);
+		return view && view.format !== "structured"
+			? [view.title]
+			: (renderNoticeBoxTitle(this.customComponent, width) ?? []);
 	}
 
 	getBackgroundPainter(): ((text: string) => string) | undefined {
@@ -78,6 +89,9 @@ export class CustomMessageComponent extends Container {
 
 	renderDensityCard(_width: number, _options: { readonly grouped: boolean }) {
 		if (this.customRenderer === renderRemoteDelivery) return agentDeliveryDensityCard(this.message);
+		if (this.customComponent && isSemanticDensityCardSource(this.customComponent)) {
+			return this.customComponent.renderDensityCard(_width, _options);
+		}
 		const kind = namedNoticeKind(this.message.customType);
 		return kind === undefined ? undefined : renderNamedNoticeCard(this.customComponent, kind);
 	}

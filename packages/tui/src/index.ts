@@ -51,11 +51,18 @@ export {
 export { Box } from "./components/box.ts";
 export {
 	isSemanticDensityCardSource,
+	type DensityCardBlock,
+	type DensityCardHeading,
 	type DensityCardKind,
+	type DensityCardLegacyView,
 	type DensityCardRenderOptions,
 	type DensityCardSection,
 	type DensityCardSource,
+	type DensityCardSpan,
 	type DensityCardStatus,
+	type DensityCardStructuredSection,
+	type DensityCardStructuredView,
+	type DensityCardText,
 	type DensityCardView,
 } from "./density-card.ts";
 export { CancellableLoader } from "./components/cancellable-loader.ts";

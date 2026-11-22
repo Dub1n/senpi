@@ -7,20 +7,33 @@ export type DensityCardStatus = "pending" | "running" | "queued" | "detached" | 
 export type DensityCardKind =
 	| "eval"
 	| "shell"
+	| "powershell"
+	| "bash-output"
+	| "wait"
+	| "wake"
 	| "read"
 	| "todo"
 	| "goal"
+	| "edit"
+	| "write"
 	| "added"
 	| "edited"
 	| "deleted"
 	| "memory"
 	| "skill"
 	| "rules"
+	| "project-rules"
 	| "kibitz"
 	| "message"
+	| "incoming-message"
+	| "outgoing-message"
 	| "task"
+	| "task-peek"
 	| "tool"
 	| "search"
+	| "find"
+	| "grep"
+	| "ls"
 	| "compaction"
 	| "system";
 
@@ -33,7 +46,8 @@ export interface DensityCardSection {
 	render(width: number, grouped?: boolean): readonly string[];
 }
 
-export interface DensityCardView {
+export interface DensityCardLegacyView {
+	readonly format?: undefined;
 	/** Plain lowercase semantic item name, styled by the frame renderer. */
 	readonly name?: string;
 	readonly kind?: DensityCardKind;
@@ -52,6 +66,52 @@ export interface DensityCardView {
 	renderContent(width: number): readonly string[];
 	readonly sections: readonly DensityCardSection[];
 }
+
+export interface DensityCardSpan {
+	readonly text: string;
+	readonly italic?: boolean;
+	readonly strikethrough?: boolean;
+	readonly link?: string;
+}
+
+export type DensityCardText = string | readonly DensityCardSpan[];
+
+export interface DensityCardHeading {
+	readonly identity?: string;
+	readonly details?: readonly DensityCardText[];
+	readonly description?: string;
+}
+
+export type DensityCardBlock =
+	| { readonly type: "text"; readonly lines: readonly DensityCardText[]; readonly role?: "muted" | "text" }
+	| { readonly type: "rich"; render(width: number, grouped?: boolean): readonly string[] };
+
+export interface DensityCardStructuredSection {
+	readonly placement: "frame" | "after" | "grouped";
+	readonly heading:
+		| { readonly label: string; readonly role?: "title" }
+		| {
+				readonly kind: DensityCardKind;
+				readonly heading: DensityCardHeading;
+				readonly statusGlyph?: string;
+				readonly status?: DensityCardStatus;
+		  };
+	readonly body: readonly DensityCardBlock[];
+}
+
+export interface DensityCardStructuredView {
+	readonly format: "structured";
+	readonly kind: DensityCardKind;
+	readonly heading: DensityCardHeading;
+	readonly expandedHeading?: DensityCardHeading;
+	readonly statusGlyph?: string;
+	readonly status?: DensityCardStatus;
+	readonly body: readonly DensityCardBlock[];
+	readonly sections: readonly DensityCardStructuredSection[];
+	readonly foldedDetails?: readonly string[];
+}
+
+export type DensityCardView = DensityCardLegacyView | DensityCardStructuredView;
 
 export interface DensityCardRenderOptions {
 	readonly grouped: boolean;

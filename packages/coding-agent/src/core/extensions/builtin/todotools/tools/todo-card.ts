@@ -3,7 +3,13 @@
 // Copyright (c) 2025-2026 Can Bölük
 // https://github.com/can1357/oh-my-pi
 
-import { type DensityCardSource, type DensityCardView, Text, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import {
+	type DensityCardSource,
+	type DensityCardStructuredView,
+	type DensityCardText,
+	Text,
+	wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
 import type { Theme } from "../../../../../modes/interactive/theme/theme.ts";
 import type { AgentToolResult, ToolRenderContext, ToolRenderResultOptions } from "../../../types.ts";
 import { fuzzyResolveTask } from "../fuzzy-match.ts";
@@ -125,7 +131,7 @@ class TodoCard extends Text implements DensityCardSource {
 		return this.textRenderRevision();
 	}
 
-	renderDensityCard(): DensityCardView {
+	renderDensityCard(): DensityCardStructuredView {
 		const { context, result } = this.state;
 		const { args } = context;
 		const operation = result?.details?.op ?? args.op;
@@ -136,38 +142,36 @@ class TodoCard extends Text implements DensityCardSource {
 				? fuzzyResolveTask(result?.details?.phases ?? [], args.task).hit?.task
 				: undefined;
 		const target = sanitizeTodoText(task?.content ?? args.task ?? args.phase ?? "");
-		const name =
-			task?.status === "completed"
-				? this.theme.strikethrough(target)
-				: task?.status === "abandoned"
-					? this.theme.italic(target)
-					: target;
-		let label: string | undefined;
+		const name: DensityCardText =
+			task?.status === "completed" || task?.status === "abandoned"
+				? [{ text: target, strikethrough: task.status === "completed", italic: task.status === "abandoned" }]
+				: target;
+		let label: DensityCardText | undefined;
 		let statusGlyph: string | undefined;
 		switch (operation) {
 			case "init": {
 				const counts = countInitItems(args);
 				label = `init (${countLabel(counts.phases, "phase")}, ${countLabel(counts.tasks, "task")})`;
-				statusGlyph = this.theme.fg("success", "+");
+				statusGlyph = "+";
 				break;
 			}
 			case "append":
 				label = `append: ${sanitizeTodoText(args.phase ?? "") || "(missing phase)"} (${countLabel(args.items?.length ?? 0, "item")})`;
-				statusGlyph = this.theme.fg("success", "+");
+				statusGlyph = "+";
 				break;
 			case "done":
-				label = name || "done";
-				statusGlyph = this.theme.fg("success", "✓");
+				label = target ? name : "done";
+				statusGlyph = "✓";
 				break;
 			case "drop":
-				label = name || "drop";
-				statusGlyph = this.theme.fg("muted", "×");
+				label = target ? name : "drop";
+				statusGlyph = "×";
 				break;
 			case "start":
-				label = name ? `start: ${name}` : "start";
+				label = target ? `start: ${target}` : "start";
 				break;
 			case "rm":
-				label = `rm: ${name || "all"}`;
+				label = `rm: ${target || "all"}`;
 				break;
 			case "view":
 				label = "view";
@@ -176,9 +180,9 @@ class TodoCard extends Text implements DensityCardSource {
 				break;
 		}
 		return {
-			name: "todo",
+			format: "structured",
 			kind: "todo",
-			title: label ? ` · ${label}` : "",
+			heading: { details: label ? [label] : [] },
 			...(context.isError
 				? { status: "failed" }
 				: settled
@@ -186,18 +190,23 @@ class TodoCard extends Text implements DensityCardSource {
 						? {}
 						: { statusGlyph }
 					: { status: context.executionStarted ? "running" : "pending" }),
-			renderContent: (width) => {
-				if (!result) return [];
-				const checklist = context.isError ? "" : renderChecklist(this.state, this.theme);
-				if (checklist) return wrapTextWithAnsi(checklist, width);
-				// Replayed and thrown results carry the Ask inside the generated summary header.
-				const text = getTextContent(result).replace(
-					/(^|\n\n)Ask: [^\n]*\n(?=Now: [^\n]*\nNext: [^\n]*\n\n)/u,
-					"$1",
-				);
-				if (context.isError) return text ? wrapTextWithAnsi(this.theme.fg("toolOutput", text), width) : [];
-				return wrapTextWithAnsi(text || "Todo list is empty.", width);
-			},
+			body: [
+				{
+					type: "rich",
+					render: (width) => {
+						if (!result) return [];
+						const checklist = context.isError ? "" : renderChecklist(this.state, this.theme);
+						if (checklist) return wrapTextWithAnsi(checklist, width);
+						// Replayed and thrown results carry the Ask inside the generated summary header.
+						const text = getTextContent(result).replace(
+							/(^|\n\n)Ask: [^\n]*\n(?=Now: [^\n]*\nNext: [^\n]*\n\n)/u,
+							"$1",
+						);
+						if (context.isError) return text ? wrapTextWithAnsi(this.theme.fg("toolOutput", text), width) : [];
+						return wrapTextWithAnsi(text || "Todo list is empty.", width);
+					},
+				},
+			],
 			sections: [],
 		};
 	}

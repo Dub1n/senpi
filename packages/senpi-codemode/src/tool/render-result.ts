@@ -9,7 +9,6 @@ import {
 	componentFor,
 	type EvalRenderComponent,
 	OUTPUT_PREVIEW_LINES,
-	renderAllVisualLines,
 	type RenderBlock,
 	type RenderEnvironment,
 	type ResultRenderContext,
@@ -97,19 +96,16 @@ export function renderEvalResult(
 	const details = result.details;
 	if (details && "action" in details) {
 		const output = style(theme, "toolOutput", textOutput(result, false));
-		// The host owns the folded list counts. In the open card keep the same result width
-		// and inset as the legacy self-rendered result inside a dense frame.
 		component.setDensityCard(
-			context.expanded
-				? {
-						name: "eval list",
-						kind: "eval",
-						title: "",
-						renderContent: (width) =>
-							renderAllVisualLines(output, Math.max(1, width - 1)).map((line) => ` ${line}`),
-						sections: [],
-					}
-				: undefined,
+			createEvalDensityCard({
+				details: undefined,
+				output: textOutput(result, false),
+				isPartial: options.isPartial,
+				isError: context.isError,
+				theme,
+				context,
+				list: details,
+			}),
 		);
 		component.syncLiveTicker(false, context.invalidate);
 		component.setBlocks([

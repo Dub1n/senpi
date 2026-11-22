@@ -1,7 +1,7 @@
-import { type DensityCardView, sanitizeTerminalLabel, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { type DensityCardStructuredView, type DensityCardView, sanitizeTerminalLabel } from "@earendil-works/pi-tui";
 
 type RecordValue = Record<string, unknown>;
-type OmoCard = DensityCardView & { readonly name: string; readonly kind: "message" | "task" };
+type OmoCard = DensityCardStructuredView;
 
 /** Project recognized stock OmO tool results into dense cards without changing their default renderer. */
 export function omoTaskDensityCard(input: {
@@ -30,13 +30,13 @@ function text(value: unknown): string | undefined {
 	return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-function card(name: string, kind: OmoCard["kind"], suffix: string, glyph: string, lines: readonly string[]): OmoCard {
+function card(kind: OmoCard["kind"], detail: string, glyph: string, lines: readonly string[]): OmoCard {
 	return {
-		name,
+		format: "structured",
 		kind,
-		title: suffix,
+		heading: { details: detail ? [detail] : [] },
 		statusGlyph: glyph,
-		renderContent: (width) => lines.flatMap((line) => wrapTextWithAnsi(line, width)),
+		body: [{ type: "text", lines }],
 		sections: [],
 	};
 }
@@ -132,7 +132,7 @@ function messageCard(args: RecordValue, details: RecordValue, isError: boolean):
 				? JSON.stringify(args.message)
 				: undefined;
 	const lines = [state, ...(message === undefined ? [] : [message])];
-	return card("messaged", "message", ` ${label(recipient)}`, failure ? "✗" : "→", lines);
+	return card("outgoing-message", label(recipient), failure ? "✗" : "→", lines);
 }
 
 function outputCard(args: RecordValue, details: RecordValue, isError: boolean): OmoCard | undefined {
@@ -187,9 +187,8 @@ function outputCard(args: RecordValue, details: RecordValue, isError: boolean): 
 			return undefined;
 	}
 	return card(
-		"peek",
-		"task",
-		` ${mode} ${label(id)}`,
+		"task-peek",
+		`${mode} ${label(id)}`,
 		isError || kind === "not_found" || kind === "invalid_arguments" ? "✗" : "◉",
 		lines,
 	);
@@ -220,7 +219,7 @@ function taskCard(args: RecordValue, details: RecordValue, isError: boolean): Om
 			"plan_error",
 		].includes(status ?? "");
 	const title = text(details.task_summary) ?? text(args.task_summary) ?? text(args.description) ?? text(args.prompt);
-	const suffix = `${id ? ` ${label(id)}` : ""}${title ? ` "${label(title)}"` : ""}`;
+	const suffix = `${id ? label(id) : ""}${title ? `${id ? " " : ""}"${label(title)}"` : ""}`;
 	const lines: string[] = [];
 	if (items) {
 		for (const item of items) {
@@ -240,5 +239,5 @@ function taskCard(args: RecordValue, details: RecordValue, isError: boolean): Om
 		if (typeof details.queue_position === "number") lines.push(`queue: ${details.queue_position}`);
 		if (text(details.reason)) lines.push(`detail: ${details.reason}`);
 	}
-	return card("task", "task", suffix, failed ? "✗" : id ? "+" : "○", lines);
+	return card("task", suffix, failed ? "✗" : id ? "+" : "○", lines);
 }

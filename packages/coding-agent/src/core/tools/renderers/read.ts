@@ -7,7 +7,14 @@
  */
 
 import { basename, dirname, isAbsolute, relative, resolve as resolvePath, sep } from "node:path";
-import { type DensityCardView, sanitizeTerminalLabel, Text, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { pathToFileURL } from "node:url";
+import {
+	type DensityCardStructuredView,
+	type DensityCardView,
+	sanitizeTerminalLabel,
+	Text,
+	wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
 import { getReadmePath } from "../../../config.ts";
 import { keyHint, keyText } from "../../../modes/interactive/components/keybinding-hints.ts";
 import { getLanguageFromPath, highlightCode, type Theme } from "../../../modes/interactive/theme/theme.ts";
@@ -64,16 +71,16 @@ function readDensityHeading(
 	args: ReadRenderArgs | undefined,
 	cwd: string,
 	classification: CompactReadClassification | undefined,
-): Pick<DensityCardView, "name" | "kind" | "title" | "expandedTitle"> {
+): Pick<DensityCardStructuredView, "kind" | "heading" | "expandedHeading"> {
 	const path = args?.file_path ?? args?.path ?? "";
 	const skill = classification?.kind === "skill" ? classification.label : undefined;
 	const name = skill === undefined ? "read" : "skill";
-	const label = (value: string) => (path ? linkPath(sanitizeTerminalLabel(value), path, cwd) : "…");
+	const label = (value: string) =>
+		path ? [{ text: sanitizeTerminalLabel(value), link: pathToFileURL(resolveToCwd(path, cwd)).href }] : "…";
 	return {
-		name,
 		kind: name,
-		title: ` ${label(skill ?? basename(path))}`,
-		expandedTitle: ` ${label(skill ?? shortenPath(path))}${formatReadLineRange(args)}`,
+		heading: { details: [label(skill ?? basename(path))] },
+		expandedHeading: { details: [label(`${skill ?? shortenPath(path)}${formatReadLineRange(args)}`)] },
 	};
 }
 function toPosixPath(filePath: string): string {
@@ -169,9 +176,10 @@ export const readRenderers = {
 			renderDensityCard(): DensityCardView | undefined {
 				if (context.hasResult) return undefined;
 				return {
+					format: "structured",
 					...readDensityHeading(args, context.cwd, classify()),
 					status: context.executionStarted ? "running" : "pending",
-					renderContent: () => [],
+					body: [],
 					sections: [],
 				};
 			},
@@ -182,14 +190,19 @@ export const readRenderers = {
 		const args = readRenderArgs(context.args);
 		const path = str(args?.file_path ?? args?.path);
 		let lines: string[] | undefined;
-		function payload(): string[] {
-			if (lines) return lines;
-			const output = replaceTabs(getTextOutput(result, showImages));
+		let denseLines: string[] | undefined;
+		function payload(dense = false): string[] {
+			if (dense && denseLines) return denseLines;
+			if (!dense && lines) return lines;
+			const raw = replaceTabs(getTextOutput(result, showImages));
+			const output = dense ? raw.replace(/(?:\n[^\S\n]*)+$/u, "").replace(/^[^\S\n]*$/u, "") : raw;
 			const lang = !isError && path ? getLanguageFromPath(path) : undefined;
-			lines = lang
+			const rendered = lang
 				? highlightCode(output, lang)
 				: output.split("\n").map((line) => line && theme.fg("toolOutput", line));
-			return lines;
+			if (dense) denseLines = rendered;
+			else lines = rendered;
+			return rendered;
 		}
 
 		let defaultText: Text | undefined;
@@ -211,6 +224,7 @@ export const readRenderers = {
 			},
 			invalidate() {
 				lines = undefined;
+				denseLines = undefined;
 				defaultText = undefined;
 			},
 			renderDensityCard(): DensityCardView | undefined {
@@ -219,9 +233,10 @@ export const readRenderers = {
 					return undefined;
 				}
 				return {
+					format: "structured",
 					...readDensityHeading(args, cwd, readClassification(args, context)),
 					status: isError ? "failed" : isPartial ? (executionStarted ? "running" : "pending") : "done",
-					renderContent: (width) => wrapTextWithAnsi(payload().join("\n"), width),
+					body: [{ type: "rich", render: (width) => wrapTextWithAnsi(payload(true).join("\n"), width) }],
 					sections: [],
 				};
 			},

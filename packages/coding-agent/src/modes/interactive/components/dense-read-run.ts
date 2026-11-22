@@ -1,12 +1,15 @@
+import { pathToFileURL } from "node:url";
 import {
 	type DensityCardStatus,
-	type DensityCardView,
+	type DensityCardStructuredView,
+	type DensityCardSpan,
 	nextRenderRevision,
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
 import { getCompactReadClassification, readRenderers } from "../../../core/tools/renderers/read.ts";
-import { theme } from "../theme/theme.ts";
+import { resolveToCwd } from "../../../core/tools/path-utils.ts";
+import { densityCardHeading, densityCardStyle } from "./density-card-style.ts";
 import { denseReadPathLabels } from "./dense-read-paths.ts";
 import type { DensityCardSource } from "./tool-density-row.ts";
 import { ToolExecutionComponent } from "./tool-execution.ts";
@@ -53,12 +56,6 @@ function readStatus(member: DenseReadMember): DensityCardStatus {
 	return failed ? "failed" : pending ? (started ? "running" : "pending") : "done";
 }
 
-function memberGlyph(view: DensityCardView): string {
-	const icon = view.status === "failed" ? "✗" : view.status === "done" ? "✓" : "○";
-	const color = view.status === "failed" ? "muted" : view.status === "done" ? "success" : "warning";
-	return theme.fg(color, icon);
-}
-
 /** Non-owning presentation of consecutive reads. Session history and expansion remain on the originals. */
 export class DenseReadRun implements DensityCardSource {
 	private members: readonly DenseReadMember[] = [];
@@ -93,62 +90,81 @@ export class DenseReadRun implements DensityCardSource {
 	}
 
 	renderDensitySummary(width: number, grouped: boolean): string[] {
-		return [this.renderDensityCard(width, { grouped, expanded: false }).title];
+		const view = this.renderDensityCard(width, { grouped, expanded: false });
+		return [
+			densityCardHeading(
+				view.kind,
+				view.heading,
+				densityCardStyle({ colorFrames: false, colorNames: false, colorIcons: false }, view.kind),
+			),
+		];
 	}
 
 	renderDensityCard(
 		width: number,
 		{ grouped, expanded }: { readonly grouped: boolean; readonly expanded: boolean },
-	): DensityCardView {
+	): DensityCardStructuredView {
 		if (!expanded) {
 			const kind = this.members[0].kind;
 			const statuses = this.members.map(readStatus);
 			const [first] = statuses;
 			const shared = statuses.every((status) => status === first) ? first : undefined;
 			const failedCount = statuses.filter((status) => status === "failed").length;
-			const files = this.labels.map((label, i) => (statuses[i] === "failed" ? theme.strikethrough(label) : label));
-			const names = ` ${files.join(" ")}`;
+			const files: DensityCardSpan[] = this.labels.flatMap((label, i) => [
+				...(i ? [{ text: " " }] : []),
+				{
+					text: label,
+					strikethrough: statuses[i] === "failed",
+					link: pathToFileURL(
+						resolveToCwd(this.members[i].path, this.members[i].card.presentationSnapshot.identity.cwd),
+					).href,
+				},
+			]);
 			const failure = `${failedCount} failed`;
 			const suffix = ` · ${failure}`;
-			const titleWidth = width - 2 - kind.length; // Reserve the mixed glyph and semantic name.
-			const showName = shared !== undefined || failedCount === 0 || titleWidth > visibleWidth(suffix);
+			const titleWidth = width - 2 - kind.length - 3;
+			let remaining = Math.max(0, titleWidth - visibleWidth(suffix));
+			const shortened = files.flatMap((span) => {
+				if (remaining <= 0) return [];
+				const text = truncateToWidth(span.text, remaining, "…");
+				remaining -= visibleWidth(text);
+				return [{ ...span, text }];
+			});
 			return {
+				format: "structured",
 				kind,
-				name: showName ? kind : undefined,
-				title:
-					shared !== undefined || failedCount === 0
-						? names
-						: titleWidth <= visibleWidth(suffix)
-							? failure
-							: `${truncateToWidth(names, titleWidth - visibleWidth(suffix), "…")}${suffix}`,
+				heading: { details: shared !== undefined || failedCount === 0 ? [files] : [shortened, failure] },
 				status: shared,
-				statusGlyph:
-					shared === undefined ? theme.fg("muted", "~") : shared === "failed" ? theme.fg("muted", "✗") : undefined,
-				renderContent: () => [],
+				statusGlyph: shared === undefined ? "~" : undefined,
+				body: [],
 				sections: [],
 			};
 		}
-		const views = this.members.map((member): DensityCardView => {
+		const views = this.members.map((member): DensityCardStructuredView => {
 			const detail = member.card.renderDensityCard(width, { grouped, expanded: true });
+			if (detail?.format === "structured") return detail;
 			return {
-				name: member.kind,
+				format: "structured",
 				kind: member.kind,
-				title: detail?.expandedTitle ?? detail?.title ?? ` ${member.skill ?? member.path}`,
+				heading: { details: [member.skill ?? member.path] },
 				status: detail?.status ?? readStatus(member),
-				renderContent: detail?.renderContent ?? (() => []),
+				body: [],
 				sections: [],
 			};
 		});
 		const [first, ...rest] = views;
 		return {
 			...first,
-			statusGlyph: memberGlyph(first),
+			heading: first.expandedHeading ?? first.heading,
 			sections: rest.map((view) => ({
-				name: view.name,
-				statusGlyph: memberGlyph(view),
-				label: view.title,
+				heading: {
+					kind: view.kind,
+					heading: view.expandedHeading ?? view.heading,
+					status: view.status,
+					statusGlyph: view.statusGlyph,
+				},
 				placement: "frame",
-				render: view.renderContent,
+				body: view.body,
 			})),
 		};
 	}

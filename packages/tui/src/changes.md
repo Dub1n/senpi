@@ -1,3 +1,22 @@
+## 2026-11-22 - Structured dense card content
+
+### What changed
+
+- `packages/tui/src/density-card.ts` adds structured semantic headings, spans, body blocks and sections beside the legacy card view.
+- `packages/tui/src/index.ts` exports the structured and legacy contract types.
+
+### Why
+
+- Dense transcript presentation needs unpainted semantic content while older renderers migrate.
+
+### Why an extension could not handle it
+
+- Separate packages need one shared public presentation contract.
+
+### Expected merge conflict zones
+
+- LOW: the shared density-card types and public barrel.
+
 ## 2026-11-20 - Shared dense card render contract
 
 ### What changed

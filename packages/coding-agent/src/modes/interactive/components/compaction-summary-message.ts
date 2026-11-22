@@ -1,7 +1,7 @@
 import {
 	Box,
 	Container,
-	type DensityCardView,
+	type DensityCardStructuredView,
 	Markdown,
 	type MarkdownTheme,
 	MouseRegion,
@@ -87,13 +87,18 @@ export class CompactionSummaryMessageComponent extends Box {
 		return (text) => theme.bg("customMessageBg", text);
 	}
 
-	renderDensityCard(_width: number, _options: { readonly grouped: boolean }): DensityCardView {
+	renderDensityCard(_width: number, _options: { readonly grouped: boolean }): DensityCardStructuredView {
+		const remote = denseRemoteDetails(this.message.details);
+		const details = [`from ${this.message.tokensBefore.toLocaleString()} tokens`];
+		if (remote?.retained !== undefined) {
+			details.push(`${remote.retained.toLocaleString()} retained item${remote.retained === 1 ? "" : "s"}`);
+		}
 		return {
-			name: "compacted",
+			format: "structured",
 			kind: "compaction",
-			title: this.densitySuffix(),
+			heading: { details },
 			statusGlyph: theme.fg("success", "✓"),
-			renderContent: (width) => this.densityMarkdown().render(width),
+			body: [{ type: "rich", render: (width) => this.densityMarkdown().render(width) }],
 			sections: [],
 		};
 	}

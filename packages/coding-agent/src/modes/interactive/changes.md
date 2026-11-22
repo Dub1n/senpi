@@ -1,3 +1,25 @@
+## 2026-11-22 - Format structured dense card content
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/density-card-style.ts` resolves structured names, text spans, icons and frame roles.
+- `packages/coding-agent/src/modes/interactive/components/tool-density-row.ts` renders structured blocks and sections while preserving legacy and opaque fallbacks.
+- `packages/coding-agent/src/modes/interactive/components/tool-density-card-cache.ts` retains structured summaries without retaining rich bodies.
+- `packages/coding-agent/src/modes/interactive/components/tool-density-summary.ts` identifies shell output and task messaging with their specific semantic roles.
+- `packages/coding-agent/src/index.ts` exports the shared density-card types.
+
+### Why
+
+- Dense cards need centralized, independently configurable formatting without losing rich content or selection mapping.
+
+### Why an extension could not handle it
+
+- The interactive transcript owns framing, row layout and hit mapping.
+
+### Expected merge conflict zones
+
+- LOW: density row formatting and public type exports.
+
 ## 2026-11-22 - Style typed fallback titles in dense tool rows
 
 ### What changed

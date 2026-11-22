@@ -1,5 +1,23 @@
 # Tool Search Builtin Changes
 
+## 2026-11-22 - Render tool_search through structured density cards
+
+### What changed
+
+- `tool.ts`: tool-search call and result cards provide the shared structured `tool` heading and text body, preserving the producer's result text and using the same global bullet rendering as other structured cards.
+
+### Why
+
+- Tool search previously exposed only a legacy title/content callback, so compact and grouped transcript layouts could not treat its heading and body as semantic card content.
+
+### Why an extension could not handle it
+
+- `tool_search` is this builtin's tool and owns its rendering callbacks.
+
+### Expected merge conflict zones
+
+- LOW: `ToolSearchCard`, `renderCall`, and `renderResult` in `tool.ts`.
+
 ## 2026-11-17 - tool_search lists matching eval-only tools (senpi#6886)
 
 ### What changed

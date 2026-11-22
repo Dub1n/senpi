@@ -1,5 +1,23 @@
 # changes
 
+## 2026-11-22 - Structured dense patch cards
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/gpt-apply-patch/density.ts`: emit structured headings and sections while retaining applied file paths, counts, rich diff rows, progress and failure diagnostics.
+
+### Why
+
+- The shared dense formatter owns separators and semantic styling instead of parsing preformatted headings.
+
+### Why an extension could not handle it
+
+- The apply-patch builtin owns the preview and its registered renderer.
+
+### Expected merge conflict zones
+
+- LOW: `patchDensityCard` heading and section construction.
+
 ## 2026-10-03 - Pin pi-apply-patch 0.1.4
 
 Upstream 0.1.4 carries three changes. The indented-header fix (pi-apply-patch#46) is ported by #2637, and the line-ending fix (pi-apply-patch#48) is ported here (#2638). The `constrainedSampling` grammar declaration (pi-apply-patch#43) needs no port: senpi already sends the Lark grammar natively (`tool.ts` `freeform`). Only `external-versions.json` changes for the pin.

@@ -1,4 +1,4 @@
-import { sanitizeTerminalLabel, type DensityCardView, type Theme } from "@code-yeongyu/senpi";
+import { sanitizeTerminalLabel, type DensityCardStructuredView, type Theme } from "@code-yeongyu/senpi";
 import { displayCode } from "./display-code.ts";
 import { normalizeEvalSummary } from "./eval-request.ts";
 import { knownLanguage } from "./live-headline.ts";
@@ -49,9 +49,11 @@ export function renderEvalCall(
 		const cellId = "cell_id" in args ? args.cell_id : undefined;
 		const title = args.action === "list" ? "eval list" : `eval ${args.action}${cellIdSuffix(cellId)}`;
 		component.setDensityCard({
-			title: style(theme, "toolTitle", title),
+			format: "structured",
+			kind: "eval",
+			heading: { identity: title },
 			status: context.executionStarted ? "running" : "pending",
-			renderContent: () => [],
+			body: [],
 			sections: [],
 		});
 		component.syncLiveTicker(false, context.invalidate);
@@ -63,7 +65,6 @@ export function renderEvalCall(
 	const code = typeof args.code === "string" ? args.code : "";
 	const language = knownLanguage(args.language);
 	const summary = displaySummary(args.summary);
-	const title = summary ?? (language === undefined ? "eval" : `eval ${language}`);
 	const metadata = [
 		language === undefined ? undefined : `eval ${language}`,
 		args.reset === true ? "reset" : undefined,
@@ -71,23 +72,33 @@ export function renderEvalCall(
 	]
 		.filter((part): part is string => part !== undefined)
 		.join(" · ");
-	const densityCard: DensityCardView = {
-		title: style(theme, "toolTitle", title),
+	const densityCard: DensityCardStructuredView = {
+		format: "structured",
+		kind: "eval",
+		heading:
+			summary === undefined
+				? { identity: language === undefined ? "eval" : `eval ${language}` }
+				: { description: summary },
 		status: context.executionStarted ? "running" : "pending",
-		...(metadata.length === 0 ? {} : { metadata: style(theme, "muted", metadata) }),
-		renderContent: (width) =>
-			renderAllVisualLines(
-				style(
-					theme,
-					"mdCodeBlock",
-					code.trim().length === 0
-						? "..."
-						: language === undefined
-							? code
-							: displayCode(code, language, context.argsComplete ? context.invalidate : undefined),
-				),
-				width,
-			),
+		body: [
+			...(metadata.length === 0 ? [] : [{ type: "text" as const, role: "muted" as const, lines: [metadata] }]),
+			{
+				type: "rich",
+				render: (width) =>
+					renderAllVisualLines(
+						style(
+							theme,
+							"mdCodeBlock",
+							code.trim().length === 0
+								? "..."
+								: language === undefined
+									? code
+									: displayCode(code, language, context.argsComplete ? context.invalidate : undefined),
+						),
+						width,
+					),
+			},
+		],
 		sections: [],
 	};
 	component.setDensityCard(densityCard);

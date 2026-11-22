@@ -1,5 +1,4 @@
-import type { DensityCardSection, DensityCardStatus, DensityCardView, Theme } from "@code-yeongyu/senpi";
-import { sanitizeTerminalLabel } from "@code-yeongyu/senpi";
+import type { DensityCardStatus, DensityCardStructuredView, Theme } from "@code-yeongyu/senpi";
 import { renderAgentProgressEvents } from "./render-agent.ts";
 import { type RenderEnvironment, renderAllVisualLines, renderNow, style } from "./render-blocks.ts";
 import { renderDensityCellCode } from "./render-cell.ts";
@@ -8,7 +7,7 @@ import { renderNestedToolCallLines, type NestedToolCallRenderOptions } from "./r
 import { formatThroughputBadge, renderStatusEvents } from "./render-status.ts";
 import { formatRuntimeBadge } from "./runtime-label.ts";
 import { formatDuration } from "./tool-widgets.ts";
-import type { EvalToolDetails } from "./types.ts";
+import type { EvalListDetails, EvalToolDetails } from "./types.ts";
 import type { ResultRenderContext } from "./render-blocks.ts";
 
 export interface EvalDensityCardOptions {
@@ -19,9 +18,10 @@ export interface EvalDensityCardOptions {
 	readonly theme: Theme | undefined;
 	readonly context: ResultRenderContext;
 	readonly renderers?: NestedToolCallRenderOptions["renderers"];
+	readonly list?: EvalListDetails;
 }
 
-export function createEvalDensityCard(options: EvalDensityCardOptions): DensityCardView {
+export function createEvalDensityCard(options: EvalDensityCardOptions): DensityCardStructuredView {
 	const { details, theme, context } = options;
 	// Older persisted host errors can carry an empty details object rather than the current schema.
 	const toolCalls = details?.toolCalls ?? [];
@@ -30,14 +30,44 @@ export function createEvalDensityCard(options: EvalDensityCardOptions): DensityC
 		(context.args.action === "run" || context.args.action === undefined ? context.args.language : undefined);
 	const firstCell = details?.cells?.[0];
 	const args = context.args.action === "run" || context.args.action === undefined ? context.args : undefined;
-	const description =
-		details?.summary ??
-		args?.summary ??
-		firstCell?.summary ??
-		(language === undefined ? undefined : `eval ${language}`);
-	const title = style(theme, "toolTitle", sanitizeTerminalLabel(description ?? "eval"));
+	const description = details?.summary ?? args?.summary ?? firstCell?.summary;
+	if (options.list !== undefined) {
+		const cells = options.list.cells;
+		const states = (["queued", "running", "detached", "completed", "failed", "cancelled"] as const).flatMap(
+			(state) => {
+				const count = cells.filter((cell) => cell.state === state).length;
+				return count === 0 ? [] : [{ state, count }];
+			},
+		);
+		const unit = cells.length === 1 ? "cell" : "cells";
+		const only = states.length === 1 ? states[0] : undefined;
+		const count = only
+			? `${cells.length} ${only.state} ${unit}`
+			: `${cells.length} ${unit}${states.length ? ` (${states.map(({ state, count: n }) => `${n} ${state}`).join(", ")})` : ""}`;
+		return {
+			format: "structured",
+			kind: "eval",
+			heading: { identity: "eval list", details: [count] },
+			expandedHeading: { identity: "eval list" },
+			status:
+				options.isError || cells.some((cell) => cell.state === "failed")
+					? "failed"
+					: options.isPartial
+						? "running"
+						: cells.some((cell) => cell.state === "cancelled")
+							? "cancelled"
+							: "done",
+			body: [
+				{
+					type: "rich",
+					render: (width) => renderAllVisualLines(style(theme, "toolOutput", options.output), width),
+				},
+			],
+			sections: [],
+		};
+	}
 	const status = densityStatus(details, options.isPartial, options.isError);
-	const metadata = (width: number): readonly string[] => {
+	const metadata = (): string => {
 		const parts = [language === undefined ? "eval" : `eval ${language}`];
 		const callCount = details?.toolCallCount ?? toolCalls.length;
 		if (callCount > 0) {
@@ -57,7 +87,7 @@ export function createEvalDensityCard(options: EvalDensityCardOptions): DensityC
 				? Math.max(0, renderNow(context) - firstCell.startedAt)
 				: (details?.wallDurationMs ?? details?.durationMs);
 		if (elapsedMs !== undefined) parts.push(formatDuration(elapsedMs));
-		return renderAllVisualLines(style(theme, "muted", parts.join(" · ")), width);
+		return parts.join(" · ");
 	};
 	const environment = (width: number): RenderEnvironment => ({
 		expanded: true,
@@ -68,27 +98,32 @@ export function createEvalDensityCard(options: EvalDensityCardOptions): DensityC
 		now: renderNow(context),
 		repaint: context.invalidate,
 	});
-	const sections: DensityCardSection[] = [];
+	const sections: DensityCardStructuredView["sections"][number][] = [];
 	const cellOutput = (details?.cells ?? [])
 		.map((cell) => ({ text: cell.output.trimEnd(), error: cell.status === "error" }))
 		.filter((cell) => cell.text.length > 0);
 	const output = cellOutput.length > 0 ? undefined : options.output.trimEnd();
 	if (cellOutput.length > 0 || (output?.length ?? 0) > 0) {
 		sections.push({
-			label: "output",
+			heading: { label: "output", role: "title" },
 			placement: "frame",
-			render: (width) =>
-				cellOutput.length > 0
-					? cellOutput.flatMap((cell) =>
-							renderAllVisualLines(style(theme, cell.error ? "error" : "toolOutput", cell.text), width),
-						)
-					: renderAllVisualLines(style(theme, "toolOutput", output ?? ""), width),
+			body: [
+				{
+					type: "rich",
+					render: (width) =>
+						cellOutput.length > 0
+							? cellOutput.flatMap((cell) =>
+									renderAllVisualLines(style(theme, cell.error ? "error" : "toolOutput", cell.text), width),
+								)
+							: renderAllVisualLines(style(theme, "toolOutput", output ?? ""), width),
+				},
+			],
 		});
 	} else if (details?.cells === undefined) {
 		sections.push({
-			label: "output",
+			heading: { label: "output", role: "title" },
 			placement: "frame",
-			render: (width) => renderAllVisualLines(style(theme, "muted", "(no output)"), width),
+			body: [{ type: "text", role: "muted", lines: ["(no output)"] }],
 		});
 	}
 	const statusEvents = [
@@ -99,23 +134,23 @@ export function createEvalDensityCard(options: EvalDensityCardOptions): DensityC
 	const agentEvents = statusEvents.filter((event) => event.op === "agent");
 	if (nonAgentEvents.length > 0) {
 		sections.push({
-			label: "status",
+			heading: { label: "status" },
 			placement: "frame",
-			render: (width) => renderStatusEvents(nonAgentEvents, environment(width)),
+			body: [{ type: "rich", render: (width) => renderStatusEvents(nonAgentEvents, environment(width)) }],
 		});
 	}
 	if (agentEvents.length > 0) {
 		sections.push({
-			label: "agents",
+			heading: { label: "agents" },
 			placement: "frame",
-			render: (width) => renderAgentProgressEvents(agentEvents, environment(width)),
+			body: [{ type: "rich", render: (width) => renderAgentProgressEvents(agentEvents, environment(width)) }],
 		});
 	}
 	if ((details?.jsonOutputs?.length ?? 0) > 0) {
 		sections.push({
-			label: "display",
+			heading: { label: "display" },
 			placement: "frame",
-			render: (width) => renderJsonOutputs(details?.jsonOutputs ?? [], environment(width)),
+			body: [{ type: "rich", render: (width) => renderJsonOutputs(details?.jsonOutputs ?? [], environment(width)) }],
 		});
 	}
 	if (toolCalls.length > 0) {
@@ -127,24 +162,46 @@ export function createEvalDensityCard(options: EvalDensityCardOptions): DensityC
 		};
 		const shellOnly = toolCalls.every((call) => call.name === "bash");
 		sections.push({
-			label: shellOnly ? "commands" : "tool calls",
+			heading: { label: shellOnly ? "commands" : "tool calls" },
 			placement: "grouped",
-			render: (width, grouped) =>
-				renderNestedToolCallLines(details, { ...nestedOptions, indent: grouped ? 0 : 2 }, width),
+			body: [
+				{
+					type: "rich",
+					render: (width, grouped) =>
+						renderNestedToolCallLines(details, { ...nestedOptions, indent: grouped ? 0 : 2 }, width),
+				},
+			],
 		});
 	}
 	return {
-		title,
+		format: "structured",
+		kind: "eval",
+		heading:
+			description === undefined
+				? {
+						identity:
+							context.args.action === "peek" || context.args.action === "stop"
+								? `eval ${context.args.action}`
+								: language === undefined
+									? "eval"
+									: `eval ${language}`,
+					}
+				: { description },
 		status,
-		renderMetadata: metadata,
-		renderContent: (width) => {
-			const lines: string[] = [];
-			for (const [index, cell] of (details?.cells ?? []).entries()) {
-				if (index > 0) lines.push("");
-				lines.push(...renderDensityCellCode(cell, environment(width)));
-			}
-			return lines;
-		},
+		body: [
+			{ type: "text", role: "muted", lines: [metadata()] },
+			{
+				type: "rich",
+				render: (width) => {
+					const lines: string[] = [];
+					for (const [index, cell] of (details?.cells ?? []).entries()) {
+						if (index > 0) lines.push("");
+						lines.push(...renderDensityCellCode(cell, environment(width)));
+					}
+					return lines;
+				},
+			},
+		],
 		sections,
 	};
 }

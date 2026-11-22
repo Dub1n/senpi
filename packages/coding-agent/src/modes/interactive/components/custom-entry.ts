@@ -1,9 +1,10 @@
 import type { Component } from "@earendil-works/pi-tui";
-import { Box, Container, Spacer, Text } from "@earendil-works/pi-tui";
+import { Box, Container, isSemanticDensityCardSource, Spacer, Text } from "@earendil-works/pi-tui";
 import type { EntryRenderer, EntryRendererOptions } from "../../../core/extensions/types.ts";
 import type { CustomEntry } from "../../../core/session-manager.ts";
 import { theme } from "../theme/theme.ts";
 import {
+	entryNoticeCard,
 	isNoticeBox,
 	namedNoticeKind,
 	noticeBoxBackground,
@@ -38,7 +39,11 @@ export class CustomEntryComponent extends Container {
 	}
 
 	get noticeDensityEligible(): boolean {
-		return isNoticeBox(this.customComponent);
+		return (
+			(this.customComponent !== undefined && isSemanticDensityCardSource(this.customComponent)) ||
+			entryNoticeCard(this.entry, this.customComponent) !== undefined ||
+			isNoticeBox(this.customComponent)
+		);
 	}
 
 	get densityExpanded(): boolean {
@@ -49,7 +54,12 @@ export class CustomEntryComponent extends Container {
 		return renderNoticeBoxTitle(this.customComponent, width) ?? [];
 	}
 
-	renderDensityCard() {
+	renderDensityCard(width: number, options: { readonly grouped: boolean; readonly expanded?: boolean }) {
+		if (this.customComponent && isSemanticDensityCardSource(this.customComponent)) {
+			return this.customComponent.renderDensityCard(width, options);
+		}
+		const entryCard = entryNoticeCard(this.entry, this.customComponent);
+		if (entryCard) return entryCard;
 		const kind = namedNoticeKind(this.entry.customType);
 		return kind === undefined ? undefined : renderNamedNoticeCard(this.customComponent, kind);
 	}

@@ -1,3 +1,22 @@
+## 2026-11-22 - Structured bash output cards
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/terminal/tools/bash-output.ts`: preserve the resolved session id, process status, exit code, muted notice, and displayed output as structured result details while leaving the model-facing content unchanged.
+- `packages/coding-agent/src/core/extensions/builtin/terminal/tools/render.ts`: render successful lookups as structured `bash` cards, keep process outcome separate from lookup success, and render body output with the muted role. Numeric `bash_N` ids supply only their exact numeric identity; other ids remain explicit details.
+
+### Why
+
+- Dense terminal cards need authoritative runtime metadata and producer-known notice/output boundaries. Parsing their joined display text can mistake shell output for status and change the model's original result.
+
+### Why an extension could not handle it
+
+- The `bash_output` tool owns the runtime lookup and result details, and its renderer owns the terminal card projection.
+
+### Expected merge conflict zones
+
+- LOW: `tools/bash-output.ts` result construction and `tools/render.ts` density-card rendering.
+
 ## 2026-11-15 - Terminal notices from a hand (senpi#6763, PR #6767)
 
 ### What changed

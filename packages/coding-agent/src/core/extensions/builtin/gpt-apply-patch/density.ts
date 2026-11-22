@@ -1,5 +1,5 @@
 import path from "node:path";
-import { sanitizeTerminalLabel, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { sanitizeTerminalLabel, wrapTextWithAnsi, type DensityCardStructuredView } from "@earendil-works/pi-tui";
 import type { AgentToolResult } from "../../types.ts";
 import { renderToolDiff } from "../../../tools/diff-render.ts";
 import { truncatePreview } from "./preview-format.ts";
@@ -34,7 +34,7 @@ function operation(file: ApplyPatchPreviewFile): "added" | "edited" | "deleted" 
 	}
 }
 
-export function patchDensityCard(input: DensityInput) {
+export function patchDensityCard(input: DensityInput): DensityCardStructuredView {
 	const { result, isError, isPartial, executionStarted, cwd, theme } = input;
 	const settled = result?.details?.result;
 	const failed = isError || (settled?.failures.length ?? 0) > 0;
@@ -42,15 +42,16 @@ export function patchDensityCard(input: DensityInput) {
 	const files = settled ? (result?.details?.preview?.files ?? []) : [];
 	const successful = settled !== undefined && !failed && !isPartial;
 	const single = successful && files.length === 1 ? files[0] : undefined;
-	const name = single ? operation(single) : "tool";
-	const title = single
-		? ` ${filePath(single, cwd, true)} ${summary(single)}`
+	const kind = single ? operation(single) : "tool";
+	const details = single
+		? [summary(single)]
 		: successful && files.length > 0
-			? ` apply_patch ${files.length} files`
+			? [`${files.length} files`]
 			: failed
-				? " apply_patch failed"
-				: " apply_patch";
-	const expandedTitle = single ? ` ${filePath(single, cwd, false)} ${summary(single)}` : title;
+				? ["failed"]
+				: [];
+	const heading = { identity: single ? filePath(single, cwd, true) : "apply_patch", details };
+	const expandedHeading = single ? { identity: filePath(single, cwd, false), details } : heading;
 	const status = failed ? "failed" : isPartial || !settled ? (executionStarted ? "running" : "pending") : "done";
 	const renderFile = (file: ApplyPatchPreviewFile, width: number) =>
 		file.diff
@@ -66,24 +67,29 @@ export function patchDensityCard(input: DensityInput) {
 					.map((block) => block.text)
 					.join("\n") ?? "")
 			: "";
+	const progress = !settled && result?.details?.progress;
 	return {
-		name,
-		kind: single ? name : ("tool" as const),
-		title,
-		expandedTitle,
+		format: "structured",
+		kind,
+		heading,
+		expandedHeading,
 		status,
-		renderContent: (width: number) => {
-			const lines = single ? renderFile(single, width) : [];
-			const progress = !settled && result?.details?.progress;
-			if (progress) lines.push(`progress: ${progress.applied + progress.failed}/${progress.total}`);
-			return diagnosticText ? [...lines, ...wrapTextWithAnsi(diagnosticText, width)] : lines;
-		},
+		body: [
+			...(single ? [{ type: "rich" as const, render: (width: number) => renderFile(single, width) }] : []),
+			...(progress
+				? [{ type: "text" as const, lines: [`progress: ${progress.applied + progress.failed}/${progress.total}`] }]
+				: []),
+			...(diagnosticText ? [{ type: "text" as const, lines: diagnosticText.split("\n") }] : []),
+		],
 		sections: single
 			? []
 			: files.map((file) => ({
-					label: `${operation(file)} ${filePath(file, cwd, false)} ${summary(file)}`,
 					placement: "frame" as const,
-					render: (width: number) => renderFile(file, width),
+					heading: {
+						kind: operation(file),
+						heading: { identity: filePath(file, cwd, false), details: [summary(file)] },
+					},
+					body: [{ type: "rich" as const, render: (width: number) => renderFile(file, width) }],
 				})),
 	};
 }

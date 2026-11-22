@@ -5,6 +5,7 @@ import {
 	type ToolResultMessage,
 } from "@earendil-works/pi-ai";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
+import xterm from "@xterm/headless";
 import { describe, expect, it } from "vitest";
 import todotoolsExtension from "../../src/core/extensions/builtin/todotools/index.ts";
 import type { TodoToolDetails } from "../../src/core/extensions/builtin/todotools/todo-types.ts";
@@ -168,13 +169,52 @@ describe.each(densities)("%s individual card goldens", (density) => {
 		);
 		expect(await visibleRows(replay, { density, view: "expanded" }, [todotoolsExtension])).toEqual([
 			"",
-			...["", " ╭─ ✗ todo · view", " │ Cannot read checklist", " ╰─", ""].map((line) => line.padEnd(width)),
+			...["", " ╭─ ✗ todo • view", " │ Cannot read checklist", " ╰─", ""].map((line) => line.padEnd(width)),
 		]);
 	});
 	describe.each(todoCases)("Todo $name", ({ name, replay }) => {
 		it.each(views)("matches the complete %s action card", async (view) => {
 			expect(await visibleRows(replay, { density, view }, [todotoolsExtension])).toEqual(todoGolden[name][view]);
 		});
+	});
+
+	it.each([
+		{ op: "done", status: "completed", attribute: "strike" },
+		{ op: "drop", status: "abandoned", attribute: "italic" },
+	] as const)("preserves Todo $attribute in the folded action heading", async ({ op, status, attribute }) => {
+		const details = {
+			...todoInitDetails,
+			op,
+			phases: [{ name: "Verification", tasks: [{ content: "Verify the runtime", status }] }],
+		} satisfies TodoToolDetails;
+		const surface = await explorationSurface(true, [todotoolsExtension]);
+		const terminal = new xterm.Terminal({ cols: width + 1, rows: 10, allowProposedApi: true });
+		try {
+			if (!(surface.chat instanceof ExplorationTranscriptContainer)) throw new TypeError("Expected transcript");
+			invoke(
+				surface.mode,
+				"renderSessionItems",
+				toolReplay(
+					"todo",
+					{ op, task: "Verify the runtime" },
+					{
+						isError: false,
+						content: [],
+						details,
+					},
+				),
+			);
+			surface.chat.setToolDisplayDensity(density);
+			const rows = surface.chat.render(width);
+			await new Promise<void>((resolve) => terminal.write(rows.join("\x1b[0m\r\n"), resolve));
+			const row = rows.findIndex((line) => stripTerminalSequences(line).includes("Verify the runtime"));
+			const column = stripTerminalSequences(rows[row] ?? "").indexOf("Verify the runtime");
+			const cell = terminal.buffer.active.getLine(row)?.getCell(column);
+			expect(cell && (attribute === "strike" ? cell.isStrikethrough() : cell.isItalic())).toBeTruthy();
+		} finally {
+			terminal.dispose();
+			surface.cleanup();
+		}
 	});
 
 	it.each(views)("matches the complete %s read card for an indented slice with blank boundaries", async (view) => {
@@ -185,6 +225,23 @@ describe.each(densities)("%s individual card goldens", (density) => {
 		);
 
 		expect(await visibleRows(replay, { density, view })).toEqual(readGolden[view]);
+	});
+
+	it("trims only trailing whitespace rows from an expanded read", async () => {
+		const replay = toolReplay(
+			"read",
+			{ path: "sample.txt" },
+			{
+				isError: false,
+				content: [{ type: "text", text: "\n  first\n \n    second\n  \n\t" }],
+			},
+		);
+		expect(await visibleRows(replay, { density, view: "expanded" })).toEqual([
+			"",
+			...["", " ╭─ ✓ read • sample.txt", " │ ", " │   first", " │  ", " │     second", " ╰─", ""].map((line) =>
+				line.padEnd(width),
+			),
+		]);
 	});
 
 	it.each(searchCases)("matches the folded provider search with $name status", async ({ name, status }) => {

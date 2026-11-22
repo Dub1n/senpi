@@ -1,21 +1,63 @@
-import { stripTerminalSequences } from "@earendil-works/pi-tui";
+import { Box, stripTerminalSequences, Text } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
+import goalExtension from "../../src/core/extensions/builtin/goal/index.ts";
+import { noticeMessageRenderer } from "../../src/core/extensions/notice/index.ts";
 import { SESSION_CONTROL_DELIVERY_TYPE } from "../../src/core/extensions/session-control-types.ts";
 import { createCompactionSummaryMessage, createCustomMessage } from "../../src/core/messages.ts";
 import { ExplorationTranscriptContainer } from "../../src/modes/interactive/components/exploration-transcript-container.ts";
+import type { InlineExtension } from "../../src/index.ts";
 import { explorationSurface, invoke } from "./exploration-surface-harness.ts";
 
 const width = 80;
 const row = (text: string) => text.padEnd(width, " ");
 
-async function fixture(density: "compact" | "grouped") {
-	const surface = await explorationSurface();
+const reflectionExtension: InlineExtension = (pi) => {
+	pi.registerEntryRenderer("senpi-memory.reflection-completion", (entry, options, theme) => {
+		const data = entry.data as { outcome?: string; recap?: { headline: string } } | undefined;
+		if (data?.outcome !== "merged") return undefined;
+		const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
+		box.addChild(new Text("● Remembered · on reflection", 0, 0));
+		box.addChild(new Text(data.recap?.headline ?? "Fallback recap.", 0, 0));
+		if (options.expanded) box.addChild(new Text("  retained indentation", 0, 0));
+		return box;
+	});
+	pi.registerMessageRenderer(
+		"memory-reflection",
+		noticeMessageRenderer(() => ({
+			title: "✦ Aha moment! Saved context changes the next step.",
+			why: "The reflection found a decision that affects the current task.",
+			extra: [{ text: "Keep the retry guard." }],
+		})),
+	);
+};
+
+async function fixture(density: "compact" | "grouped" | "default", extensionFactories: InlineExtension[] = []) {
+	const surface = await explorationSurface(true, extensionFactories);
 	if (!(surface.chat instanceof ExplorationTranscriptContainer)) {
 		surface.cleanup();
 		throw new TypeError("Expected the interactive transcript");
 	}
-	surface.chat.setToolDisplayDensity(density);
+	if (density !== "default") surface.chat.setToolDisplayDensity(density);
 	return { ...surface, chat: surface.chat };
+}
+
+function cacheWarmEntry(id: string, phase: "scheduled" | "resumed") {
+	return {
+		type: "custom" as const,
+		id,
+		parentId: null,
+		timestamp: new Date(0).toISOString(),
+		customType: "goal-cache-warmup",
+		data: {
+			phase,
+			goalId: "goal-a",
+			delayMs: 270_000,
+			dueAtMs: 270_000,
+			...(phase === "resumed" ? { waitedMs: 270_000, wakeCause: "sources-drained" } : {}),
+			iteration: 1,
+			activeMonitorCount: 1,
+		},
+	};
 }
 
 function click(surface: Awaited<ReturnType<typeof fixture>>, y: number) {
@@ -36,6 +78,146 @@ function click(surface: Awaited<ReturnType<typeof fixture>>, y: number) {
 }
 
 describe("dense transcript notices", () => {
+	it.each(["compact", "grouped"] as const)(
+		"replaces one cache-warm wait card with its wake in %s",
+		async (density) => {
+			const surface = await fixture(density, [goalExtension]);
+			try {
+				invoke(surface.mode, "renderSessionItems", [
+					cacheWarmEntry("wait", "scheduled"),
+					cacheWarmEntry("wake", "resumed"),
+				]);
+
+				expect(surface.chat.render(width).map(stripTerminalSequences)).toEqual([
+					"",
+					row(""),
+					row(" ╶─ ↯ wake • iteration 1 · waited 4m 30s · 1 wake source on duty"),
+					row(""),
+				]);
+			} finally {
+				surface.cleanup();
+			}
+		},
+	);
+
+	it("renders a scheduled wait from its phase without a wake", async () => {
+		const surface = await fixture("compact", [goalExtension]);
+		try {
+			invoke(surface.mode, "renderSessionItems", [cacheWarmEntry("wait", "scheduled")]);
+			expect(surface.chat.render(width).map(stripTerminalSequences)).toEqual([
+				"",
+				row(""),
+				row(" ╶─ ↯ wait • iteration 1 · 1 wake source on duty"),
+				row(""),
+			]);
+		} finally {
+			surface.cleanup();
+		}
+	});
+
+	it.each(["compact", "grouped"] as const)(
+		"retains reflection body column and payload indentation in %s",
+		async (density) => {
+			const surface = await fixture(density, [reflectionExtension]);
+			try {
+				invoke(surface.mode, "renderSessionItems", [
+					{
+						type: "custom",
+						id: "reflection",
+						parentId: null,
+						timestamp: new Date(0).toISOString(),
+						customType: "senpi-memory.reflection-completion",
+						data: { outcome: "merged", recap: { headline: "Recap headline." } },
+					},
+				]);
+				expect(click(surface, 2)?.handled).toBe(true);
+				expect(surface.chat.render(width).map(stripTerminalSequences)).toEqual([
+					"",
+					row(""),
+					row(" ╭─ ● remembered • on reflection"),
+					row(" │ Recap headline."),
+					row(" │   retained indentation"),
+					row(" ╰─"),
+					row(""),
+				]);
+			} finally {
+				surface.cleanup();
+			}
+		},
+	);
+
+	it("keeps a merged reflection on its original Default renderer", async () => {
+		const surface = await fixture("default", [reflectionExtension]);
+		try {
+			invoke(surface.mode, "renderSessionItems", [
+				{
+					type: "custom",
+					id: "reflection",
+					parentId: null,
+					timestamp: new Date(0).toISOString(),
+					customType: "senpi-memory.reflection-completion",
+					data: { outcome: "merged", recap: { headline: "Recap headline." } },
+				},
+			]);
+			const text = surface.text(width);
+			expect(text).toContain("● Remembered · on reflection");
+			expect(text).toContain("Recap headline.");
+			expect(text).not.toContain("╶─");
+		} finally {
+			surface.cleanup();
+		}
+	});
+
+	it.each(["compact", "grouped"] as const)("renders a reflection notice as exact card rows in %s", async (density) => {
+		const surface = await fixture(density, [reflectionExtension]);
+		try {
+			invoke(
+				surface.mode,
+				"addMessageToChat",
+				createCustomMessage(
+					"memory-reflection",
+					"Saved context changes the next step.",
+					true,
+					undefined,
+					new Date(0).toISOString(),
+				),
+			);
+
+			expect(surface.chat.render(width).map(stripTerminalSequences)).toEqual([
+				"",
+				row(""),
+				row(" ╶─ ✦ Aha moment! Saved context changes the next step."),
+				row(""),
+			]);
+		} finally {
+			surface.cleanup();
+		}
+	});
+
+	it("keeps reflection notices on the ordinary transcript path in Default", async () => {
+		const surface = await fixture("default", [reflectionExtension]);
+		try {
+			invoke(
+				surface.mode,
+				"addMessageToChat",
+				createCustomMessage(
+					"memory-reflection",
+					"Saved context changes the next step.",
+					true,
+					undefined,
+					new Date(0).toISOString(),
+				),
+			);
+
+			const rows = surface.chat.render(width).map(stripTerminalSequences);
+			expect(rows.join("\n")).toContain("Aha moment! Saved context changes the next step.");
+			expect(rows.join("\n")).toContain("The reflection found a decision that affects the current task.");
+			expect(rows.join("\n")).not.toContain("╶─ ✦");
+		} finally {
+			surface.cleanup();
+		}
+	});
+
 	it.each(["compact", "grouped"] as const)("folds and expands a compaction in %s", async (density) => {
 		const surface = await fixture(density);
 		try {
@@ -45,17 +227,53 @@ describe("dense transcript notices", () => {
 				createCompactionSummaryMessage("Preserved fixture summary.", 425730, new Date(0).toISOString()),
 			);
 			const folded = surface.chat.render(width).map(stripTerminalSequences);
-			expect(folded).toEqual(["", row(""), row(" ╶─ ✓ compacted from 425,730 tokens"), row("")]);
+			expect(folded).toEqual(["", row(""), row(" ╶─ ✓ compacted • from 425,730 tokens"), row("")]);
 			expect(click(surface, 2)?.handled).toBe(true);
 			const expanded = surface.chat.render(width).map(stripTerminalSequences);
 			expect(expanded).toEqual([
 				"",
 				row(""),
-				row(" ╭─ ✓ compacted from 425,730 tokens"),
+				row(" ╭─ ✓ compacted • from 425,730 tokens"),
 				row(" │ Preserved fixture summary."),
 				row(" ╰─"),
 				row(""),
 			]);
+		} finally {
+			surface.cleanup();
+		}
+	});
+
+	it("keeps compaction and agent delivery on their Default renderers", async () => {
+		const surface = await fixture("default");
+		try {
+			invoke(
+				surface.mode,
+				"addMessageToChat",
+				createCompactionSummaryMessage("Preserved summary.", 12000, new Date(0).toISOString()),
+			);
+			invoke(
+				surface.mode,
+				"addMessageToChat",
+				createCustomMessage(
+					SESSION_CONTROL_DELIVERY_TYPE,
+					"Original body.",
+					true,
+					{
+						delivery_id: "default",
+						source: "session_control",
+						deliverAs: "steer",
+						sender: { kind: "agent", session_id: "peer", name: "worker" },
+						display_text: "Visible body.",
+					},
+					new Date(0).toISOString(),
+				),
+			);
+			const text = surface.text(width);
+			expect(text).toContain("[compaction]");
+			expect(text).toContain("compacted from 12,000 tokens");
+			expect(text).toContain("Sent by another agent");
+			expect(text).toContain("Visible body.");
+			expect(text).not.toContain("╶─");
 		} finally {
 			surface.cleanup();
 		}
@@ -85,14 +303,14 @@ describe("dense transcript notices", () => {
 				expect(surface.chat.render(width).map(stripTerminalSequences)).toEqual([
 					"",
 					row(""),
-					row(" ╶─ ✓ compacted from 361,726 tokens · 1 retained item"),
+					row(" ╶─ ✓ compacted • from 361,726 tokens · 1 retained item"),
 					row(""),
 				]);
 				expect(click(surface, 2)?.handled).toBe(true);
 				expect(surface.chat.render(width).map(stripTerminalSequences)).toEqual([
 					"",
 					row(""),
-					row(" ╭─ ✓ compacted from 361,726 tokens · 1 retained item"),
+					row(" ╭─ ✓ compacted • from 361,726 tokens · 1 retained item"),
 					row(" │ OpenAI remote compaction retained 1 native item (responses-v2) from 1,151"),
 					row(" │ OpenAI input items."),
 					row(" ╰─"),
@@ -127,7 +345,7 @@ describe("dense transcript notices", () => {
 			expect(surface.chat.render(width).map(stripTerminalSequences)).toEqual([
 				"",
 				row(""),
-				row(" ╭─ ✓ compacted from 12,000 tokens · 2 retained items"),
+				row(" ╭─ ✓ compacted • from 12,000 tokens · 2 retained items"),
 				row(" │ Keep both decisions."),
 				row(" │"),
 				row(" │ The second is still pending."),
@@ -163,13 +381,13 @@ describe("dense transcript notices", () => {
 				),
 			);
 			const folded = surface.chat.render(width).map(stripTerminalSequences);
-			expect(folded).toEqual(["", row(""), row(" ╶─ ← from build-worker · Relayed from device laptop"), row("")]);
+			expect(folded).toEqual(["", row(""), row(" ╶─ ← from • build-worker · Relayed from device laptop"), row("")]);
 			expect(click(surface, 2)?.handled).toBe(true);
 			const expanded = surface.chat.render(width).map(stripTerminalSequences);
 			expect(expanded).toEqual([
 				"",
 				row(""),
-				row(" ╭─ ← from build-worker · Relayed from device laptop"),
+				row(" ╭─ ← from • build-worker · Relayed from device laptop"),
 				row(" │ Original fixture body."),
 				row(" │"),
 				row(" │ From the checklist: keep this line."),
@@ -204,7 +422,7 @@ describe("dense transcript notices", () => {
 			expect(surface.chat.render(width).map(stripTerminalSequences)).toEqual([
 				"",
 				row(""),
-				row(" ╭─ ← from peer-7"),
+				row(" ╭─ ← from • peer-7"),
 				row(" │ From the incident log"),
 				row(" │"),
 				row(" │ Do not discard this paragraph."),
@@ -274,7 +492,7 @@ describe("dense transcript notices", () => {
 				.toEqual([
 					"",
 					row(""),
-					row(" ╶─ ✓ compacted from 425,730 tokens"),
+					row(" ╶─ ✓ compacted • from 425,730 tokens"),
 					row(" ╶─ ✓ System prompt: gpt-6.2"),
 					row(""),
 				]);

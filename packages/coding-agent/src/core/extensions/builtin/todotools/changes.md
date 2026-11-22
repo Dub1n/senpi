@@ -1,5 +1,23 @@
 # todotools Fork Tracker
 
+## 2026-11-22 - Structured dense Todo cards
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/todotools/tools/todo-card.ts`: emit structured headings with raw status glyphs and strike or italic spans while retaining the checklist and failure diagnostics.
+
+### Why
+
+- The shared dense formatter owns separators and semantic styling without discarding Todo task attributes.
+
+### Why an extension could not handle it
+
+- The Todo builtin owns the operation state and its registered renderer.
+
+### Expected merge conflict zones
+
+- LOW: `TodoCard.renderDensityCard` heading and body construction.
+
 ## 2026-11-18 - The GPT cue labels derive from one constant (senpi#6982 follow-up)
 
 ### What changed

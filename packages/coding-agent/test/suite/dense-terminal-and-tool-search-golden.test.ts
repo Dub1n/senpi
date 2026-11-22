@@ -103,29 +103,58 @@ function text(value: string): Result {
 	return { content: [{ type: "text", text: value }], details: undefined };
 }
 
+function bashOutput(
+	value: string,
+	sessionId: string,
+	processStatus: string,
+	exitCode: number | null,
+	notice = "",
+): Result {
+	const statusStart = notice ? notice.length + 1 : 0;
+	const statusEnd = value.indexOf("\n", statusStart);
+	return {
+		...text(value),
+		details: {
+			bashOutput: { sessionId, processStatus, exitCode, statusStart, statusEnd },
+		},
+	};
+}
+
 describe.each(densities)("bash output in %s", (density) => {
 	it("separates the successful lookup from the running process", async () => {
-		const result = text("status: running\n(no new output)");
+		const result = bashOutput("status: running\n(no new output)", "bash_39", "running", null);
 		expect(await transcript("bash_output", bashArgs, result, { density, expanded: false, width: wide })).toEqual(
-			rows(wide, " ╶─ ✓ bash output"),
+			rows(wide, " ╶─ ✓ bash 39 • running"),
 		);
 		expect(await transcript("bash_output", bashArgs, result, { density, expanded: true, width: wide })).toEqual(
-			rows(wide, " ╭─ ✓ bash output", " │ bash_39 · status: running", " │ (no new output)", " ╰─"),
+			rows(wide, " ╭─ ✓ bash 39 • running", " │ (no new output)", " ╰─"),
 		);
 	});
 
 	it("keeps failed exit status and shell payload distinct from a lookup failure", async () => {
-		const result = text("status: exited_3 exit_code: 3\n  kept indentation\n\nstatus: running");
+		const result = bashOutput(
+			"status: exited_3 exit_code: 3\n  kept indentation\n\nstatus: running",
+			"bash_39",
+			"exited_3",
+			3,
+		);
 		expect(await transcript("bash_output", bashArgs, result, { density, expanded: true, width: wide })).toEqual(
 			rows(
 				wide,
-				" ╭─ ✓ bash output",
-				" │ bash_39 · status: exited_3 exit_code: 3",
+				" ╭─ ✓ bash 39 • exited_3 · exit_code: 3",
 				" │   kept indentation",
 				" │ ",
 				" │ status: running",
 				" ╰─",
 			),
+		);
+	});
+
+	it("keeps a nonnumeric session id explicit instead of guessing an identity", async () => {
+		const args = { bash_id: "custom-session" };
+		const result = bashOutput("status: running\nready", "custom-session", "running", null);
+		expect(await transcript("bash_output", args, result, { density, expanded: true, width: wide })).toEqual(
+			rows(wide, " ╭─ ✓ bash custom-session • running", " │ ready", " ╰─"),
 		);
 	});
 
@@ -138,33 +167,34 @@ describe.each(densities)("bash output in %s", (density) => {
 				{ content: result.content, isError: result.isError },
 				{ density, expanded: true, width: wide },
 			),
-		).toEqual(rows(wide, " ╭─ ✗ bash output", " │ No terminal session found with id: bash_39", " ╰─"));
+		).toEqual(rows(wide, " ╭─ ✗ bash 39", " │ No terminal session found with id: bash_39", " ╰─"));
 	});
 
 	it("preserves unfamiliar output without asserting a successful lookup", async () => {
 		expect(
 			await transcript("bash_output", bashArgs, text("legacy output"), { density, expanded: true, width: wide }),
-		).toEqual(rows(wide, " ╭─ ❯ bash output", " │ legacy output", " ╰─"));
+		).toEqual(rows(wide, " ╭─ ❯ bash 39", " │ legacy output", " ╰─"));
+	});
+
+	it("uses only the original header slot for a saved lookup without typed details", async () => {
+		const result = text("status: running\n  older output\nstatus: killed");
+		expect(await transcript("bash_output", bashArgs, result, { density, expanded: true, width: wide })).toEqual(
+			rows(wide, " ╭─ ✓ bash 39 • running", " │   older output", " │ status: killed", " ╰─"),
+		);
 	});
 });
 
-it("keeps the process status first without discarding the preceding monitor notice", async () => {
-	const result: Result = {
-		...text("monitor muted; rearm to resume\nstatus: running\nscreen row"),
-		details: { monitorMuted: true, mutedDropped: 0 },
-	};
+it("renders monitor notices separately from output", async () => {
+	const result = bashOutput(
+		"monitor muted; rearm to resume\nstatus: running\nscreen row",
+		"bash_39",
+		"running",
+		null,
+		"monitor muted; rearm to resume",
+	);
 	expect(
 		await transcript("bash_output", bashArgs, result, { density: "grouped", expanded: true, width: wide }),
-	).toEqual(
-		rows(
-			wide,
-			" ╭─ ✓ bash output",
-			" │ bash_39 · status: running",
-			" │ monitor muted; rearm to resume",
-			" │ screen row",
-			" ╰─",
-		),
-	);
+	).toEqual(rows(wide, " ╭─ ✓ bash 39 • running", " │ monitor muted; rearm to resume", " │ screen row", " ╰─"));
 });
 
 describe.each(densities)("catalog tool search in %s", (density) => {
@@ -172,12 +202,12 @@ describe.each(densities)("catalog tool search in %s", (density) => {
 		const args = { query: "weather" };
 		const result = await catalogResult(args);
 		expect(await transcript("tool_search", args, result, { density, expanded: false, width: wide })).toEqual(
-			rows(wide, ' ╶─ ◉ tool "weather"'),
+			rows(wide, ' ╶─ ◉ tool • "weather"'),
 		);
 		expect(await transcript("tool_search", args, result, { density, expanded: true, width: wide })).toEqual(
 			rows(
 				wide,
-				' ╭─ ◉ tool "weather"',
+				' ╭─ ◉ tool • "weather"',
 				" │ 1 tool(s) found",
 				' │ Found 1 tool(s) matching "weather". Nothing was activated;',
 				" │ call one by name and it activates on that first call:",
@@ -194,10 +224,10 @@ describe.each(densities)("catalog tool search in %s", (density) => {
 		const args = { query: "weather observation and forecast" };
 		const result = { ...text("Catalog blocked\n  Retry later"), isError: true };
 		expect(await transcript("tool_search", args, result, { density, expanded: false, width })).toEqual(
-			rows(width, ' ╶─ ✗ tool "weather observati…'),
+			rows(width, ' ╶─ ✗ tool • "weather observa…'),
 		);
 		expect(await transcript("tool_search", args, result, { density, expanded: true, width })).toEqual(
-			rows(width, ' ╭─ ✗ tool "weather observation…', " │ Catalog blocked", " │   Retry later", " ╰─"),
+			rows(width, ' ╭─ ✗ tool • "weather observati…', " │ Catalog blocked", " │   Retry later", " ╰─"),
 		);
 	});
 });
@@ -213,7 +243,7 @@ it("uses a real zero count on successful search, not an error icon", async () =>
 	).toEqual(
 		rows(
 			wide,
-			' ╭─ ◉ tool "teleportation"',
+			' ╭─ ◉ tool • "teleportation"',
 			" │ 0 tool(s) found",
 			' │ No catalog tools matched "teleportation". Your active tool',
 			" │ set is unchanged. Try different keywords or a broader query.",

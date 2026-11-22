@@ -1,5 +1,6 @@
 import type { AssistantMessage, ProviderNativeContent } from "@earendil-works/pi-ai";
 import {
+	type DensityCardStructuredView,
 	type DensityCardView,
 	nextRenderRevision,
 	Text,
@@ -125,20 +126,31 @@ export class AssistantDensityCard implements DensityCardSource {
 					: providerStatus === "in_progress" || providerStatus === "searching"
 						? "running"
 						: undefined;
-		const provider = descriptor.provider ? `${descriptor.provider} · ` : "";
-		const statusLabel = grouped && status === undefined && providerStatus ? ` · ${providerStatus}` : "";
+		const details = ["web_search"];
+		if (grouped && status === undefined && providerStatus) details.push(providerStatus);
 		const foldedDetails = !grouped && providerStatus ? [theme.fg("muted", `status: ${providerStatus}`)] : undefined;
-		return {
-			title: theme.fg("muted", `${provider}web_search${statusLabel}`),
+		const view: DensityCardStructuredView = {
+			format: "structured",
+			kind: "search",
+			heading: {
+				...(descriptor.provider ? { identity: descriptor.provider } : {}),
+				details,
+			},
 			...(status === undefined ? {} : { status }),
 			...(foldedDetails === undefined ? {} : { foldedDetails }),
-			renderContent: (width) =>
-				wrapTextWithAnsi(
-					theme.fg("dim", formatProviderNativeBody(descriptor.content, true).replaceAll("\t", "   ")),
-					width,
-				),
+			body: [
+				{
+					type: "rich",
+					render: (width) =>
+						wrapTextWithAnsi(
+							theme.fg("dim", formatProviderNativeBody(descriptor.content, true).replaceAll("\t", "   ")),
+							width,
+						),
+				},
+			],
 			sections: [],
 		};
+		return view;
 	}
 
 	get densityExpanded(): boolean {

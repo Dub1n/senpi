@@ -18,18 +18,23 @@ export function toolDensityKind(name: string): DensityCardKind | undefined {
 		case "eval":
 			return "eval";
 		case "bash":
-		case "powershell":
-		case "bash_output":
 		case "bash_input":
 		case "bash_resize":
 		case "kill_bash":
 			return "shell";
+		case "powershell":
+			return "powershell";
+		case "bash_output":
+			return "bash-output";
 		case "read":
 			return "read";
 		case "grep":
+			return "grep";
 		case "find":
-		case "glob":
+			return "find";
 		case "ls":
+			return "ls";
+		case "glob":
 		case "webfetch":
 			return "search";
 		case "todo":
@@ -40,13 +45,16 @@ export function toolDensityKind(name: string): DensityCardKind | undefined {
 		case "memory":
 			return "memory";
 		case "task_send":
-			return "message";
+			return "outgoing-message";
 		case "task":
-		case "task_output":
 		case "task_cancel":
 			return "task";
+		case "task_output":
+			return "task-peek";
 		case "edit":
+			return "edit";
 		case "write":
+			return "write";
 		case "apply_patch":
 		case "tool_search":
 			return "tool";

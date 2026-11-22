@@ -872,23 +872,33 @@ describe("SettingsManager", () => {
 			expect(SettingsManager.create(projectDir, agentDir).getToolDisplayDensity()).toBe("default");
 		});
 
-		it("defaults dense colors off and persists the two switches independently", async () => {
+		it("defaults dense colors off and persists each switch independently", async () => {
 			const manager = SettingsManager.create(projectDir, agentDir);
-			expect(manager.getToolDisplayColors()).toEqual({ colorFrames: false, colorNames: false });
+			expect(manager.getToolDisplayColors()).toEqual({ colorFrames: false, colorNames: false, colorIcons: false });
 
 			manager.setToolDisplayColorFrames(true);
 			await manager.flush();
 			expect(SettingsManager.create(projectDir, agentDir).getToolDisplayColors()).toEqual({
 				colorFrames: true,
 				colorNames: false,
+				colorIcons: false,
 			});
 
 			manager.setToolDisplayColorNames(true);
+			manager.setToolDisplayColorIcons(true);
 			manager.setToolDisplayColorFrames(false);
 			await manager.flush();
 			expect(SettingsManager.create(projectDir, agentDir).getToolDisplayColors()).toEqual({
 				colorFrames: false,
 				colorNames: true,
+				colorIcons: true,
+			});
+			manager.setToolDisplayColorIcons(false);
+			await manager.flush();
+			expect(SettingsManager.create(projectDir, agentDir).getToolDisplayColors()).toEqual({
+				colorFrames: false,
+				colorNames: true,
+				colorIcons: false,
 			});
 		});
 	});

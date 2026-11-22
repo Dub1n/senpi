@@ -1,10 +1,30 @@
 # core/tools/renderers changes
 
+## 2026-11-22 - Structured dense cards for stock tool renderers
+
+### What changed
+
+- `packages/coding-agent/src/core/tools/renderers/bash.ts`: supplies shell command and execution facts for dense cards, preserving rich shell output and Default rendering.
+- `packages/coding-agent/src/core/tools/renderers/edit.ts` and `packages/coding-agent/src/core/tools/renderers/write.ts`: supply file paths, edit and write outcomes, existing diff previews, and error details to the dense renderer without parsing a heading.
+- `packages/coding-agent/src/core/tools/renderers/find.ts`, `packages/coding-agent/src/core/tools/renderers/grep.ts`, and `packages/coding-agent/src/core/tools/renderers/ls.ts`: project the original lookup arguments and result content into semantic cards with their own registered names.
+
+### Why
+
+- Stock tools use the same heading and frame rules as other registered dense cards. The display can still show meaningful output and diagnostics without restyling Default.
+
+### Why an extension could not handle it
+
+- The stock renderers already own the tool arguments, output and preview state.
+
+### Expected merge conflict zones
+
+- MEDIUM: shell, edit/write, and lookup call and result renderers.
+
 ## 2026-11-20 - Semantic titles and payloads for dense reads
 
 ### What changed
 
-- `packages/coding-agent/src/core/tools/renderers/read.ts`: supplies a basename when folded and a path with a line range when expanded. The dense result preserves the file's actual leading and trailing blank lines and indentation; native inline images remain with the existing renderer.
+- `packages/coding-agent/src/core/tools/renderers/read.ts`: supplies structured linked labels, a basename when folded and a path with a line range when expanded. Dense results discard trailing whitespace-only rows before highlighting, while preserving leading and internal blank lines and indentation; Default and native inline images remain with the existing renderer.
 
 ### Why
 

@@ -12,10 +12,18 @@ export type {
 
 export { sanitizeTerminalLabel, visibleWidth } from "@earendil-works/pi-tui";
 export type {
+	DensityCardBlock,
+	DensityCardHeading,
+	DensityCardKind,
+	DensityCardLegacyView,
 	DensityCardSection,
 	DensityCardRenderOptions,
 	DensityCardSource,
 	DensityCardStatus,
+	DensityCardSpan,
+	DensityCardStructuredSection,
+	DensityCardStructuredView,
+	DensityCardText,
 	DensityCardView,
 } from "@earendil-works/pi-tui";
 export { type Args, parseArgs } from "./cli/args.ts";

@@ -2,7 +2,10 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { SESSION_CONTROL_DELIVERY_TYPE } from "../src/core/extensions/types.ts";
 import type { CustomMessage } from "../src/core/messages.ts";
 import { CustomMessageComponent } from "../src/modes/interactive/components/custom-message.ts";
-import { builtInMessageRenderer } from "../src/modes/interactive/components/remote-delivery-message.ts";
+import {
+	agentDeliveryDensityCard,
+	builtInMessageRenderer,
+} from "../src/modes/interactive/components/remote-delivery-message.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 
@@ -33,6 +36,32 @@ function delivered(details: Record<string, unknown>): string[] {
 }
 
 describe("a delivered message in the terminal", () => {
+	it("projects a validated agent delivery with rich Markdown and a neutral semantic heading", () => {
+		const message: CustomMessage = {
+			role: "custom",
+			customType: SESSION_CONTROL_DELIVERY_TYPE,
+			content: "fallback",
+			display: true,
+			details: {
+				delivery_id: "d-1",
+				source: "session_control",
+				deliverAs: "followUp",
+				sender: { kind: "agent", session_id: "01a1", name: "planner" },
+				display_text: "**review** the diff",
+			},
+			timestamp: 0,
+		};
+		const view = agentDeliveryDensityCard(message);
+		expect(view?.format).toBe("structured");
+		if (view?.format !== "structured") throw new Error("Expected structured delivery");
+		expect(view.kind).toBe("incoming-message");
+		expect(view.heading).toEqual({ details: ["planner"] });
+		expect(view.statusGlyph).toBe("←");
+		expect(view.body[0]?.type).toBe("rich");
+		if (view.body[0]?.type !== "rich") throw new Error("Expected rich body");
+		expect(view.body[0].render(80).map(stripAnsi).join("\n")).toContain("review the diff");
+	});
+
 	it("labels another session's message with its name and shows the text as written, not the provenance header", () => {
 		const lines = delivered({
 			sender: { kind: "agent", session_id: "01a1", name: "planner" },

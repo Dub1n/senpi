@@ -1,3 +1,23 @@
+## 2026-11-22 - Supply structured dense eval cards
+
+### What changed
+
+- `packages/senpi-codemode/src/tool/render-density-card.ts` supplies raw headings, muted metadata, and lazy rich blocks to the structured density formatter.
+- `packages/senpi-codemode/src/tool/render-result.ts` uses the same formatter for list results while retaining the Default renderer.
+- `packages/senpi-codemode/src/tool/render-call.ts` supplies structured pending and running run, list, peek, and stop cards, retaining the Default call renderer.
+
+### Why
+
+- Eval descriptions, status, output, and nested calls need the same framing and styling rules as other dense cards without parsing painted rows.
+
+### Why an extension could not handle it
+
+- Codemode owns the eval result data and its rich renderers.
+
+### Expected merge conflict zones
+
+- LOW: eval density-card construction, call rendering, and list result rendering.
+
 ## 2026-11-22 - Style the expanded dense eval list title
 
 ### What changed

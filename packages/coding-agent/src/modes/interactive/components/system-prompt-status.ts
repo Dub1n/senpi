@@ -1,4 +1,4 @@
-import type { DensityCardView } from "@earendil-works/pi-tui";
+import type { DensityCardStructuredView } from "@earendil-works/pi-tui";
 import { theme } from "../theme/theme.ts";
 import { ThemedText } from "./themed-text.ts";
 
@@ -17,11 +17,17 @@ export class SystemPromptStatus extends ThemedText {
 		return [theme.fg("dim", `✓ ${this.message}`)];
 	}
 
-	renderDensityCard(_width: number, _options: { readonly grouped: boolean }): DensityCardView {
+	renderDensityCard(
+		_width: number,
+		{ grouped }: { readonly grouped: boolean },
+	): DensityCardStructuredView | undefined {
+		if (!grouped) return undefined;
 		return {
-			title: theme.fg("dim", this.message),
+			format: "structured",
+			kind: "system",
+			heading: { description: this.message },
 			statusGlyph: theme.fg("dim", "✓"),
-			renderContent: () => [],
+			body: [],
 			sections: [],
 		};
 	}

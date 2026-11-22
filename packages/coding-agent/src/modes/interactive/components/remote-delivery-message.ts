@@ -71,7 +71,7 @@ export function agentDeliveryDensityCard(message: CustomMessage<unknown>): Densi
 	if (sender?.kind !== "agent") return undefined;
 	const origin = sessionControlRemoteOriginOf(message.details);
 	const senderName = sanitizeTerminalLabel(sender.name ?? "") || sanitizeTerminalLabel(sender.session_id);
-	const title = ` ${senderName}${origin ? ` · ${sanitizeTerminalLabel(originLabel(origin))}` : ""}`;
+	const details = [senderName, ...(origin ? [sanitizeTerminalLabel(originLabel(origin))] : [])];
 	const body =
 		displayTextOf(message.details) ??
 		(typeof message.content === "string"
@@ -81,14 +81,19 @@ export function agentDeliveryDensityCard(message: CustomMessage<unknown>): Densi
 					.map((part) => part.text)
 					.join("\n"));
 	return {
-		name: "from",
-		kind: "message",
-		title,
+		format: "structured",
+		kind: "incoming-message",
+		heading: { details },
 		statusGlyph: "←",
-		renderContent: (width) =>
-			new Markdown(body, 0, 0, sharedMarkdownTheme(), {
-				color: (line) => interactiveTheme.fg("customMessageText", line),
-			}).render(width),
+		body: [
+			{
+				type: "rich",
+				render: (width) =>
+					new Markdown(body, 0, 0, sharedMarkdownTheme(), {
+						color: (line) => interactiveTheme.fg("customMessageText", line),
+					}).render(width),
+			},
+		],
 		sections: [],
 	};
 }

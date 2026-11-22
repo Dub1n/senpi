@@ -8028,6 +8028,7 @@ export class InteractiveMode {
 					toolDisplayDensity: this.settingsManager.getToolDisplayDensity(),
 					toolDisplayColorFrames: this.settingsManager.getToolDisplayColors().colorFrames,
 					toolDisplayColorNames: this.settingsManager.getToolDisplayColors().colorNames,
+					toolDisplayColorIcons: this.settingsManager.getToolDisplayColors().colorIcons,
 					smoothStreaming: this.settingsManager.getSmoothStreaming(),
 					smoothStreamingFps: this.settingsManager.getSmoothStreamingFps(),
 					mermaidRenderingMode: this.settingsManager.getMermaidRenderingMode(),
@@ -8126,6 +8127,11 @@ export class InteractiveMode {
 					},
 					onToolDisplayColorNamesChange: (enabled) => {
 						this.settingsManager.setToolDisplayColorNames(enabled);
+						this.chatContainer.setToolDisplayColors(this.settingsManager.getToolDisplayColors());
+						this.ui.requestRender();
+					},
+					onToolDisplayColorIconsChange: (enabled) => {
+						this.settingsManager.setToolDisplayColorIcons(enabled);
 						this.chatContainer.setToolDisplayColors(this.settingsManager.getToolDisplayColors());
 						this.ui.requestRender();
 					},

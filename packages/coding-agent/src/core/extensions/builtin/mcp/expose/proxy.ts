@@ -12,10 +12,9 @@
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import {
 	type DensityCardSource,
-	type DensityCardView,
+	type DensityCardStructuredView,
 	sanitizeTerminalLabel,
 	Text,
-	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
 import type { ToolDefinition } from "../../../types.ts";
@@ -39,26 +38,21 @@ const ParamsSchema = Type.Object({
 });
 type Params = Static<typeof ParamsSchema>;
 
-type ProxyResult = AgentToolResult<McpToolDetails | undefined>;
-type McpProxyTool = ToolDefinition<typeof ParamsSchema, McpToolDetails | undefined, unknown>;
+type ProxyDetails = McpToolDetails & { readonly managementError?: boolean };
+type ProxyResult = AgentToolResult<ProxyDetails | undefined>;
+type McpProxyTool = ToolDefinition<typeof ParamsSchema, ProxyDetails | undefined, unknown>;
 
 class ProxyManagementCard extends Text implements DensityCardSource {
-	private readonly view: DensityCardView;
+	private readonly view: DensityCardStructuredView;
 
-	constructor(defaultText: string, view: DensityCardView) {
+	constructor(defaultText: string, view: DensityCardStructuredView) {
 		super(defaultText, 0, 0);
 		this.view = view;
 	}
 
-	renderDensityCard(): DensityCardView {
+	renderDensityCard(): DensityCardStructuredView {
 		return this.view;
 	}
-}
-
-function managementTitle(args: Params): string {
-	return args.op === "search"
-		? ` "${sanitizeTerminalLabel(args.query ?? "")}"`
-		: ` describe ${sanitizeTerminalLabel(args.tool ?? "(missing)")}`;
 }
 
 export function createMcpProxyTool(server: string, entries: readonly McpToolCatalogEntry[]): McpProxyTool {
@@ -104,7 +98,7 @@ export function createMcpProxyTool(server: string, entries: readonly McpToolCata
 			}
 			const entry = params.tool === undefined ? undefined : byTool.get(params.tool);
 			if (entry === undefined) {
-				return textResult(server, unknownToolText(server, params.tool, index));
+				return textResult(server, unknownToolText(server, params.tool, index), true);
 			}
 			if (params.op === "describe") {
 				return textResult(
@@ -137,12 +131,18 @@ export function createMcpProxyTool(server: string, entries: readonly McpToolCata
 			const text = theme.fg("toolTitle", theme.bold(`${name} ${args.op} ${detail}`.trim()));
 			if (args.op !== "search" && args.op !== "describe") return new Text(text, 0, 0);
 			return new ProxyManagementCard(text, {
-				name: "tool",
+				format: "structured",
 				kind: "tool",
-				title: managementTitle(args),
+				heading: {
+					details: [
+						args.op === "search"
+							? `"${sanitizeTerminalLabel(args.query ?? "")}"`
+							: `describe ${sanitizeTerminalLabel(args.tool ?? "(missing)")}`,
+					],
+				},
 				status: context.executionStarted ? "running" : "pending",
+				body: [],
 				sections: [],
-				renderContent: () => [],
 			});
 		},
 		renderResult(result, options, theme, context) {
@@ -154,21 +154,30 @@ export function createMcpProxyTool(server: string, entries: readonly McpToolCata
 				.filter((part) => part.type === "text")
 				.map((part) => part.text)
 				.join("\n");
-			const failed = context.isError || (args.op === "describe" && payload.startsWith("Unknown tool '"));
+			const failed = context.isError || result.details?.managementError === true;
 			return new ProxyManagementCard(text, {
-				name: "tool",
+				format: "structured",
 				kind: "tool",
-				title: managementTitle(args),
+				heading: {
+					details: [
+						args.op === "search"
+							? `"${sanitizeTerminalLabel(args.query ?? "")}"`
+							: `describe ${sanitizeTerminalLabel(args.tool ?? "(missing)")}`,
+					],
+				},
 				statusGlyph: failed ? "✗" : options.isPartial ? "○" : "◉",
+				body: [{ type: "text", lines: [`server: ${server}`, ...payload.split("\n")] }],
 				sections: [],
-				renderContent: (width) => [`server: ${server}`, payload].flatMap((line) => wrapTextWithAnsi(line, width)),
 			});
 		},
 	};
 }
 
-function textResult(server: string, text: string): ProxyResult {
-	return { content: [{ type: "text", text }], details: { preview: firstLine(text), server, tool: "proxy" } };
+function textResult(server: string, text: string, managementError = false): ProxyResult {
+	return {
+		content: [{ type: "text", text }],
+		details: { preview: firstLine(text), server, tool: "proxy", ...(managementError ? { managementError } : {}) },
+	};
 }
 
 function unknownToolText(server: string, tool: string | undefined, index: ReturnType<typeof buildBm25Index>): string {

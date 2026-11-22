@@ -6,14 +6,25 @@
  * definition, so the tool's public shape is unchanged.
  */
 
-import { Box, Container, Spacer, Text } from "@earendil-works/pi-tui";
+import { basename } from "node:path";
+import { pathToFileURL } from "node:url";
+import {
+	Box,
+	Container,
+	sanitizeTerminalLabel,
+	Spacer,
+	Text,
+	wrapTextWithAnsi,
+	type DensityCardView,
+} from "@earendil-works/pi-tui";
 import type { Theme } from "../../../modes/interactive/theme/theme.ts";
 import type { ToolDefinition } from "../../extensions/types.ts";
 import { countDiffChanges, renderToolDiff } from "../diff-render.ts";
 import type { EditToolDetails } from "../edit.ts";
 import type { Edit, EditDiffError, EditDiffResult } from "../edit-diff.ts";
 import { computeEditsDiff } from "../edit-preview.ts";
-import { renderToolPath, str } from "../render-utils.ts";
+import { resolveToCwd } from "../path-utils.ts";
+import { renderToolPath, shortenPath, str } from "../render-utils.ts";
 
 type EditPreview = EditDiffResult | EditDiffError;
 export type EditRenderState = {
@@ -35,6 +46,7 @@ type EditCallRenderComponent = Box & {
 	previewArgsKey?: string;
 	previewPending?: boolean;
 	settledError?: boolean;
+	executionStarted?: boolean;
 };
 function createEditCallRenderComponent(): EditCallRenderComponent {
 	return Object.assign(new Box(1, 1, (text: string) => text), {
@@ -138,6 +150,37 @@ function buildEditCallComponent(
 	cwd: string,
 ): EditCallRenderComponent {
 	component.setBgFn(getEditHeaderBg(component.preview, component.settledError, theme));
+	Object.assign(component, {
+		renderDensityCard(): DensityCardView {
+			const path = str(args?.file_path ?? args?.path);
+			const label = (value: string) =>
+				path ? [{ text: sanitizeTerminalLabel(value), link: pathToFileURL(resolveToCwd(path, cwd)).href }] : "…";
+			const preview = component.preview;
+			const body = preview
+				? "error" in preview
+					? [{ type: "text" as const, lines: [preview.error] }]
+					: [
+							{
+								type: "rich" as const,
+								render: (width: number) =>
+									wrapTextWithAnsi(
+										renderToolDiff(preview.diff, { filePath: path ?? undefined, theme }),
+										width,
+									),
+							},
+						]
+				: [];
+			return {
+				format: "structured",
+				kind: "edit",
+				heading: { details: [label(path ? basename(path) : "")] },
+				expandedHeading: { details: [label(path ? shortenPath(path) : "")] },
+				status: component.settledError ? "failed" : component.executionStarted ? "running" : "pending",
+				body,
+				sections: [],
+			};
+		},
+	});
 	component.detachAll();
 	component.addChild(
 		new Text(
@@ -190,6 +233,7 @@ function setEditPreview(
 export const editRenderers: Pick<ToolDefinition<any, any>, "renderCall" | "renderResult"> = {
 	renderCall(args, theme, context) {
 		const component = getEditCallRenderComponent(context.state, context.lastComponent);
+		component.executionStarted = context.executionStarted;
 		const previewInput = getRenderablePreviewInput(args as RenderableEditArgs | undefined);
 		const argsKey = previewInput ? JSON.stringify({ path: previewInput.path, edits: previewInput.edits }) : undefined;
 
@@ -213,7 +257,7 @@ export const editRenderers: Pick<ToolDefinition<any, any>, "renderCall" | "rende
 
 		return buildEditCallComponent(component, args as RenderableEditArgs | undefined, theme, context.cwd);
 	},
-	renderResult(result, _options, theme, context) {
+	renderResult(result, options, theme, context) {
 		const callComponent = context.state.callComponent;
 		const previewInput = getRenderablePreviewInput(context.args as RenderableEditArgs | undefined);
 		const argsKey = previewInput ? JSON.stringify({ path: previewInput.path, edits: previewInput.edits }) : undefined;
@@ -247,11 +291,53 @@ export const editRenderers: Pick<ToolDefinition<any, any>, "renderCall" | "rende
 		);
 		const component = (context.lastComponent as Container | undefined) ?? new Container();
 		component.detachAll();
-		if (!output) {
-			return component;
+		if (output) {
+			component.addChild(new Spacer(1));
+			component.addChild(new Text(output, 1, 0));
 		}
-		component.addChild(new Spacer(1));
-		component.addChild(new Text(output, 1, 0));
-		return component;
+		return Object.assign(component, {
+			renderDensityCard(): DensityCardView {
+				const args = context.args as RenderableEditArgs | undefined;
+				const path = str(args?.file_path ?? args?.path);
+				const label = (value: string) =>
+					path
+						? [{ text: sanitizeTerminalLabel(value), link: pathToFileURL(resolveToCwd(path, context.cwd)).href }]
+						: "…";
+				const error = context.isError
+					? typedResult.content
+							.filter((part) => part.type === "text")
+							.map((part) => part.text ?? "")
+							.join("\n")
+					: "";
+				const diff =
+					resultDiff ??
+					(callComponent?.preview && !("error" in callComponent.preview) ? callComponent.preview.diff : undefined);
+				return {
+					format: "structured",
+					kind: context.isError || options.isPartial ? "edit" : "edited",
+					heading: { details: [label(path ? basename(path) : "")] },
+					expandedHeading: { details: [label(path ? shortenPath(path) : "")] },
+					status: context.isError
+						? "failed"
+						: options.isPartial
+							? context.executionStarted
+								? "running"
+								: "pending"
+							: "done",
+					body: error
+						? [{ type: "text", lines: error.split("\n") }]
+						: diff
+							? [
+									{
+										type: "rich",
+										render: (width) =>
+											wrapTextWithAnsi(renderToolDiff(diff, { filePath: path ?? undefined, theme }), width),
+									},
+								]
+							: [],
+					sections: [],
+				};
+			},
+		});
 	},
 };

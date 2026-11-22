@@ -19,6 +19,17 @@ export const renderGoalCacheWarmupEntry: EntryRenderer<GoalCacheWarmupEntryData>
 		why: whyLine(data),
 		extra: warm === undefined ? [] : [{ text: warm, tone: "success" }],
 		expandedLine: expandedLine(data),
+		densityCard: {
+			kind: data.phase === "scheduled" ? "wait" : "wake",
+			statusGlyph: "↯",
+			heading: {
+				details: [
+					...(validIteration(data.iteration) === undefined ? [] : [`iteration ${data.iteration}`]),
+					...(data.phase === "resumed" ? [`waited ${formatWakeDuration(data.waitedMs ?? data.delayMs)}`] : []),
+					`${data.activeMonitorCount} wake source${data.activeMonitorCount === 1 ? "" : "s"} on duty`,
+				],
+			},
+		},
 	};
 });
 

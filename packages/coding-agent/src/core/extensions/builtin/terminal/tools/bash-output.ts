@@ -32,13 +32,6 @@ export const bashOutputSchema = Type.Object({
 
 export type BashOutputInput = Static<typeof bashOutputSchema>;
 
-function statusLine(runtime: TerminalRuntimeSession): string {
-	if (!runtime.exited) return "status: running";
-	const status = describeExit(runtime) ?? "exited";
-	const code = runtime.exitResult?.exitCode;
-	return code === null || code === undefined ? `status: ${status}` : `status: ${status} exit_code: ${code}`;
-}
-
 function applyFilter(text: string, filter: string | undefined): string {
 	if (!filter) return text;
 	const regex = safeRegExp(filter);
@@ -87,15 +80,25 @@ export function createBashOutputTool(ctx: TerminalToolContext) {
 						: `monitor muted; run monitor({ action: "rearm", bash_id: "${input.bash_id}" }) to resume.`;
 			}
 			const jobWidget = jobWidgetOf(ctx, sessionId);
+			const processStatus = runtime.exited ? (describeExit(runtime) ?? "exited") : "running";
+			const exitCode = runtime.exited ? (runtime.exitResult?.exitCode ?? null) : null;
+			const status = `status: ${processStatus}${exitCode === null ? "" : ` exit_code: ${exitCode}`}`;
+			const prefix = mutedNote ? `${mutedNote}\n` : "";
+			const header = `${prefix}${status}`;
 			const details = {
 				...(monitorEntry ? { monitorMuted: muted, mutedDropped } : {}),
 				...(jobWidget ? { jobWidget } : {}),
+				bashOutput: {
+					sessionId,
+					processStatus,
+					exitCode,
+					statusStart: prefix.length,
+					statusEnd: header.length,
+				},
 			};
-			const extra = Object.keys(details).length > 0 ? { details } : undefined;
-			const prefix = mutedNote.length > 0 ? `${mutedNote}\n` : "";
 
 			if (input.view === "screen") {
-				return textResult(`${prefix}${statusLine(runtime)}\n${screenView(runtime)}`, extra);
+				return textResult(`${header}\n${screenView(runtime)}`, { details });
 			}
 
 			const delta = runtime.readDelta();
@@ -103,9 +106,9 @@ export function createBashOutputTool(ctx: TerminalToolContext) {
 			const droppedNotice = delta.droppedChars > 0 ? `[${delta.droppedChars} earlier chars dropped]` : undefined;
 			const dropped = droppedNotice === undefined ? "" : `${droppedNotice}\n`;
 			return noticedResult(
-				`${prefix}${statusLine(runtime)}\n${dropped}${formatted.text || "(no new output)"}`,
+				`${header}\n${dropped}${formatted.text || "(no new output)"}`,
 				[droppedNotice, formatted.marker],
-				extra,
+				{ details },
 			);
 		},
 		renderCall: renderBashOutputCall,

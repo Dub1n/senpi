@@ -7,7 +7,67 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
+import { parseRuleActivationDetails } from "../../../core/extensions/builtin/rule-activation/types.ts";
+import type { CustomEntry } from "../../../core/session-manager.ts";
 import { theme } from "../theme/theme.ts";
+
+/** Project known persisted entry facts without interpreting the rendered title. */
+export function entryNoticeCard(
+	entry: CustomEntry<unknown>,
+	component: Component | undefined,
+): DensityCardView | undefined {
+	const box = purpleBox(component);
+	if (!box) return undefined;
+	let heading: { readonly identity?: string; readonly details?: readonly string[] };
+	let kind: "memory" | "project-rules" | "kibitz";
+	let statusGlyph: string;
+	if (entry.customType === "senpi-memory.reflection-completion") {
+		if (typeof entry.data !== "object" || entry.data === null || Reflect.get(entry.data, "outcome") !== "merged")
+			return undefined;
+		kind = "memory";
+		heading = { details: ["on reflection"] };
+		statusGlyph = "●";
+	} else if (entry.customType === "rule-activation") {
+		const details = parseRuleActivationDetails(entry.data);
+		if (details?.kind !== "project-rules") return undefined;
+		kind = "project-rules";
+		heading = { details: [details.targetPath] };
+		statusGlyph = "●";
+	} else if (
+		(entry.customType === "omo-kibitzer:nudged" ||
+			entry.customType === "omo-kibitzer:gate" ||
+			entry.customType === "omo-kibitzer:unavailable") &&
+		typeof entry.data === "object" &&
+		entry.data !== null &&
+		Reflect.get(entry.data, "version") === 1
+	) {
+		kind = "kibitz";
+		const status = Reflect.get(entry.data, "status");
+		const category = Reflect.get(entry.data, "category");
+		if (entry.customType === "omo-kibitzer:nudged") {
+			heading = {};
+			statusGlyph = "✦";
+		} else if (entry.customType === "omo-kibitzer:gate" && (status === "skipped" || status === "failed")) {
+			heading = { details: [`gate ${status}`] };
+			statusGlyph = status === "skipped" ? "⚠" : "✗";
+		} else if (entry.customType === "omo-kibitzer:unavailable" && typeof category === "string") {
+			heading = { details: ["unavailable", category] };
+			statusGlyph = "⚠";
+		} else return undefined;
+	} else {
+		return undefined;
+	}
+	return {
+		format: "structured",
+		kind,
+		heading,
+		statusGlyph,
+		body: [
+			{ type: "rich", render: (width) => joinLineArrays(box.children.slice(1).map((child) => child.render(width))) },
+		],
+		sections: [],
+	};
+}
 
 /** Returns the first styled title line from a recognized purple notice box. */
 export function renderNoticeBoxTitle(component: Component | undefined, width: number): string[] | undefined {
@@ -23,7 +83,7 @@ export function renderNoticeBoxTitle(component: Component | undefined, width: nu
 
 /** Returns the notice box painter when the component uses the shared purple notice background. */
 export function noticeBoxBackground(component: Component | undefined): ((text: string) => string) | undefined {
-	return noticeBox(component)?.getBackgroundPainter();
+	return purpleBox(component)?.getBackgroundPainter();
 }
 
 /** Returns whether a component is a purple box with one of the shared notice title forms. */

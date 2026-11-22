@@ -13,8 +13,10 @@ import {
 	stripTerminalSequences,
 	wrapTextWithAnsi,
 	type Component,
+	type DensityCardBlock,
 	type DensityCardRenderOptions,
 	type DensityCardStatus,
+	type DensityCardStructuredView,
 	type DensityCardView,
 	type TuiMouseDispatchResult,
 	type TuiMouseEvent,
@@ -24,13 +26,13 @@ import {
 } from "@earendil-works/pi-tui";
 import type { ToolDisplayColors } from "../../../core/settings-manager.ts";
 import { theme } from "../theme/theme.ts";
-import { densityCardStyle } from "./density-card-style.ts";
+import { densityCardHeading, densityCardStyle, densityCardText } from "./density-card-style.ts";
 import { toolDensityKind, toolDensitySummary } from "./tool-density-summary.ts";
 import type { ToolExecutionComponent } from "./tool-execution.ts";
 
 const paintGroup = (text: string) => theme.bg("toolSuccessBg", text);
 const noBackground = (text: string) => text;
-const defaultColors: ToolDisplayColors = { colorFrames: false, colorNames: false };
+const defaultColors: ToolDisplayColors = { colorFrames: false, colorNames: false, colorIcons: false };
 
 /** A notice or assistant detail that participates in the tool-card layout. */
 export interface DensityCardSource extends Component {
@@ -232,18 +234,66 @@ export class ToolDensityRow implements Component {
 			copyLineSources(content, frame, rowOffset, visibleWidth(prefix));
 		};
 		const contentWidth = Math.max(1, width - visibleWidth(bodyPrefix));
-		if (view.renderMetadata !== undefined) appendContent(bodyPrefix, view.renderMetadata(contentWidth));
-		else if (view.metadata !== undefined) frame.push(...renderLabel(bodyPrefix, view.metadata));
-		appendContent(bodyPrefix, view.renderContent(contentWidth));
-		const after: string[] = [];
-		for (const section of view.sections) {
-			if (section.placement === "after" || (section.placement === "grouped" && !this.grouped)) {
-				after.push(...section.render(width, this.grouped));
-				continue;
+		const renderBlocks = (
+			blocks: readonly DensityCardBlock[],
+			available: number,
+			bodyRole: "text" | "muted",
+		): string[] => {
+			const lines: string[] = [];
+			for (const block of blocks) {
+				const rendered =
+					block.type === "rich"
+						? block.render(available, this.grouped)
+						: block.lines.flatMap((line) =>
+								wrapTextWithAnsi(densityCardText(line, block.role ?? bodyRole), available),
+							);
+				const offset = lines.length;
+				lines.push(...rendered);
+				copyLineSources(rendered, lines, offset);
 			}
-			const label = style.title({ name: section.name, detail: section.label, glyph: section.statusGlyph });
-			frame.push(...renderLabel(` ${style.frame("├─")} `, label));
-			appendContent(bodyPrefix, section.render(contentWidth, this.grouped));
+			return lines;
+		};
+		if (view.format === "structured") {
+			appendContent(bodyPrefix, renderBlocks(view.body, contentWidth, style.bodyRole));
+		} else {
+			if (view.renderMetadata !== undefined) appendContent(bodyPrefix, view.renderMetadata(contentWidth));
+			else if (view.metadata !== undefined) frame.push(...renderLabel(bodyPrefix, view.metadata));
+			appendContent(bodyPrefix, view.renderContent(contentWidth));
+		}
+		const after: string[] = [];
+		if (view.format === "structured") {
+			for (const section of view.sections) {
+				const heading = section.heading;
+				const sectionStyle = "kind" in heading ? this.cardStyle(heading.kind) : style;
+				if (section.placement === "after" || (section.placement === "grouped" && !this.grouped)) {
+					const content = renderBlocks(section.body, width, sectionStyle.bodyRole);
+					const offset = after.length;
+					after.push(...content);
+					copyLineSources(content, after, offset);
+					continue;
+				}
+				const label =
+					"label" in heading
+						? (heading.role ?? style.sectionRole) === "title"
+							? style.titleSection(heading.label, view.expandedHeading ?? view.heading)
+							: theme.fg("muted", heading.label)
+						: renderStructuredHeading(heading, sectionStyle);
+				frame.push(...renderLabel(` ${style.frame("├─")} `, label));
+				appendContent(bodyPrefix, renderBlocks(section.body, contentWidth, sectionStyle.bodyRole));
+			}
+		} else {
+			for (const section of view.sections) {
+				if (section.placement === "after" || (section.placement === "grouped" && !this.grouped)) {
+					const content = section.render(width, this.grouped);
+					const offset = after.length;
+					after.push(...content);
+					copyLineSources(content, after, offset);
+					continue;
+				}
+				const label = style.title({ name: section.name, detail: section.label, glyph: section.statusGlyph });
+				frame.push(...renderLabel(` ${style.frame("├─")} `, label));
+				appendContent(bodyPrefix, section.render(contentWidth, this.grouped));
+			}
 		}
 		frame.push(...renderLabel(` ${style.frame("╰─")}`, ""));
 		const blank = applyBackgroundToLine("", width, paint);
@@ -323,7 +373,11 @@ function renderToolSummary(
 		name: summary.name,
 		detail: summary.name === undefined ? theme.fg("text", summary.detail) : summary.detail,
 	});
-	const marker = `${densityStatusGlyph(summary.status)} `;
+	const marker = `${
+		toolDensityKind(state.name) === undefined
+			? densityStatusGlyph(summary.status)
+			: style.icon(rawDensityStatusGlyph(summary.status))
+	} `;
 	const label = densityStatusLabel(summary.status);
 	const color =
 		summary.status === "pending" || summary.status === "queued"
@@ -342,6 +396,12 @@ function renderDensityCardSummary(
 	style: ReturnType<typeof densityCardStyle>,
 	expanded = false,
 ): string {
+	if (view.format === "structured") {
+		return renderStructuredHeading(
+			{ ...view, heading: expanded ? (view.expandedHeading ?? view.heading) : view.heading },
+			style,
+		);
+	}
 	const title = style.title({
 		name: view.name,
 		detail: expanded ? (view.expandedTitle ?? view.title) : view.title,
@@ -349,6 +409,41 @@ function renderDensityCardSummary(
 	});
 	const status = densityStatusLabel(view.status);
 	return title + (status ? ` · ${theme.fg("muted", status)}` : "");
+}
+
+function renderStructuredHeading(
+	view: Pick<DensityCardStructuredView, "kind" | "heading" | "statusGlyph" | "status">,
+	style: ReturnType<typeof densityCardStyle>,
+): string {
+	const glyph = view.statusGlyph ?? rawDensityStatusGlyph(view.status);
+	const title = densityCardHeading(view.kind, view.heading, style);
+	const label = densityStatusLabel(view.status);
+	const hasDetails = view.heading.details?.some((detail) =>
+		typeof detail === "string" ? detail.length > 0 : detail.some((span) => span.text.length > 0),
+	);
+	const separator = view.heading.description !== undefined || hasDetails ? " · " : " • ";
+	return (glyph ? `${style.icon(glyph)} ` : "") + title + (label ? `${separator}${theme.fg("muted", label)}` : "");
+}
+
+function rawDensityStatusGlyph(status: DensityCardStatus | undefined): string {
+	switch (status) {
+		case undefined:
+			return "";
+		case "pending":
+		case "running":
+		case "queued":
+			return "○";
+		case "detached":
+			return "↗";
+		case "done":
+			return "✓";
+		case "failed":
+			return "✗";
+		case "cancelled":
+			return "×";
+		default:
+			return assertNever(status);
+	}
 }
 
 function densityStatusGlyph(status: DensityCardStatus | undefined): string {

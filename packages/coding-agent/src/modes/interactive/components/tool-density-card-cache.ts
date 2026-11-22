@@ -3,6 +3,10 @@ import type { DensityCardView } from "@earendil-works/pi-tui";
 const summaries = new WeakMap<object, DensityCardView>();
 
 export function rememberDensityCardSummary(owner: object, view: DensityCardView): void {
+	if (view.format === "structured") {
+		summaries.set(owner, { ...view, body: [], sections: [] });
+		return;
+	}
 	summaries.set(owner, {
 		title: view.title,
 		...(view.name === undefined ? {} : { name: view.name }),

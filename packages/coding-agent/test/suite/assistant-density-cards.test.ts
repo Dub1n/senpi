@@ -73,6 +73,23 @@ describe("assistant density cards", () => {
 		expect(compact.join("\n")).not.toContain("example.test");
 	});
 
+	it("keeps an unknown provider status as detail rather than guessing a failure state", () => {
+		initTheme("dark");
+		const component = new AssistantMessageComponent(fauxAssistantMessage([nativeSearch("incomplete")]));
+		const [card] = cards(component, false);
+		if (!card) throw new Error("missing provider density card");
+		if (!card.renderDensityCard) throw new Error("provider density card has no semantic view");
+
+		const compact = card.renderDensitySummary(120, false).map(stripAnsi);
+		expect(compact[1]).toBe("status: incomplete");
+
+		const view = card.renderDensityCard(120, { grouped: true });
+		if (!view || view.format !== "structured") throw new Error("missing structured provider density card");
+		expect(view.kind).toBe("search");
+		expect(view.heading).toEqual({ identity: "faux", details: ["web_search", "incomplete"] });
+		expect(view.status).toBeUndefined();
+	});
+
 	it.each(["compact", "grouped"] as const)("expands provider details from a %s transcript click", (density) => {
 		initTheme("dark");
 		const transcript = new ExplorationTranscriptContainer({

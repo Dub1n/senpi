@@ -146,6 +146,7 @@ export type ToolDisplayDensity = "default" | "compact" | "grouped";
 export type ToolDisplayColors = {
 	readonly colorFrames: boolean;
 	readonly colorNames: boolean;
+	readonly colorIcons: boolean;
 };
 export type FullscreenExitOutput = "transcript" | "resume-hint";
 
@@ -231,6 +232,7 @@ export interface Settings {
 	toolDisplayDensity?: ToolDisplayDensity;
 	toolDisplayColorFrames?: boolean;
 	toolDisplayColorNames?: boolean;
+	toolDisplayColorIcons?: boolean;
 	smoothStreaming?: boolean; // default: true
 	smoothStreamingFps?: number; // default: 60, clamped to 30-120 when read
 	showCacheMissNotices?: boolean; // default: false - show prompt-cache miss and compaction cost notices
@@ -2223,6 +2225,7 @@ export class SettingsManager {
 		return {
 			colorFrames: this.settings.toolDisplayColorFrames === true,
 			colorNames: this.settings.toolDisplayColorNames === true,
+			colorIcons: this.settings.toolDisplayColorIcons === true,
 		};
 	}
 
@@ -2235,6 +2238,12 @@ export class SettingsManager {
 	setToolDisplayColorNames(enabled: boolean): void {
 		this.globalSettings.toolDisplayColorNames = enabled;
 		this.markModified("toolDisplayColorNames");
+		this.save();
+	}
+
+	setToolDisplayColorIcons(enabled: boolean): void {
+		this.globalSettings.toolDisplayColorIcons = enabled;
+		this.markModified("toolDisplayColorIcons");
 		this.save();
 	}
 

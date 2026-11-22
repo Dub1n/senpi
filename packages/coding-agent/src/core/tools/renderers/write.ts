@@ -6,13 +6,16 @@
  * definition, so the tool's public shape is unchanged.
  */
 
-import { Container, Text } from "@earendil-works/pi-tui";
+import { basename } from "node:path";
+import { pathToFileURL } from "node:url";
+import { Container, sanitizeTerminalLabel, Text, wrapTextWithAnsi, type DensityCardView } from "@earendil-works/pi-tui";
 import { keyHint } from "../../../modes/interactive/components/keybinding-hints.ts";
 import { getLanguageFromPath, highlightCode, type Theme } from "../../../modes/interactive/theme/theme.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../../extensions/types.ts";
 import { renderToolDiff } from "../diff-render.ts";
-import { normalizeDisplayText, renderToolPath, replaceTabs, str } from "../render-utils.ts";
-import { formatWriteResult } from "../write-result.ts";
+import { resolveToCwd } from "../path-utils.ts";
+import { normalizeDisplayText, renderToolPath, replaceTabs, shortenPath, str } from "../render-utils.ts";
+import { formatWriteResult, type WriteToolDetails } from "../write-result.ts";
 
 type WriteHighlightCache = {
 	rawPath: string | null;
@@ -173,17 +176,121 @@ export const writeRenderers: Pick<ToolDefinition<any, any>, "renderCall" | "rend
 				context.cwd,
 			),
 		);
-		return component;
+		return Object.assign(component, {
+			renderDensityCard(): DensityCardView {
+				const label = (value: string) =>
+					rawPath
+						? [
+								{
+									text: sanitizeTerminalLabel(value),
+									link: pathToFileURL(resolveToCwd(rawPath, context.cwd)).href,
+								},
+							]
+						: "…";
+				return {
+					format: "structured",
+					kind: "write",
+					heading: { details: [label(rawPath ? basename(rawPath) : "")] },
+					expandedHeading: { details: [label(rawPath ? shortenPath(rawPath) : "")] },
+					status: context.executionStarted ? "running" : "pending",
+					body:
+						fileContent === null
+							? [{ type: "text", lines: ["[invalid content arg - expected string]"] }]
+							: fileContent
+								? [
+										{
+											type: "rich",
+											render: (width) => {
+												const diff = generateAddedContentDiff(
+													replaceTabs(normalizeDisplayText(fileContent)),
+													Number.MAX_SAFE_INTEGER,
+												);
+												return wrapTextWithAnsi(
+													renderToolDiff(diff, { filePath: rawPath ?? undefined, theme }),
+													width,
+												);
+											},
+										},
+									]
+								: [],
+					sections: [],
+				};
+			},
+		});
 	},
-	renderResult(result, _options, theme, context) {
+	renderResult(result, options, theme, context) {
 		const output = formatWriteResult({ ...result, isError: context.isError }, theme);
-		if (!output) {
-			const component = (context.lastComponent as Container | undefined) ?? new Container();
-			component.detachAll();
-			return component;
-		}
-		const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-		text.setText(output);
-		return text;
+		const component = output
+			? context.lastComponent instanceof Text
+				? context.lastComponent
+				: new Text("", 0, 0)
+			: context.lastComponent instanceof Container
+				? context.lastComponent
+				: new Container();
+		if (component instanceof Text) component.setText(output ?? "");
+		else component.detachAll();
+		return Object.assign(component, {
+			renderDensityCard(): DensityCardView {
+				const args = context.args as { path?: string; file_path?: string; content?: string } | undefined;
+				const path = str(args?.file_path ?? args?.path);
+				const label = (value: string) =>
+					path
+						? [{ text: sanitizeTerminalLabel(value), link: pathToFileURL(resolveToCwd(path, context.cwd)).href }]
+						: "…";
+				const details = result.details as WriteToolDetails | undefined;
+				const error = context.isError
+					? result.content
+							.filter((part) => part.type === "text")
+							.map((part) => part.text)
+							.join("\n")
+					: "";
+				const content = str(args?.content);
+				const kind =
+					context.isError || options.isPartial
+						? "write"
+						: details?.operation === "add"
+							? "added"
+							: details?.operation === "update"
+								? "edited"
+								: "write";
+				return {
+					format: "structured",
+					kind,
+					heading: { details: [label(path ? basename(path) : "")] },
+					expandedHeading: {
+						details: [label(path ? shortenPath(path) : "")],
+					},
+					status: context.isError
+						? "failed"
+						: options.isPartial
+							? context.executionStarted
+								? "running"
+								: "pending"
+							: "done",
+					body: error
+						? [{ type: "text", lines: error.split("\n") }]
+						: !context.isError && (details?.patch || content)
+							? [
+									{
+										type: "rich",
+										render: (width) => {
+											const diff =
+												details?.patch ??
+												generateAddedContentDiff(
+													replaceTabs(normalizeDisplayText(content ?? "")),
+													Number.MAX_SAFE_INTEGER,
+												);
+											return wrapTextWithAnsi(
+												renderToolDiff(diff, { filePath: path ?? undefined, theme }),
+												width,
+											);
+										},
+									},
+								]
+							: [],
+					sections: [],
+				};
+			},
+		});
 	},
 };

@@ -88,9 +88,9 @@ function card(width: number, ...body: string[]) {
 
 describe.each(["compact", "grouped"] as const)("%s apply patch density", (density) => {
 	it("shows the applied move with both paths and exact diff rows", async () => {
-		expect(await rows(density, false, [file])).toEqual(card(48, " ╶─ ✓ edited old.txt → new.txt (+1 -1)"));
+		expect(await rows(density, false, [file])).toEqual(card(48, " ╶─ ✓ edited old.txt → new.txt • (+1 -1)"));
 		expect(await rows(density, true, [file])).toEqual(
-			card(48, " ╭─ ✓ edited /p/old.txt → /p/new.txt (+1 -1)", " │ -1 before", " │ +1 after", " ╰─"),
+			card(48, " ╭─ ✓ edited /p/old.txt → /p/new.txt • (+1 -1)", " │ -1 before", " │ +1 after", " ╰─"),
 		);
 	});
 
@@ -98,11 +98,11 @@ describe.each(["compact", "grouped"] as const)("%s apply patch density", (densit
 		expect(await rows(density, true, [file, second])).toEqual(
 			card(
 				48,
-				" ╭─ ✓ tool apply_patch 2 files",
-				" ├─ edited /p/old.txt → /p/new.txt (+1 -1)",
+				" ╭─ ✓ tool apply_patch • 2 files",
+				" ├─ edited /p/old.txt → /p/new.txt • (+1 -1)",
 				" │ -1 before",
 				" │ +1 after",
-				" ├─ deleted /p/gone.txt (+0 -1)",
+				" ├─ deleted /p/gone.txt • (+0 -1)",
 				" │ -1 removed",
 				" ╰─",
 			),
@@ -113,9 +113,9 @@ describe.each(["compact", "grouped"] as const)("%s apply patch density", (densit
 		expect(await rows(density, true, [file], true)).toEqual(
 			card(
 				48,
-				" ╭─ ✗ tool apply_patch failed",
+				" ╭─ ✗ tool apply_patch • failed",
 				" │ missing: not found",
-				" ├─ edited /p/old.txt → /p/new.txt (+1 -1)",
+				" ├─ edited /p/old.txt → /p/new.txt • (+1 -1)",
 				" │ -1 before",
 				" │ +1 after",
 				" ╰─",
@@ -125,7 +125,7 @@ describe.each(["compact", "grouped"] as const)("%s apply patch density", (densit
 
 	it("does not claim an operation when all files fail", async () => {
 		expect(await rows(density, true, [], true)).toEqual(
-			card(48, " ╭─ ✗ tool apply_patch failed", " │ missing: not found", " ╰─"),
+			card(48, " ╭─ ✗ tool apply_patch • failed", " │ missing: not found", " ╰─"),
 		);
 	});
 
@@ -146,7 +146,7 @@ describe.each(["compact", "grouped"] as const)("%s apply patch density", (densit
 			surface.chat.setToolDisplayDensity(density);
 			invoke(surface.mode, "setToolsExpanded", true);
 			expect(surface.chat.render(48).map(stripTerminalSequences)).toEqual(
-				card(48, " ╭─ ○ tool apply_patch · pending", " │ progress: 1/2", " │ waiting for patch", " ╰─"),
+				card(48, " ╭─ ○ tool apply_patch • pending", " │ progress: 1/2", " │ waiting for patch", " ╰─"),
 			);
 		} finally {
 			surface.cleanup();
@@ -159,13 +159,13 @@ describe.each(["compact", "grouped"] as const)("%s apply patch density", (densit
 
 	it("retains a diff truncation marker", async () => {
 		expect(await rows(density, true, [{ ...second, diff: "-1 removed\n…" }])).toEqual(
-			card(48, " ╭─ ✓ deleted /p/gone.txt (+0 -1)", " │ -1 removed", " │ …", " ╰─"),
+			card(48, " ╭─ ✓ deleted /p/gone.txt • (+0 -1)", " │ -1 removed", " │ …", " ╰─"),
 		);
 	});
 
 	it("resolves relative paths against the session directory", async () => {
 		const relative = { ...file, filePath: "src/old.txt", movePath: "src/new.txt" };
-		const title = ` ╭─ ✓ edited ${path.resolve(process.cwd(), "src/old.txt")} → ${path.resolve(process.cwd(), "src/new.txt")} (+1 -1)`;
+		const title = ` ╭─ ✓ edited ${path.resolve(process.cwd(), "src/old.txt")} → ${path.resolve(process.cwd(), "src/new.txt")} • (+1 -1)`;
 		expect(visibleWidth(title)).toBeLessThanOrEqual(238);
 		expect(await rows(density, true, [relative], false, 240)).toEqual(
 			card(240, title, " │ -1 before", " │ +1 after", " ╰─"),
@@ -180,8 +180,8 @@ describe.each(["compact", "grouped"] as const)("%s apply patch density", (densit
 			invoke(surface.mode, "renderSessionItems", [...replay([file]), ...replay([second], false, "patch-2")]);
 			surface.chat.setToolDisplayDensity(density);
 			invoke(surface.mode, "setToolsExpanded", false);
-			const first = " ╶─ ✓ edited old.txt → new.txt (+1 -1)";
-			const next = " ╶─ ✓ deleted gone.txt (+0 -1)";
+			const first = " ╶─ ✓ edited old.txt → new.txt • (+1 -1)";
+			const next = " ╶─ ✓ deleted gone.txt • (+0 -1)";
 			expect(surface.chat.render(48).map(stripTerminalSequences)).toEqual(
 				density === "compact" ? [...card(48, first), ...card(48, next)] : card(48, first, next),
 			);
