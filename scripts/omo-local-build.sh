@@ -1,17 +1,35 @@
 #!/usr/bin/env bash
 # Build this branch's tool-density patch with the pinned local OmO recipe.
-# Requires the retained local-ignore/omo-density-build/{engine,omo,stage-density.mjs}
-# and the local-ignore/omo-live-{transcript,thinking}-smoke.mjs drivers.
+# Or verify a trusted prebuilt binary with --binary, without a source checkout or compile.
+# Both modes require the local-ignore/omo-live-{transcript,thinking}-smoke.mjs drivers.
 # Build-only by default. --activate updates ~/.local/bin/omo for future launches.
 # Failures stop the run. Read the printed build log; fix the cause and rerun.
 set -euo pipefail
 
 die() { printf '%s\n' "$*" >&2; exit 1; }
-case "${1:-}" in
-	-h|--help) printf 'Usage: bash scripts/omo-local-build.sh [--activate]\n'; exit 0 ;;
-	""|--activate) [[ $# -le 1 ]] || die "Expected at most --activate" ;;
-	*) die "Usage: bash scripts/omo-local-build.sh [--activate]" ;;
-esac
+usage='Usage: bash scripts/omo-local-build.sh [--activate] [--binary PATH [--sha256 HASH]]'
+activate=false
+binary=
+expected=
+while (( $# )); do
+	case "$1" in
+		-h|--help)
+			printf '%s\n%s\n' "$usage" 'With --binary, validate only unless --activate is given. Use a trusted --sha256 or adjacent SHA256SUMS.'
+			exit 0 ;;
+		--activate) [[ "$activate" == false ]] || die "Duplicate --activate"; activate=true ;;
+		--binary)
+			[[ -z "$binary" && -n "${2:-}" && "$2" != --* ]] || die "Expected one --binary PATH"
+			binary=$2
+			shift ;;
+		--sha256)
+			[[ -z "$expected" && "${2:-}" =~ ^[[:xdigit:]]{64}$ ]] || die "Expected one 64-digit --sha256 HASH"
+			expected=${2,,}
+			shift ;;
+		*) die "$usage" ;;
+	esac
+	shift
+done
+[[ -z "$expected" || -n "$binary" ]] || die "--sha256 requires --binary"
 [[ "$(uname -sm)" == "Linux x86_64" && "$(bun --version)" == 1.4.4 ]] ||
 	die "Use Linux x64 and standalone Bun 1.4.4 on PATH"
 
@@ -28,10 +46,16 @@ engine_version=2026.11.18-2
 transcript="$root/local-ignore/omo-live-transcript-smoke.mjs"
 thinking="$root/local-ignore/omo-live-thinking-smoke.mjs"
 
-for input in "$recipe/stage-density.mjs" "$desktop" "$transcript" "$thinking"; do
+for input in "$transcript" "$thinking"; do
 	[[ -f "$input" ]] || die "Missing local build input: $input"
 done
+if [[ -z "$binary" ]]; then
+	for input in "$recipe/stage-density.mjs" "$desktop"; do
+		[[ -f "$input" ]] || die "Missing local build input: $input"
+	done
+fi
 umask 077
+mkdir -p -- "$recipe"
 run=$(mktemp -d "$recipe/live.XXXXXXXX")
 scratch=$(mktemp -d /tmp/omo-live.XXXXXXXX)
 swap=
@@ -49,10 +73,12 @@ trap cleanup EXIT
 printf 'OmO %s %s\nSenpi %s %s\n' "$omo_version" "$omo_sha" "$engine_version" "$engine_sha"
 step() { printf '%s\n' "$1"; printf '%s\n' "$1" >&3; }
 
-if [[ "${1:-}" == --activate ]]; then
+if "$activate"; then
 	[[ "$(command -v omo)" == "$launcher" && -f "$launcher" && ! -L "$launcher" && -O "$launcher" ]] ||
 		die "PATH must select the regular, user-owned launcher $launcher"
-	exec 9>"${launcher%/*}/.omo-local-build.lock"
+	lock="${launcher%/*}/.omo-local-build.lock"
+	[[ ! -L "$lock" && ( ! -e "$lock" || ( -f "$lock" && -O "$lock" ) ) ]] || die "Unsafe activation lock"
+	exec 9>>"$lock"
 	flock -n 9 || die "Another OmO activation is in progress"
 	previous=$(sha256sum "$launcher")
 	identity=$(stat -c '%d:%i:%u:%g:%a' "$launcher")
@@ -60,6 +86,30 @@ if [[ "${1:-}" == --activate ]]; then
 fi
 
 verify_hash() { printf '%s  %s\n' "$1" "$2" | sha256sum --check --status; }
+if [[ -n "$binary" ]]; then
+	[[ -f "$binary" && ! -L "$binary" && -x "$binary" ]] || die "Not a regular executable: $binary"
+	if [[ -z "$expected" ]]; then
+		manifest="$(dirname -- "$binary")/SHA256SUMS"
+		[[ -f "$manifest" && ! -L "$manifest" ]] || die "Supply --sha256 or an adjacent SHA256SUMS"
+		# Read only the requested file's entry; do not follow other paths from the manifest.
+		while IFS= read -r line || [[ -n "$line" ]]; do
+			if [[ "${line:64:2}" == "  " || "${line:64:2}" == ' *' ]] &&
+				[[ "${line:66}" == "${binary##*/}" && "${line:0:64}" =~ ^[[:xdigit:]]{64}$ ]]; then
+				[[ -z "$expected" ]] || die "Duplicate checksum for ${binary##*/}"
+				expected=${line:0:64}
+				expected=${expected,,}
+			fi
+		done <"$manifest"
+		[[ -n "$expected" ]] || die "No checksum for ${binary##*/} in $manifest"
+	fi
+	printf 'Prebuilt input: %s\n' "$binary"
+	candidate="$scratch/omo-linux-x64"
+	cp -- "$binary" "$candidate"
+	chmod 500 "$candidate"
+	verify_hash "$expected" "$candidate" || die "Prebuilt checksum mismatch"
+	step "Using a verified prebuilt binary; skipping source checks and compilation"
+	runtime=
+else
 verify_hash 1cfcd93569e3418124076aee70a6dc111b18a3fa4feca3c60f2dab65b3e81b39 "$desktop"
 git -C "$root" merge-base --is-ancestor "$base" HEAD
 git -C "$root" diff --name-only -z --no-renames "$base" -- packages >"$scratch/paths"
@@ -140,33 +190,62 @@ step "Packaging OmO"
 )
 (cd "$run/out"; sha256sum --strict --check SHA256SUMS)
 candidate="$run/out/omo-linux-x64"
+fi
 candidate_sum=$(sha256sum "$candidate")
-printf 'Candidate: %s\nRuntime: %s\n' "$candidate_sum" "$runtime"
-step "Running the transcript and thinking terminal smokes"
-(cd "$root"; bun --no-install "$transcript" "$candidate"; bun --no-install "$thinking" "$candidate")
+printf 'Candidate: %s\n' "$candidate_sum"
 
 home="$scratch/version-home"
 mkdir -m 700 "$home"
 isolated_version() {
-	env -i "PATH=$PATH" "HOME=$home" "USERPROFILE=$home" PI_OFFLINE=1 \
-		OMO_DISABLE_TELEMETRY=1 SENPI_OMO_LOCAL_UPDATE=0 "$1" --version
+	(cd "$home"; timeout 30s env -i "PATH=$PATH" "HOME=$home" "USERPROFILE=$home" PI_OFFLINE=1 \
+		OMO_DISABLE_TELEMETRY=1 SENPI_OMO_LOCAL_UPDATE=0 "$1" --version)
 }
-if [[ "${1:-}" == --activate ]]; then
+old_runtime=
+already_installed=false
+if "$activate" && [[ "${previous%% *}" == "${candidate_sum%% *}" ]]; then
+	already_installed=true
+elif "$activate"; then
 	isolated_version "$launcher"
 	old_runtimes=("$home"/.omo/binary-runtime/*/omo)
-	[[ -f "${old_runtimes[0]}" && ! -e "$home/.omo/binary-runtime/$runtime" ]] ||
-		die "Expected a provisioned predecessor and a fresh candidate runtime"
-	[[ ! -e "$HOME/.omo/binary-runtime/$runtime" ]] || die "Candidate runtime already exists in the live home"
+	[[ ${#old_runtimes[@]} == 1 && -x "${old_runtimes[0]}" ]] || die "Expected one provisioned predecessor runtime"
+	old_runtime=${old_runtimes[0]}
+	old_inode=$(stat -c '%d:%i' "$old_runtime")
 fi
 version=$(isolated_version "$candidate")
 printf '%s\n' "$version"
-[[ "$version" == *"(v$omo_version)"* && "$version" == *"(v$engine_version+density."* &&
-	-f "$home/.omo/binary-runtime/$runtime/omo" ]] || die "Candidate version or runtime mismatch"
-if [[ "${1:-}" != --activate ]]; then
-	printf 'Build and smoke passed: %s\n' "$candidate" >&3
+[[ "$version" == *"omo   $omo_sha "*"(v$omo_version)"* && "$version" == *"senpi $engine_sha "* &&
+	( "$version" == *"(v$engine_version+density."* || "$version" == *"(v$engine_version+dense."* ) ]] ||
+	die "Candidate version does not match the pinned OmO and Senpi releases"
+if [[ -n "$old_runtime" ]]; then
+	[[ -x "$old_runtime" && "$(stat -c '%d:%i' "$old_runtime")" == "$old_inode" ]] ||
+		die "Candidate replaced the predecessor runtime in the isolated probe"
+fi
+new_runtimes=()
+for executable in "$home"/.omo/binary-runtime/*/omo; do
+	[[ "$executable" != "$old_runtime" && -x "$executable" ]] && new_runtimes+=("$executable")
+done
+[[ ${#new_runtimes[@]} == 1 ]] || die "Expected one distinct candidate runtime"
+runtime_dir=${new_runtimes[0]%/omo}
+observed_runtime=${runtime_dir##*/}
+[[ -z "$runtime" || "$runtime" == "$observed_runtime" ]] || die "Unexpected candidate runtime"
+runtime=$observed_runtime
+printf 'Runtime: %s\n' "$runtime"
+step "Running the transcript and thinking terminal smokes"
+(cd "$root"; bun --no-install "$transcript" "$candidate"; bun --no-install "$thinking" "$candidate")
+if ! "$activate"; then
+	step "Validation passed: ${binary:-$candidate}"
 	exit 0
 fi
-for old in "${old_runtimes[@]}"; do [[ -f "$old" ]] || die "Predecessor runtime disappeared"; done
+if "$already_installed"; then
+	[[ ! -L "$launcher" && "$(stat -c '%d:%i:%u:%g:%a' "$launcher")" == "$identity" ]] ||
+		die "Current launcher changed during validation"
+	verify_hash "${candidate_sum%% *}" "$launcher" || die "Current launcher changed during validation"
+	step "Already installed: $launcher"
+	exit 0
+fi
+
+[[ ! -e "$HOME/.omo/binary-runtime/$runtime" && ! -L "$HOME/.omo/binary-runtime/$runtime" ]] ||
+	die "Candidate runtime already exists in the live home"
 
 # Stage on the same filesystem. Never write into an executable used by a live process.
 swap=$(mktemp -d "${launcher%/*}/.omo-swap.XXXXXXXX")
