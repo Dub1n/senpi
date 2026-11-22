@@ -1,4 +1,4 @@
-import { type AgentToolResult, sanitizeTerminalLabel, type Theme } from "@code-yeongyu/senpi";
+import { type AgentToolResult, sanitizeTerminalLabel } from "@code-yeongyu/senpi";
 import {
 	bufferPlaceholder,
 	displayJsonSizeExceeds,
@@ -16,21 +16,11 @@ import {
 	JSON_TREE_SCALAR_LEN_EXPANDED,
 	renderJsonTreeLines,
 } from "./json-tree.ts";
-import {
-	appendLines,
-	isEvalRunInput,
-	type RenderBlock,
-	type RenderEnvironment,
-	renderAllVisualLines,
-	renderToolCall,
-	style,
-	TOOL_CALL_PREVIEW_COUNT,
-} from "./render-blocks.ts";
+import { appendLines, isEvalRunInput, type RenderEnvironment, renderAllVisualLines, style } from "./render-blocks.ts";
 import { renderCell } from "./render-cell.ts";
-import { type NestedToolRenderers, renderToolCallWidget } from "./tool-widgets.ts";
 import type { EvalResultDetails, EvalToolDetails, EvalToolRequest } from "./types.ts";
 
-type ToolCallRow = {
+export type ToolCallRow = {
 	readonly summary: string;
 	readonly error?: string;
 	readonly color: "success" | "error";
@@ -170,53 +160,11 @@ export function renderDetailedLines(
 
 export function toolCallRows(details: EvalToolDetails | undefined): ToolCallRow[] {
 	if (!details?.toolCalls || details.toolCalls.length === 0) return [];
-	return details.toolCalls.map((call) => {
-		const status = call.ok ? "ok" : "error";
-		const row = { summary: `- tool.${call.name}: ${status}`, color: call.ok ? "success" : "error" } as const;
-		return call.error === undefined ? row : { ...row, error: call.error };
-	});
+	return details.toolCalls.map(toolCallRow);
 }
 
-export function nestedToolCallBlock(
-	details: EvalToolDetails | undefined,
-	theme: Theme | undefined,
-	cwd: string,
-	expanded: boolean,
-	renderers?: (toolName: string) => NestedToolRenderers | undefined,
-): RenderBlock | undefined {
-	const toolCalls = details?.toolCalls;
-	if (theme === undefined || toolCalls === undefined || !toolCalls.some((call) => call.args !== undefined)) {
-		return undefined;
-	}
-	const legacyRows = toolCallRows(details);
-	return {
-		kind: "dynamic",
-		render: (width) => {
-			const retainedCalls = expanded ? toolCalls : toolCalls.slice(-TOOL_CALL_PREVIEW_COUNT);
-			const retainedRows = expanded ? legacyRows : legacyRows.slice(-TOOL_CALL_PREVIEW_COUNT);
-			const skippedCount = toolCalls.length - retainedCalls.length;
-			const toolCallNoun = skippedCount === 1 ? "call" : "calls";
-			const lines =
-				expanded || skippedCount === 0
-					? []
-					: renderAllVisualLines(style(theme, "muted", `${skippedCount} earlier tool ${toolCallNoun}`), width);
-			const legacyBlock: Extract<RenderBlock, { kind: "toolCalls" }> = {
-				kind: "toolCalls",
-				calls: retainedRows,
-				expanded,
-				theme,
-			};
-			for (const [index, call] of retainedCalls.entries()) {
-				if (call.args !== undefined) {
-					appendLines(
-						lines,
-						renderToolCallWidget(call, { cwd, theme, expanded, width, ...(renderers ? { renderers } : {}) }),
-					);
-				} else {
-					appendLines(lines, renderToolCall(retainedRows[index], legacyBlock, width));
-				}
-			}
-			return lines;
-		},
-	};
+export function toolCallRow(call: EvalToolDetails["toolCalls"][number]): ToolCallRow {
+	const status = call.ok ? "ok" : "error";
+	const row = { summary: `- tool.${call.name}: ${status}`, color: call.ok ? "success" : "error" } as const;
+	return call.error === undefined ? row : { ...row, error: call.error };
 }

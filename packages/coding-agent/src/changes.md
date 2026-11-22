@@ -1,3 +1,21 @@
+## 2026-11-20 - Export semantic card types to tool extensions
+
+### What changed
+
+- `packages/coding-agent/src/index.ts`: re-exports the TUI semantic density view types for independently shipped tool renderers.
+
+### Why
+
+- The installed eval extension needs the same type contract without importing the coding agent's interactive components or adding a runtime dependency.
+
+### Why an extension could not handle it
+
+- The host owns its public type surface; the extension consumes that surface and supplies its specific titles and sections.
+
+### Expected merge conflict zones
+
+- LOW: public extension barrel type exports.
+
 ## 2026-11-18 - The parent config walk stops at the account home (senpi#6459)
 
 ### What changed

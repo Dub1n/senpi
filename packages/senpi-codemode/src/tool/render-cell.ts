@@ -57,6 +57,11 @@ export function renderCell(cell: EvalCellResult, environment: RenderEnvironment,
 	return lines;
 }
 
+/** Render the cell's code rows without the cell-owned frame. */
+export function renderDensityCellCode(cell: EvalCellResult, environment: RenderEnvironment): string[] {
+	return previewText(highlightedCodeForFrame(cell, environment), Number.POSITIVE_INFINITY, environment.width).lines;
+}
+
 function renderCellFrame(cell: EvalCellResult, environment: RenderEnvironment, badges: CellBadges): string[] {
 	switch (cell.status) {
 		case "pending":

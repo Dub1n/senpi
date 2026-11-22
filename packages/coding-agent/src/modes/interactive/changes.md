@@ -1,3 +1,48 @@
+## 2026-11-22 - Style and route dense transcript card variants
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts`: hydrates and refreshes dense color preferences and retains the typed system-prompt event.
+- `packages/coding-agent/src/modes/interactive/components/settings-selector.ts`: adds independent name and frame color controls.
+- `packages/coding-agent/src/modes/interactive/components/tool-execution.ts`: resolves recognized pinned OmO task results through a dense-only semantic adapter.
+- `packages/coding-agent/src/modes/interactive/components/custom-entry.ts` and `packages/coding-agent/src/modes/interactive/components/custom-message.ts`: project recognized rules and Kibitzer notice types; agent messages retain their attribution and relay.
+- `packages/coding-agent/src/modes/interactive/components/compaction-summary-message.ts`: formats one dense title with counts supported by the recorded event, then displays the summary and details without repeating the title.
+
+### Why
+
+- Names, details, status and frame colors need separate ownership. Card renderers should retain the original content while dense mode controls layout.
+
+### Why an extension could not handle it
+
+- The interactive transcript owns grouping, the selectors and the choice between dense and Default renderers.
+
+### Expected merge conflict zones
+
+- MEDIUM: settings hydration, semantic view lookup and notice projections.
+
+## 2026-11-20 - Semantic frames for dense transcript cards
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/tool-execution.ts`: exposes the renderer's optional semantic card content to the Compact and Grouped transcript projection without replacing the owning tool component.
+- `packages/coding-agent/src/modes/interactive/components/compaction-summary-message.ts`: contributes a collapsed token-count title and the expanded summary to the dense frame, sharing its existing expansion state.
+- `packages/coding-agent/src/modes/interactive/components/custom-message.ts`: projects typed agent deliveries as dense cards, retaining sender and relay attribution.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts`: identifies the system-prompt change notice so Grouped can include it as a static row while Compact and Default retain the normal status presentation.
+
+### Why
+
+- A dense row needs the same action title when folded and expanded. It must place content and nested sections in a shared frame without guessing from the painted title or rendering hidden results.
+- Compaction summaries and attributed agent messages are useful folded landmarks. System-prompt notices should belong to the surrounding group without presenting a false expansion target.
+
+### Why an extension could not handle it
+
+- Individual tools can supply their semantic content, but the interactive transcript owns row projection, click coordinates, and when to materialize the tool's content.
+
+### Expected merge conflict zones
+
+- MEDIUM: `ToolExecutionComponent` renderer delegation and summary lifecycle; keep the dense presentation separate from the Default renderer.
+- MEDIUM: compaction and custom-message display ownership, system-prompt event routing, and status placement relative to the streaming message.
+
 ## 2026-11-18 - `/trust` and the reload trust save await the asynchronous trust store (#6823 re-land)
 
 ### What changed

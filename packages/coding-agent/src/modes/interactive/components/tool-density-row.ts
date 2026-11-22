@@ -1,3 +1,4 @@
+// allow: SIZE_OK — One row couples frame layout with source maps and screen-to-content mouse coordinates.
 import {
 	applyBackgroundToLine,
 	claimFrameRow,
@@ -5,27 +6,37 @@ import {
 	dispatchMouseEvent,
 	getLineSources,
 	isImageLine,
+	isSemanticDensityCardSource,
 	nextRenderRevision,
 	renderAtFrameRow,
 	setLineSources,
 	stripTerminalSequences,
+	wrapTextWithAnsi,
 	type Component,
+	type DensityCardRenderOptions,
+	type DensityCardStatus,
+	type DensityCardView,
 	type TuiMouseDispatchResult,
 	type TuiMouseEvent,
 	type TuiMouseEventResult,
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
+import type { ToolDisplayColors } from "../../../core/settings-manager.ts";
 import { theme } from "../theme/theme.ts";
+import { densityCardStyle } from "./density-card-style.ts";
 import { toolDensitySummary } from "./tool-density-summary.ts";
 import type { ToolExecutionComponent } from "./tool-execution.ts";
 
 const paintGroup = (text: string) => theme.bg("toolSuccessBg", text);
 const noBackground = (text: string) => text;
+const defaultColors: ToolDisplayColors = { colorFrames: false, colorNames: false };
 
 /** A notice or assistant detail that participates in the tool-card layout. */
 export interface DensityCardSource extends Component {
 	readonly densityExpanded: boolean;
+	readonly densityExpandable?: false;
+	renderDensityCard?(width: number, options: DensityCardRenderOptions): DensityCardView | undefined;
 	renderDensitySummary(width: number, grouped: boolean): string[];
 	getBackgroundPainter(): ((text: string) => string) | undefined;
 	setExpanded(expanded: boolean): void;
@@ -58,6 +69,7 @@ function contentBounds(lines: readonly string[]): { start: number; end: number }
 export class ToolDensityRow implements Component {
 	private readonly card: ToolExecutionComponent | DensityCardSource;
 	private readonly requestRender: () => void;
+	private readonly getColors: () => ToolDisplayColors;
 	private grouped = false;
 	private first = true;
 	private last = true;
@@ -69,12 +81,18 @@ export class ToolDensityRow implements Component {
 				readonly start: number;
 				readonly height: number;
 				readonly inset: number;
+				readonly renderInset: number;
 		  }
 		| undefined;
 
-	constructor(card: ToolExecutionComponent | DensityCardSource, requestRender: () => void) {
+	constructor(
+		card: ToolExecutionComponent | DensityCardSource,
+		requestRender: () => void,
+		getColors: () => ToolDisplayColors = () => defaultColors,
+	) {
 		this.card = card;
 		this.requestRender = requestRender;
+		this.getColors = getColors;
 	}
 
 	/** Put padding on the edges of the run without making the run one hydration unit. */
@@ -93,16 +111,21 @@ export class ToolDensityRow implements Component {
 		const left = width >= 3 ? " " : "";
 		const right = width >= 4 ? "  " : left;
 		const innerWidth = width - left.length - right.length;
-		const fold = innerWidth >= 5 ? `${theme.fg("muted", "╶─")} ` : "";
-		const available = Math.max(0, innerWidth - visibleWidth(fold));
+		const foldWidth = innerWidth >= 5 ? 3 : 0;
+		const available = Math.max(0, innerWidth - foldWidth);
+		const densityCard = this.densityCard(available);
+		const style = densityCardStyle(this.getColors(), densityCard?.kind);
+		const fold = foldWidth ? `${style.frame("╶─")} ` : "";
 		const summary =
-			"densityExpanded" in this.card
-				? this.card.renderDensitySummary(available, this.grouped)
-				: (this.card.renderNoticeDensitySummary(available) ?? [this.renderToolSummary(available, this.card)]);
+			densityCard !== undefined
+				? [renderDensityCardSummary(densityCard, style), ...(densityCard.foldedDetails ?? [])]
+				: "densityExpanded" in this.card
+					? this.card.renderDensitySummary(available, this.grouped)
+					: (this.card.renderNoticeDensitySummary(available) ?? [this.renderToolSummary(available, this.card)]);
 		const paint = this.background;
 		const blank = applyBackgroundToLine("", width, paint);
 		const rows = summary.map((line, index) => {
-			const gutter = index === 0 ? fold : " ".repeat(visibleWidth(fold));
+			const gutter = index === 0 ? fold : " ".repeat(foldWidth);
 			return applyBackgroundToLine(
 				left + gutter + truncateToWidth(narrowLightning(line), available, "…") + right,
 				width,
@@ -115,7 +138,15 @@ export class ToolDensityRow implements Component {
 	}
 
 	private get expanded(): boolean {
+		if ("densityExpandable" in this.card && this.card.densityExpandable === false) return false;
 		return "densityExpanded" in this.card ? this.card.densityExpanded : this.card.summarySnapshot.expanded;
+	}
+
+	private densityCard(width: number): DensityCardView | undefined {
+		if ("summarySnapshot" in this.card && this.card.summarySnapshot.hasVisibleImages) return undefined;
+		return isSemanticDensityCardSource(this.card)
+			? this.card.renderDensityCard(width, { grouped: this.grouped, expanded: this.expanded })
+			: undefined;
 	}
 
 	private get background(): (text: string) => string {
@@ -125,44 +156,47 @@ export class ToolDensityRow implements Component {
 	private renderToolSummary(width: number, card: ToolExecutionComponent): string {
 		const state = card.summarySnapshot;
 		const summary = toolDensitySummary(state);
-		const live =
-			state.pending || summary.status === "running" || summary.status === "queued" || summary.status === "detached";
-		const failed = summary.status === "failed" || summary.status === "cancelled";
-		const color = failed ? "error" : live ? "warning" : "success";
-		const glyph = theme.fg(color, failed ? "✗" : live ? "○" : "✓");
-		const marker = `${glyph} `;
-		const available = Math.max(0, width - visibleWidth(marker));
-		const title = theme.fg("toolTitle", summary.tool);
-		const status = ` · ${theme.fg(color, summary.status)}`;
-		const titleWidth = visibleWidth(title);
-		const statusWidth = visibleWidth(status);
-		// Keep the tool and status useful when the model gives a long description.
-		const showStatus = !summary.attention && titleWidth + statusWidth + (summary.summary ? 16 : 0) <= available;
-		const detailWidth = available - titleWidth - (showStatus ? statusWidth : 0) - 3;
-		const description =
-			summary.summary && detailWidth > 1 ? `${truncateToWidth(summary.summary, detailWidth, "…")} · ` : "";
+		const icon = densityStatusGlyph(summary.status);
+		const label = densityStatusLabel(summary.status);
+		const marker = `${icon} `;
 		const attention = summary.attention;
-		const countSuffix = summary.summary ? ` · ${summary.summary}` : "";
+		const description =
+			state.name === "eval" && summary.tool !== "eval list" && summary.summary !== undefined
+				? summary.summary
+				: summary.summary
+					? `${summary.tool} · ${summary.summary}`
+					: summary.tool;
+		const title = theme.fg("toolTitle", description);
+		const color =
+			summary.status === "pending" || summary.status === "queued"
+				? "muted"
+				: summary.status === "cancelled" || summary.status === "failed"
+					? "error"
+					: "warning";
 		const line = attention
-			? `${theme.fg(color, attention)} · ${title}${
-					visibleWidth(attention) + 3 + titleWidth + visibleWidth(countSuffix) <= available ? countSuffix : ""
-				}`
-			: `${description}${title}${showStatus ? status : ""}`;
-		return truncateToWidth(marker, width, "") + truncateToWidth(line, available, "…");
+			? `${theme.fg("error", attention)} · ${title}`
+			: `${title}${label ? ` · ${theme.fg(color, label)}` : ""}`;
+		return truncateToWidth(marker, width, "") + truncateToWidth(line, width - visibleWidth(marker), "…");
 	}
 
 	private renderExpanded(width: number, frameRow: number | undefined): string[] {
+		let densityCard = this.densityCard(width);
+		if (densityCard !== undefined) return this.renderDensityCard(width, densityCard);
 		let original = renderAtFrameRow(this.card, width, frameRow);
+		densityCard = this.densityCard(width);
+		if (densityCard !== undefined) return this.renderDensityCard(width, densityCard);
 		let { start, end } = contentBounds(original);
-		const inset =
+		const renderInset =
 			width >= 8 && start < end && !stripTerminalSequences(original[start]).trimStart().startsWith("╭─") ? 3 : 0;
-		if (inset) {
+		if (renderInset) {
 			// Reserve frame columns before wrapping so the original renderer retains its
 			// text, image rows and mouse targets at narrow terminal widths.
-			original = renderAtFrameRow(this.card, width - inset, frameRow);
+			original = renderAtFrameRow(this.card, width - renderInset, frameRow);
 			({ start, end } = contentBounds(original));
 		}
-		this.detailLayout = { original, start, height: end - start, inset };
+		const sourceInset = "summarySnapshot" in this.card ? this.card.summarySnapshot.contentInset : 0;
+		const inset = renderInset === 0 ? 0 : 2 + Math.max(0, 1 - sourceInset);
+		this.detailLayout = { original, start, height: end - start, inset, renderInset };
 		const sources = getLineSources(original);
 		const paint = this.background;
 		const blank = applyBackgroundToLine("", width, paint);
@@ -171,19 +205,81 @@ export class ToolDensityRow implements Component {
 		const body = rows.map((line, index) => {
 			if (isImageLine(line)) return line;
 			const border =
-				inset === 0 ? "" : index === 0 ? ` ${theme.fg("borderAccent", "╭─")}` : ` ${theme.fg("borderMuted", "│")} `;
+				renderInset === 0
+					? ""
+					: index === 0
+						? ` ${theme.fg("borderMuted", "╭─")}`
+						: ` ${theme.fg("borderMuted", "│")}${" ".repeat(Math.max(0, 1 - sourceInset))}`;
 			return applyBackgroundToLine(border + narrowLightning(line), width, paint, this.grouped ? "replace" : "fill");
 		});
-		if (inset) body.push(applyBackgroundToLine(` ${theme.fg("borderMuted", "╰─")}`, width, paint));
+		if (renderInset) body.push(applyBackgroundToLine(` ${theme.fg("borderMuted", "╰─")}`, width, paint));
 		const lines = [...(this.first ? ["", blank] : []), ...body, ...(this.last ? [blank] : [])];
 		if (this.first) setLineSources(lines, [null, null]);
-		if (this.last || inset) {
+		if (this.last || renderInset) {
 			const mapping = [...(getLineSources(lines) ?? [])];
 			if (this.last) mapping[lines.length - 1] = null;
-			if (inset) mapping[lines.length - (this.last ? 2 : 1)] = null;
+			if (renderInset) mapping[lines.length - (this.last ? 2 : 1)] = null;
 			setLineSources(lines, mapping);
 		}
 		return copyLineSources(rows, lines, this.first ? 2 : 0, inset);
+	}
+
+	private renderDensityCard(width: number, view: DensityCardView): string[] {
+		const paint = this.background;
+		const style = densityCardStyle(this.getColors(), view.kind);
+		const bodyPrefix = ` ${style.frame("│")} `;
+		const renderLabel = (prefix: string, content: string): string[] => {
+			const available = Math.max(1, width - visibleWidth(prefix));
+			return wrapTextWithAnsi(content, available).map((line) =>
+				applyBackgroundToLine(prefix + line, width, paint, this.grouped ? "replace" : "fill"),
+			);
+		};
+		const title = truncateToWidth(renderDensityCardSummary(view, style, true), Math.max(0, width - 4), "…");
+		const frame = renderLabel(` ${style.frame("╭─")} `, title);
+		const appendContent = (prefix: string, content: readonly string[]): void => {
+			const rowOffset = frame.length;
+			frame.push(
+				...content.map((line) =>
+					applyBackgroundToLine(prefix + line, width, paint, this.grouped ? "replace" : "fill"),
+				),
+			);
+			copyLineSources(content, frame, rowOffset, visibleWidth(prefix));
+		};
+		const contentWidth = Math.max(1, width - visibleWidth(bodyPrefix));
+		if (view.renderMetadata !== undefined) appendContent(bodyPrefix, view.renderMetadata(contentWidth));
+		else if (view.metadata !== undefined) frame.push(...renderLabel(bodyPrefix, view.metadata));
+		appendContent(bodyPrefix, view.renderContent(contentWidth));
+		const after: string[] = [];
+		for (const section of view.sections) {
+			if (section.placement === "after" || (section.placement === "grouped" && !this.grouped)) {
+				after.push(...section.render(width, this.grouped));
+				continue;
+			}
+			const label = style.title({ name: section.name, detail: section.label, glyph: section.statusGlyph });
+			frame.push(...renderLabel(` ${style.frame("├─")} `, label));
+			appendContent(bodyPrefix, section.render(contentWidth, this.grouped));
+		}
+		frame.push(...renderLabel(` ${style.frame("╰─")}`, ""));
+		const blank = applyBackgroundToLine("", width, paint);
+		const rows = [
+			...frame,
+			...after.map((line) => applyBackgroundToLine(line, width, paint, this.grouped ? "replace" : "fill")),
+		];
+		copyLineSources(frame, rows);
+		copyLineSources(after, rows, frame.length);
+		this.detailLayout = { original: rows, start: 0, height: rows.length, inset: 0, renderInset: 0 };
+		const lines = [...(this.first ? ["", blank] : []), ...rows, ...(this.last ? [blank] : [])];
+		copyLineSources(rows, lines, this.first ? 2 : 0);
+		if (this.first || this.last) {
+			const mapping = [...(getLineSources(lines) ?? Array.from({ length: lines.length }, () => undefined))];
+			if (this.first) {
+				mapping[0] = null;
+				mapping[1] = null;
+			}
+			if (this.last) mapping[lines.length - 1] = null;
+			setLineSources(lines, mapping);
+		}
+		return lines;
 	}
 
 	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | TuiMouseDispatchResult | undefined {
@@ -201,7 +297,7 @@ export class ToolDensityRow implements Component {
 							...event,
 							x,
 							y,
-							width: event.width - detail.inset,
+							width: event.width - detail.renderInset,
 							height: detail.original.length,
 						});
 			if (result) return result;
@@ -213,6 +309,7 @@ export class ToolDensityRow implements Component {
 		// The alternate screen derives a click after a stationary release. Leaving
 		// the initial press to it lets a drag select text from the same row.
 		if (event.type !== "click" || event.button !== "left") return undefined;
+		if ("densityExpandable" in this.card && this.card.densityExpandable === false) return undefined;
 		if (!("densityExpanded" in this.card) && this.card.summarySnapshot.pending) return undefined;
 		this.card.setExpanded(!expanded);
 		this.requestRender();
@@ -228,4 +325,62 @@ export class ToolDensityRow implements Component {
 		this.detailLayout = undefined;
 		this.card.invalidate();
 	}
+}
+
+function renderDensityCardSummary(
+	view: DensityCardView,
+	style: ReturnType<typeof densityCardStyle>,
+	expanded = false,
+): string {
+	const title = style.title({
+		name: view.name,
+		detail: expanded ? (view.expandedTitle ?? view.title) : view.title,
+		glyph: view.statusGlyph ?? densityStatusGlyph(view.status),
+	});
+	const status = densityStatusLabel(view.status);
+	return title + (status ? ` · ${theme.fg("muted", status)}` : "");
+}
+
+function densityStatusGlyph(status: DensityCardStatus | undefined): string {
+	switch (status) {
+		case undefined:
+			return "";
+		case "pending":
+			return theme.fg("muted", "○");
+		case "running":
+			return theme.fg("warning", "○");
+		case "queued":
+			return theme.fg("muted", "○");
+		case "detached":
+			return theme.fg("warning", "↗");
+		case "done":
+			return theme.fg("success", "✓");
+		case "failed":
+			return theme.fg("error", "✗");
+		case "cancelled":
+			return theme.fg("error", "×");
+		default:
+			return assertNever(status);
+	}
+}
+
+function densityStatusLabel(status: DensityCardStatus | undefined): string {
+	switch (status) {
+		case undefined:
+		case "running":
+		case "done":
+		case "failed":
+			return "";
+		case "pending":
+		case "queued":
+		case "detached":
+		case "cancelled":
+			return status;
+		default:
+			return assertNever(status);
+	}
+}
+
+function assertNever(value: never): never {
+	throw new TypeError(`Unhandled density-card status: ${String(value)}`);
 }

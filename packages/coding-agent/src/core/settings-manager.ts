@@ -143,6 +143,10 @@ export const DEFAULT_EXTENSION_EVENT_HANDLER_TIMEOUT_MS = 1_200_000;
 
 export type TuiMode = RendererTuiMode;
 export type ToolDisplayDensity = "default" | "compact" | "grouped";
+export type ToolDisplayColors = {
+	readonly colorFrames: boolean;
+	readonly colorNames: boolean;
+};
 export type FullscreenExitOutput = "transcript" | "resume-hint";
 
 /**
@@ -225,6 +229,8 @@ export interface Settings {
 	fallback?: FallbackCircuitSettings;
 	hideThinkingBlock?: boolean;
 	toolDisplayDensity?: ToolDisplayDensity;
+	toolDisplayColorFrames?: boolean;
+	toolDisplayColorNames?: boolean;
 	smoothStreaming?: boolean; // default: true
 	smoothStreamingFps?: number; // default: 60, clamped to 30-120 when read
 	showCacheMissNotices?: boolean; // default: false - show prompt-cache miss and compaction cost notices
@@ -2210,6 +2216,25 @@ export class SettingsManager {
 	setToolDisplayDensity(density: ToolDisplayDensity): void {
 		this.globalSettings.toolDisplayDensity = density;
 		this.markModified("toolDisplayDensity");
+		this.save();
+	}
+
+	getToolDisplayColors(): ToolDisplayColors {
+		return {
+			colorFrames: this.settings.toolDisplayColorFrames === true,
+			colorNames: this.settings.toolDisplayColorNames === true,
+		};
+	}
+
+	setToolDisplayColorFrames(enabled: boolean): void {
+		this.globalSettings.toolDisplayColorFrames = enabled;
+		this.markModified("toolDisplayColorFrames");
+		this.save();
+	}
+
+	setToolDisplayColorNames(enabled: boolean): void {
+		this.globalSettings.toolDisplayColorNames = enabled;
+		this.markModified("toolDisplayColorNames");
 		this.save();
 	}
 

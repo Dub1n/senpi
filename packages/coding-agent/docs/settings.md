@@ -161,6 +161,8 @@ When this value is anything other than `"auto"`, it overrides any model-level `p
 | `editorPaddingX` | number | `0` | Horizontal padding for input editor (0-3) |
 | `outputPad` | number | `1` | Horizontal padding for user messages, assistant messages, and thinking (0 or 1) |
 | `toolDisplayDensity` | string | `"default"` | In `/settings`, choose **Tool display density**. `default` keeps the standard tool display, `compact` shortens individual tool entries, and `grouped` combines eligible consecutive entries in the transcript. |
+| `toolDisplayColorFrames` | boolean | `false` | **Color tool frames** in `/settings`. Color the left gutter by item type in Compact and Grouped; otherwise it uses the muted border color. Does not affect Default. |
+| `toolDisplayColorNames` | boolean | `false` | **Color tool names** in `/settings`. Color the bold item name by type in Compact and Grouped. The rest of the title stays in the standard text color. Cards without semantic names keep their existing title styling. Does not affect Default. |
 | `autocompleteMaxVisible` | number | `5` | Max visible items in autocomplete dropdown (3-20) |
 | `showHardwareCursor` | boolean | `false` | Show the terminal cursor while TUI positions it for IME support |
 | `tuiMode` | string | `"regular"` | Interactive TUI mode: `"regular"` or experimental `"fullscreen"`. Changes from `/settings` apply immediately; `--tui-mode` overrides this setting at startup |

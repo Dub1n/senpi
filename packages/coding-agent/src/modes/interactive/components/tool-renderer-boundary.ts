@@ -1,4 +1,4 @@
-import { type Component, copyLineSources } from "@earendil-works/pi-tui";
+import { Box, type Component, copyLineSources } from "@earendil-works/pi-tui";
 
 export function isComponent(value: unknown): value is Component {
 	return (
@@ -20,6 +20,10 @@ export class ToolRendererBoundary implements Component {
 		this.component = component;
 		this.fallback = fallback;
 		this.onFailure = onFailure;
+	}
+
+	getDensityContentInset(): number {
+		return this.component instanceof Box ? this.component.getHorizontalPadding() : 0;
 	}
 
 	render(width: number): string[] {

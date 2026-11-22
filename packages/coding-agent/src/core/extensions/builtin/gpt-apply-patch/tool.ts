@@ -8,6 +8,7 @@ import {
 	APPLY_PATCH_LARK_GRAMMAR,
 	APPLY_PATCH_PARAMS,
 } from "./constants.ts";
+import { patchDensityCard } from "./density.ts";
 import { normalizeApplyPatchArguments } from "./params.ts";
 import { parsePatch } from "./parser.ts";
 import { createPendingPatchUpdate } from "./preview.ts";
@@ -168,29 +169,67 @@ export function createApplyPatchTool(variant: "freeform" | "json" = "freeform"):
 			};
 		},
 		renderCall(args, theme, context: ToolRenderContext<ApplyPatchRenderState, { input: string }>) {
+			const decorate = <T extends Text>(component: T): T =>
+				Object.assign(component, {
+					renderDensityCard: () =>
+						patchDensityCard({
+							isError: false,
+							isPartial: true,
+							executionStarted: context.executionStarted,
+							cwd: context.cwd,
+							theme,
+						}),
+				});
 			if (!context.executionStarted) {
 				const streaming = renderStreamingPatchCall(normalizeApplyPatchArguments(args), theme, context.state);
-				if (streaming) return streaming;
+				if (streaming)
+					return Object.assign(streaming, {
+						renderDensityCard: () =>
+							patchDensityCard({
+								isError: false,
+								isPartial: true,
+								executionStarted: false,
+								cwd: context.cwd,
+								theme,
+							}),
+					});
 			}
-			if (!context.argsComplete) return new Text(theme.fg("toolTitle", theme.bold("apply_patch: Patching")), 0, 0);
+			if (!context.argsComplete)
+				return decorate(new Text(theme.fg("toolTitle", theme.bold("apply_patch: Patching")), 0, 0));
 			const normalizedArgs = normalizeApplyPatchArguments(args);
 			const renderState = getApplyPatchRenderState(context.toolCallId, context.cwd, normalizedArgs.input);
 			const text = renderState.callText?.length ? `apply_patch: ${renderState.callText}` : "apply_patch";
-			return new Text(theme.fg("toolTitle", theme.bold(text)), 0, 0);
+			return decorate(new Text(theme.fg("toolTitle", theme.bold(text)), 0, 0));
 		},
 		renderResult(result, options, theme, context) {
+			const decorate = (component: Container): Container =>
+				Object.assign(component, {
+					renderDensityCard: () =>
+						patchDensityCard({
+							result,
+							isError: context.isError,
+							isPartial: options.isPartial,
+							executionStarted: context.executionStarted,
+							cwd: context.cwd,
+							theme,
+						}),
+				});
 			if (context.isError && result.details?.result?.failures.length) {
-				return renderFailureBox(result as AgentToolResult<ApplyPatchToolDetails>, context.cwd, true, theme);
+				return decorate(
+					renderFailureBox(result as AgentToolResult<ApplyPatchToolDetails>, context.cwd, true, theme),
+				);
 			}
 			if (result.details?.preview) {
 				const expanded = true;
-				return renderPreviewBox(
-					options.isPartial ? "Applying patch" : "Applied patch",
-					result.details,
-					options.isPartial,
-					context.cwd,
-					expanded,
-					theme,
+				return decorate(
+					renderPreviewBox(
+						options.isPartial ? "Applying patch" : "Applied patch",
+						result.details,
+						options.isPartial,
+						context.cwd,
+						expanded,
+						theme,
+					),
 				);
 			}
 			if (result.details?.result) {
@@ -205,9 +244,9 @@ export function createApplyPatchTool(variant: "freeform" | "json" = "freeform"):
 					box.addChild(new Text(renderPatchPreview(result.details.preview, context.cwd, theme, expanded), 0, 0));
 				}
 				component.addChild(box);
-				return component;
+				return decorate(component);
 			}
-			return renderTextResult(result, theme);
+			return decorate(renderTextResult(result, theme));
 		},
 	});
 

@@ -4,7 +4,14 @@ import { Box, Container, Markdown, type MarkdownTheme, Spacer, Text } from "@ear
 import type { MessageRenderer } from "../../../core/extensions/types.ts";
 import type { CustomMessage } from "../../../core/messages.ts";
 import { sharedMarkdownTheme, theme } from "../theme/theme.ts";
-import { isNoticeBox, noticeBoxBackground, renderNoticeBoxTitle } from "./notice-density-source.ts";
+import {
+	isNoticeBox,
+	namedNoticeKind,
+	noticeBoxBackground,
+	renderNamedNoticeCard,
+	renderNoticeBoxTitle,
+} from "./notice-density-source.ts";
+import { agentDeliveryDensityCard, renderRemoteDelivery } from "./remote-delivery-message.ts";
 
 /**
  * Component that renders a custom message entry from extensions.
@@ -48,7 +55,10 @@ export class CustomMessageComponent extends Container {
 	}
 
 	get noticeDensityEligible(): boolean {
-		return isNoticeBox(this.customComponent);
+		return (
+			(this.customRenderer === renderRemoteDelivery && agentDeliveryDensityCard(this.message) !== undefined) ||
+			isNoticeBox(this.customComponent)
+		);
 	}
 
 	get densityExpanded(): boolean {
@@ -56,11 +66,20 @@ export class CustomMessageComponent extends Container {
 	}
 
 	renderDensitySummary(width: number, _grouped: boolean): string[] {
-		return renderNoticeBoxTitle(this.customComponent, width) ?? [];
+		const view = this.renderDensityCard(width, { grouped: _grouped });
+		return view ? [view.title] : (renderNoticeBoxTitle(this.customComponent, width) ?? []);
 	}
 
 	getBackgroundPainter(): ((text: string) => string) | undefined {
-		return noticeBoxBackground(this.customComponent);
+		return this.customRenderer === renderRemoteDelivery && agentDeliveryDensityCard(this.message)
+			? (text) => theme.bg("customMessageBg", text)
+			: noticeBoxBackground(this.customComponent);
+	}
+
+	renderDensityCard(_width: number, _options: { readonly grouped: boolean }) {
+		if (this.customRenderer === renderRemoteDelivery) return agentDeliveryDensityCard(this.message);
+		const kind = namedNoticeKind(this.message.customType);
+		return kind === undefined ? undefined : renderNamedNoticeCard(this.customComponent, kind);
 	}
 
 	setExpanded(expanded: boolean): void {

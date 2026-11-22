@@ -83,6 +83,11 @@ export class Box implements Component {
 		return this.bgFn;
 	}
 
+	/** Horizontal cells the box adds before each child's rendered row. */
+	getHorizontalPadding(): number {
+		return this.paddingX;
+	}
+
 	private invalidateCache(): void {
 		this.cache = undefined;
 		this.composite.bump();

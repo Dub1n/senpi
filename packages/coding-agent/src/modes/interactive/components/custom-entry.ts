@@ -3,7 +3,13 @@ import { Box, Container, Spacer, Text } from "@earendil-works/pi-tui";
 import type { EntryRenderer, EntryRendererOptions } from "../../../core/extensions/types.ts";
 import type { CustomEntry } from "../../../core/session-manager.ts";
 import { theme } from "../theme/theme.ts";
-import { isNoticeBox, noticeBoxBackground, renderNoticeBoxTitle } from "./notice-density-source.ts";
+import {
+	isNoticeBox,
+	namedNoticeKind,
+	noticeBoxBackground,
+	renderNamedNoticeCard,
+	renderNoticeBoxTitle,
+} from "./notice-density-source.ts";
 
 /**
  * Component that renders a custom session entry from extensions.
@@ -41,6 +47,11 @@ export class CustomEntryComponent extends Container {
 
 	renderDensitySummary(width: number, _grouped: boolean): string[] {
 		return renderNoticeBoxTitle(this.customComponent, width) ?? [];
+	}
+
+	renderDensityCard() {
+		const kind = namedNoticeKind(this.entry.customType);
+		return kind === undefined ? undefined : renderNamedNoticeCard(this.customComponent, kind);
 	}
 
 	getBackgroundPainter(): ((text: string) => string) | undefined {

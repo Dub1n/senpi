@@ -1,5 +1,23 @@
 # core/tools/renderers changes
 
+## 2026-11-20 - Semantic titles and payloads for dense reads
+
+### What changed
+
+- `packages/coding-agent/src/core/tools/renderers/read.ts`: supplies a basename when folded and a path with a line range when expanded. The dense result preserves the file's actual leading and trailing blank lines and indentation; native inline images remain with the existing renderer.
+
+### Why
+
+- The dense frame owns its padding. Removing decoration from an already-painted read would also remove meaningful whitespace from file content.
+
+### Why an extension could not handle it
+
+- The built-in renderer owns the title, syntax highlighting and image handoff. The dense projection must use the same tool result rather than recreate it.
+
+### Expected merge conflict zones
+
+- MEDIUM: read call and result renderers; retain the Default renderer's classification and padding.
+
 ## 2026-11-15 - Renderers follow the moved bash throttle and edit preview (senpi#6740)
 
 ### What changed

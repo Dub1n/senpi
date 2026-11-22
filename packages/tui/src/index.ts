@@ -49,6 +49,15 @@ export {
 } from "./colors.ts";
 // Components
 export { Box } from "./components/box.ts";
+export {
+	isSemanticDensityCardSource,
+	type DensityCardKind,
+	type DensityCardRenderOptions,
+	type DensityCardSection,
+	type DensityCardSource,
+	type DensityCardStatus,
+	type DensityCardView,
+} from "./density-card.ts";
 export { CancellableLoader } from "./components/cancellable-loader.ts";
 export {
 	Editor,
@@ -269,6 +278,7 @@ export {
 	getGraphemeSegmenter,
 	getOsc8LinkAtColumn,
 	getWordSegmenter,
+	extractAnsiCode,
 	sliceByColumn,
 	stripTerminalSequences,
 	truncateToWidth,

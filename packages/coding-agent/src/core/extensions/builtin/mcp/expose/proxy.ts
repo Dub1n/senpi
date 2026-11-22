@@ -10,7 +10,13 @@
 // self-correct; unknown tool names get nearest-match suggestions.
 
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
-import { Text } from "@earendil-works/pi-tui";
+import {
+	type DensityCardSource,
+	type DensityCardView,
+	sanitizeTerminalLabel,
+	Text,
+	wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
 import type { ToolDefinition } from "../../../types.ts";
 import { registerDispatchIdentity } from "../../permission-system/dispatch-metadata.ts";
@@ -35,6 +41,25 @@ type Params = Static<typeof ParamsSchema>;
 
 type ProxyResult = AgentToolResult<McpToolDetails | undefined>;
 type McpProxyTool = ToolDefinition<typeof ParamsSchema, McpToolDetails | undefined, unknown>;
+
+class ProxyManagementCard extends Text implements DensityCardSource {
+	private readonly view: DensityCardView;
+
+	constructor(defaultText: string, view: DensityCardView) {
+		super(defaultText, 0, 0);
+		this.view = view;
+	}
+
+	renderDensityCard(): DensityCardView {
+		return this.view;
+	}
+}
+
+function managementTitle(args: Params): string {
+	return args.op === "search"
+		? ` "${sanitizeTerminalLabel(args.query ?? "")}"`
+		: ` describe ${sanitizeTerminalLabel(args.tool ?? "(missing)")}`;
+}
 
 export function createMcpProxyTool(server: string, entries: readonly McpToolCatalogEntry[]): McpProxyTool {
 	const named = mapMcpCatalogNames(entries);
@@ -107,13 +132,37 @@ export function createMcpProxyTool(server: string, entries: readonly McpToolCata
 				context,
 			});
 		},
-		renderCall(args, theme) {
+		renderCall(args, theme, context) {
 			const detail = args.op === "search" ? (args.query ?? "") : (args.tool ?? "");
-			return new Text(theme.fg("toolTitle", theme.bold(`${name} ${args.op} ${detail}`.trim())), 0, 0);
+			const text = theme.fg("toolTitle", theme.bold(`${name} ${args.op} ${detail}`.trim()));
+			if (args.op !== "search" && args.op !== "describe") return new Text(text, 0, 0);
+			return new ProxyManagementCard(text, {
+				name: "tool",
+				kind: "tool",
+				title: managementTitle(args),
+				status: context.executionStarted ? "running" : "pending",
+				sections: [],
+				renderContent: () => [],
+			});
 		},
-		renderResult(result, options, theme) {
+		renderResult(result, options, theme, context) {
 			const title = options.isPartial ? `${name}: running` : `${name}: ${result.details?.preview ?? "done"}`;
-			return new Text(theme.fg("toolOutput", title), 0, 0);
+			const text = theme.fg("toolOutput", title);
+			const args = context.args;
+			if (!args || (args.op !== "search" && args.op !== "describe")) return new Text(text, 0, 0);
+			const payload = result.content
+				.filter((part) => part.type === "text")
+				.map((part) => part.text)
+				.join("\n");
+			const failed = context.isError || (args.op === "describe" && payload.startsWith("Unknown tool '"));
+			return new ProxyManagementCard(text, {
+				name: "tool",
+				kind: "tool",
+				title: managementTitle(args),
+				statusGlyph: failed ? "✗" : options.isPartial ? "○" : "◉",
+				sections: [],
+				renderContent: (width) => [`server: ${server}`, payload].flatMap((line) => wrapTextWithAnsi(line, width)),
+			});
 		},
 	};
 }

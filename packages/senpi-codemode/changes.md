@@ -1,3 +1,22 @@
+## 2026-11-20 - Semantic eval card for dense tool display
+
+### What changed
+
+- `packages/senpi-codemode/src/tool/render-blocks.ts`: carries an optional semantic view alongside the normal eval render blocks.
+- `packages/senpi-codemode/src/tool/render-cell.ts` and `packages/senpi-codemode/src/tool/render-detail.ts`: share the description, runtime metadata and result details between the normal eval presentation and the dense row. Grouped puts nested commands or tool calls inside the frame; Compact leaves them after it.
+
+### Why
+
+- The folded description remains the action title when a reader opens the result. Runtime metrics and nested call output are details, not replacement titles.
+
+### Why an extension could not handle it
+
+- Codemode is itself the extension that supplies this view. It needs the original nested call data and cannot recover it reliably from already-painted terminal lines.
+
+### Expected merge conflict zones
+
+- LOW: eval component construction and nested call layout; preserve the original render path for Default.
+
 ## 2026-11-17 - A nested tool result with isError: true counts as a failure (senpi#6906, senpi#6904)
 
 ### What changed

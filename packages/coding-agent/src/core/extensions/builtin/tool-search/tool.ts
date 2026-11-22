@@ -1,5 +1,11 @@
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
-import { Text } from "@earendil-works/pi-tui";
+import {
+	type DensityCardSource,
+	type DensityCardView,
+	sanitizeTerminalLabel,
+	Text,
+	wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
 import type { ToolDefinition } from "../../types.ts";
 import type { Bm25Result } from "./engine/bm25.ts";
@@ -39,6 +45,19 @@ export interface ToolSearchResultInput {
 }
 
 type ToolSearchTool = ToolDefinition<typeof ParamsSchema, ToolSearchDetails, unknown>;
+
+class ToolSearchCard extends Text implements DensityCardSource {
+	readonly #view: DensityCardView;
+
+	constructor(defaultText: string, view: Omit<DensityCardView, "name" | "kind" | "sections">) {
+		super(defaultText, 0, 0);
+		this.#view = { name: "tool", kind: "tool", sections: [], ...view };
+	}
+
+	renderDensityCard(): DensityCardView {
+		return this.#view;
+	}
+}
 
 /** Author the single shared tool-search definition registered by this builtin. */
 export function createToolSearchTool(service: ToolSearchService): ToolSearchTool {
@@ -84,23 +103,43 @@ export function createToolSearchTool(service: ToolSearchService): ToolSearchTool
 				},
 			};
 		},
-		renderCall(args, theme) {
+		renderCall(args, theme, context) {
 			const source = args.source === undefined ? "" : ` source:${args.source}`;
 			const group = args.group === undefined ? "" : ` @${args.group}`;
-			return new Text(
+			return new ToolSearchCard(
 				theme.fg("toolTitle", theme.bold(`${TOOL_SEARCH_TOOL_NAME} "${args.query}"${source}${group}`)),
-				0,
-				0,
+				{
+					title: querySuffix(args.query),
+					status: context?.executionStarted ? "running" : "pending",
+					renderContent: () => [],
+				},
 			);
 		},
-		renderResult(result, options, theme) {
-			const count = (result.details?.matched.length ?? 0) + (result.details?.evalOnly?.length ?? 0);
+		renderResult(result, options, theme, context) {
+			const matched = result.details?.matched;
+			const count = (matched?.length ?? 0) + (result.details?.evalOnly?.length ?? 0);
 			const title = options.isPartial
 				? `${TOOL_SEARCH_TOOL_NAME}: searching`
 				: `${TOOL_SEARCH_TOOL_NAME}: ${count} tool(s) found`;
-			return new Text(theme.fg("toolOutput", title), 0, 0);
+			const failed = context?.isError ?? false;
+			return new ToolSearchCard(theme.fg("toolOutput", title), {
+				title: querySuffix(result.details?.query ?? context?.args?.query),
+				statusGlyph: failed ? "✗" : options.isPartial ? "○" : "◉",
+				renderContent: (width) => {
+					const payload = result.content
+						.filter((part) => part.type === "text")
+						.map((part) => part.text)
+						.join("\n");
+					const summary = options.isPartial ? "searching" : !failed && matched ? `${count} tool(s) found` : "";
+					return [summary, payload].flatMap((text) => (text ? wrapTextWithAnsi(text, width) : []));
+				},
+			});
 		},
 	};
+}
+
+function querySuffix(query: string | undefined): string {
+	return query === undefined ? "" : ` "${sanitizeTerminalLabel(query)}"`;
 }
 
 function prepareToolSearchArguments(args: unknown): Params {

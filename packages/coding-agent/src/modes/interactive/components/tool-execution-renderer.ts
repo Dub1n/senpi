@@ -1,5 +1,17 @@
+// allow: SIZE_OK — Call/result ownership and lazy content release are one renderer lifecycle.
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
-import { Box, type Component, Container, getCapabilities, MouseRegion, Text } from "@earendil-works/pi-tui";
+import {
+	Box,
+	type Component,
+	Container,
+	getCapabilities,
+	isSemanticDensityCardSource,
+	MouseRegion,
+	type DensityCardSource,
+	type DensityCardRenderOptions,
+	Text,
+	type DensityCardView,
+} from "@earendil-works/pi-tui";
 import type { ToolRenderContext } from "../../../core/extensions/types.ts";
 import { createAllToolDefinitions, type ToolName } from "../../../core/tools/index.ts";
 import { theme } from "../theme/theme.ts";
@@ -16,7 +28,12 @@ import type {
 	ToolRenderers,
 } from "./tool-execution-types.ts";
 import { isComponent, ToolRendererBoundary } from "./tool-renderer-boundary.ts";
-import { isRememberedNoticeBox, renderNoticeBoxTitle } from "./notice-density-source.ts";
+import {
+	forgetDensityCardSummary,
+	rememberDensityCardSummary,
+	rememberedDensityCardSummary,
+} from "./tool-density-card-cache.ts";
+import { isRememberedNoticeBox, renderNamedNoticeCard, renderNoticeBoxTitle } from "./notice-density-source.ts";
 
 type RenderContainer = Box | Container;
 
@@ -49,7 +66,7 @@ const RELEASED_STATE: ToolExecutionRenderState = {
 	result: undefined,
 };
 
-export class ToolExecutionRenderer extends Container {
+export class ToolExecutionRenderer extends Container implements DensityCardSource {
 	private readonly identity: ToolExecutionIdentity;
 	private readonly builtInDefinition: ToolRenderers | undefined;
 	private readonly contentBox: Box;
@@ -123,7 +140,27 @@ export class ToolExecutionRenderer extends Container {
 		return renderNoticeBoxTitle(this.resultRendererComponent, width);
 	}
 
+	renderDensityCard(width: number, options: DensityCardRenderOptions): DensityCardView | undefined {
+		const component = this.state.result === undefined ? this.callRendererComponent : this.resultRendererComponent;
+		const view =
+			component && isSemanticDensityCardSource(component)
+				? component.renderDensityCard(width, options)
+				: this.identity.toolName === "memory"
+					? renderNamedNoticeCard(component, "memory")
+					: undefined;
+		if (!view) return options.expanded === true ? undefined : rememberedDensityCardSummary(this);
+		rememberDensityCardSummary(this, view);
+		return view;
+	}
+
+	getDensityContentInset(): number {
+		const component = this.resultRendererComponent ?? this.callRendererComponent;
+		if (component instanceof Box) return component.getHorizontalPadding();
+		return component instanceof ToolRendererBoundary ? component.getDensityContentInset() : 0;
+	}
+
 	update(state: ToolExecutionRenderState): void {
+		forgetDensityCardSummary(this);
 		this.state = state;
 		const background = state.isPartial
 			? (text: string) => theme.bg("toolPendingBg", text)
@@ -151,6 +188,11 @@ export class ToolExecutionRenderer extends Container {
 
 	/** Drops the built call and result content; the next `update` builds it again from state. */
 	releaseContent(): void {
+		const component = this.state.result === undefined ? this.callRendererComponent : this.resultRendererComponent;
+		if (component && isSemanticDensityCardSource(component)) {
+			const summary = component.renderDensityCard(120, { grouped: false, expanded: false });
+			if (summary !== undefined) rememberDensityCardSummary(this, summary);
+		}
 		this.contentBox.detachAll();
 		this.selfRenderContainer.detachAll();
 		this.contentText.setText("");

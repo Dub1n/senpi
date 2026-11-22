@@ -1,7 +1,16 @@
-import { Container, joinLineArrays, Spacer, type TUI } from "@earendil-works/pi-tui";
+// allow: SIZE_OK — Execution state, animation, and lazy renderer release form one component lifecycle.
+import {
+	Container,
+	joinLineArrays,
+	Spacer,
+	type DensityCardRenderOptions,
+	type DensityCardView,
+	type TUI,
+} from "@earendil-works/pi-tui";
 import { isModelOnlyText } from "../../../core/tools/model-only-text.ts";
 import { GrokToolRow } from "../grok/tool-row.ts";
 import { theme } from "../theme/theme.ts";
+import { omoTaskDensityCard } from "./omo-task-density.ts";
 import { createBoundedRenderSignature } from "./render-signature.ts";
 import { ToolExecutionAnimation, toolCardSpins, toolCardStrikes } from "./tool-execution-animation.ts";
 import { serializedToolResultBytes, ToolExecutionRenderCache } from "./tool-execution-cache.ts";
@@ -130,7 +139,36 @@ export class ToolExecutionComponent extends Container {
 			started: this.executionStarted,
 			failed: this.result?.isError ?? false,
 			expanded: this.expanded,
+			hasVisibleImages: this.showImages && this.result?.content.some((part) => part.type === "image") === true,
+			contentInset: this.renderer?.getDensityContentInset() ?? 0,
 		};
+	}
+
+	renderDensityCard(width: number, options: DensityCardRenderOptions): DensityCardView | undefined;
+	renderDensityCard(width: number, grouped: boolean, expanded?: boolean): DensityCardView | undefined;
+	renderDensityCard(
+		width: number,
+		optionsOrGrouped: DensityCardRenderOptions | boolean,
+		legacyExpanded = false,
+	): DensityCardView | undefined {
+		const options =
+			typeof optionsOrGrouped === "boolean"
+				? { grouped: optionsOrGrouped, expanded: legacyExpanded }
+				: { grouped: optionsOrGrouped.grouped, expanded: optionsOrGrouped.expanded ?? false };
+		if (this.showImages && this.result?.content.some((part) => part.type === "image")) return undefined;
+		const taskView = omoTaskDensityCard({
+			toolName: this.identity.toolName,
+			args: this.args,
+			result: this.result,
+		});
+		if (taskView !== undefined) return taskView;
+		let view = this.renderer?.renderDensityCard(width, options);
+		if (view === undefined && (options.expanded || this.displayReleased)) {
+			this.restoreReleasedContent();
+			view = this.renderer?.renderDensityCard(width, options);
+			if (view !== undefined && !options.expanded) this.invalidate();
+		}
+		return view;
 	}
 
 	renderNoticeDensitySummary(width: number): string[] | undefined {

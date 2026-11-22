@@ -7,9 +7,11 @@ import {
 	Spacer,
 	type TuiMouseEvent,
 } from "@earendil-works/pi-tui";
-import type { ToolDisplayDensity } from "../../../core/settings-manager.ts";
+import type { ToolDisplayColors, ToolDisplayDensity } from "../../../core/settings-manager.ts";
 import { AssistantMessageComponent } from "./assistant-message.ts";
 import { CustomEntryComponent } from "./custom-entry.ts";
+import { CompactionSummaryMessageComponent } from "./compaction-summary-message.ts";
+import { type DenseReadMember, denseReadProjection, DenseReadRun } from "./dense-read-run.ts";
 import { type ExplorationCall, explorationCall } from "./exploration-call.ts";
 import { ExplorationGroup } from "./exploration-group.ts";
 import { projectRulesOfCall } from "./exploration-rules.ts";
@@ -20,6 +22,7 @@ import {
 import { type DensityCardSource, isDensityCardSource, ToolDensityRow } from "./tool-density-row.ts";
 import { ToolExecutionComponent } from "./tool-execution.ts";
 import { TranscriptNotice } from "./transcript-notice.ts";
+import { SystemPromptStatus } from "./system-prompt-status.ts";
 
 /**
  * Original children remain the lifecycle/ID/anchor model. A non-owning projection groups their
@@ -30,7 +33,9 @@ export class ExplorationTranscriptContainer extends Container {
 	private readonly display: ProgressiveTranscriptContainer;
 	private readonly requestRender: () => void;
 	private density: ToolDisplayDensity = "default";
+	private densityColors: ToolDisplayColors = { colorFrames: false, colorNames: false };
 	private readonly densityRows = new WeakMap<ToolExecutionComponent | DensityCardSource, ToolDensityRow>();
+	private readonly denseReadRuns = new WeakMap<ToolExecutionComponent, DenseReadRun>();
 	private densityProjection:
 		| {
 				readonly source: readonly Component[];
@@ -64,6 +69,13 @@ export class ExplorationTranscriptContainer extends Container {
 		this.display.invalidateCache();
 	}
 
+	setToolDisplayColors(colors: ToolDisplayColors): void {
+		if (this.densityColors.colorFrames === colors.colorFrames && this.densityColors.colorNames === colors.colorNames)
+			return;
+		this.densityColors = colors;
+		if (this.density !== "default") this.display.invalidateCache();
+	}
+
 	override render(width: number): string[] {
 		this.display.children = this.density === "default" ? this.project() : this.projectDensity();
 		return renderAtFrameRow(this.display, width, claimFrameRow(this));
@@ -80,18 +92,56 @@ export class ExplorationTranscriptContainer extends Container {
 		const projected: Component[] = [];
 		let previous: ToolDensityRow | undefined;
 		let previousFirst = true;
-		const append = (child: Component): void => {
+		const appendRow = (child: Component): void => {
 			const row =
-				child instanceof ToolExecutionComponent || isDensityCardSource(child) ? this.densityRowOf(child) : null;
+				child instanceof SystemPromptStatus && !grouped
+					? null
+					: child instanceof ToolExecutionComponent || isDensityCardSource(child)
+						? this.densityRowOf(child)
+						: null;
 			const joins = grouped && previous !== undefined && row !== null;
 			previous?.setLayout(grouped, previousFirst, !joins);
 			previous = row ?? undefined;
 			previousFirst = !joins;
 			projected.push(row ?? child);
 		};
+		let reads: DenseReadMember[] = [];
+		const flushReads = (): void => {
+			const [first, second] = reads;
+			if (!first) return;
+			if (second) {
+				let run = this.denseReadRuns.get(first.card);
+				if (!run) {
+					run = new DenseReadRun();
+					this.denseReadRuns.set(first.card, run);
+				}
+				run.setMembers(reads);
+				appendRow(run);
+			} else {
+				appendRow(first.card);
+			}
+			reads = [];
+		};
+		const append = (child: Component): void => {
+			const read = denseReadProjection(child);
+			if (read === "hidden") return;
+			if (read) {
+				if (reads.length > 0 && reads[0].kind !== read.kind) flushReads();
+				reads.push(read);
+			} else {
+				flushReads();
+				appendRow(child);
+			}
+		};
 		for (const [index, child] of this.children.entries()) {
 			// The density card supplies the outer spacing for a transcript notice.
-			if (child instanceof Spacer && this.children[index + 1] instanceof TranscriptNotice) continue;
+			if (
+				child instanceof Spacer &&
+				(this.children[index + 1] instanceof TranscriptNotice ||
+					this.children[index + 1] instanceof CompactionSummaryMessageComponent ||
+					(grouped && this.children[index + 1] instanceof SystemPromptStatus))
+			)
+				continue;
 			if (child instanceof AssistantMessageComponent) {
 				child.setSuppressCompletedThinkingLabel(true);
 				if (!child.hasTranscriptRows) continue;
@@ -100,6 +150,7 @@ export class ExplorationTranscriptContainer extends Container {
 				append(child);
 			}
 		}
+		flushReads();
 		previous?.setLayout(grouped, previousFirst, true);
 		this.densityProjection = { source: [...this.children], projected, clock: currentRenderRevision() };
 		return projected;
@@ -108,7 +159,7 @@ export class ExplorationTranscriptContainer extends Container {
 	private densityRowOf(card: ToolExecutionComponent | DensityCardSource): ToolDensityRow {
 		const cached = this.densityRows.get(card);
 		if (cached !== undefined) return cached;
-		const row = new ToolDensityRow(card, this.requestRender);
+		const row = new ToolDensityRow(card, this.requestRender, () => this.densityColors);
 		this.densityRows.set(card, row);
 		return row;
 	}

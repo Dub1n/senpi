@@ -1,5 +1,5 @@
 import type { TextContent } from "@earendil-works/pi-ai";
-import { Box, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
+import { Box, type DensityCardView, Markdown, sanitizeTerminalLabel, Spacer, Text } from "@earendil-works/pi-tui";
 import {
 	isSessionControlDeliveryDetails,
 	type MessageRenderer,
@@ -9,7 +9,8 @@ import {
 	sessionControlRemoteOriginOf,
 	sessionControlSenderOf,
 } from "../../../core/extensions/types.ts";
-import { sharedMarkdownTheme } from "../theme/theme.ts";
+import { sharedMarkdownTheme, theme as interactiveTheme } from "../theme/theme.ts";
+import type { CustomMessage } from "../../../core/messages.ts";
 
 /**
  * A message another session delivered renders as its own block - never as the user's own input, so
@@ -61,6 +62,35 @@ export function senderLabel(sender: SessionControlSender): string {
 				? `Sent from ${sender.platform}`
 				: `Sent from ${sender.platform} · ${sender.author}`;
 	}
+}
+
+/** Project only a typed agent delivery; other delivery origins keep their original rendering. */
+export function agentDeliveryDensityCard(message: CustomMessage<unknown>): DensityCardView | undefined {
+	if (message.customType !== SESSION_CONTROL_DELIVERY_TYPE) return undefined;
+	const sender = sessionControlSenderOf(message.details);
+	if (sender?.kind !== "agent") return undefined;
+	const origin = sessionControlRemoteOriginOf(message.details);
+	const senderName = sanitizeTerminalLabel(sender.name ?? "") || sanitizeTerminalLabel(sender.session_id);
+	const title = ` ${senderName}${origin ? ` · ${sanitizeTerminalLabel(originLabel(origin))}` : ""}`;
+	const body =
+		displayTextOf(message.details) ??
+		(typeof message.content === "string"
+			? message.content
+			: message.content
+					.filter((part): part is TextContent => part.type === "text")
+					.map((part) => part.text)
+					.join("\n"));
+	return {
+		name: "from",
+		kind: "message",
+		title,
+		statusGlyph: "←",
+		renderContent: (width) =>
+			new Markdown(body, 0, 0, sharedMarkdownTheme(), {
+				color: (line) => interactiveTheme.fg("customMessageText", line),
+			}).render(width),
+		sections: [],
+	};
 }
 
 function originLabel(origin: SessionControlRemoteOrigin): string {

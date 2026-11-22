@@ -1,3 +1,21 @@
+## 2026-11-22 - Persist independent dense transcript color choices
+
+### What changed
+
+- `packages/coding-agent/src/core/settings-manager.ts`: stores the two optional dense display color preferences with independent false defaults.
+
+### Why
+
+- Existing density choices must keep their appearance until a user enables color.
+
+### Why an extension could not handle it
+
+- The interactive settings manager owns persisted, schema-checked preferences.
+
+### Expected merge conflict zones
+
+- LOW: tool-density settings accessors and settings merge.
+
 ## 2026-11-17 - Cursor exec-frame calls are released on every end (senpi#6920)
 
 ### What changed

@@ -224,6 +224,7 @@ import { BashExecutionComponent } from "./components/bash-execution.ts";
 import { BorderedLoader } from "./components/bordered-loader.ts";
 import { BranchSummaryMessageComponent } from "./components/branch-summary-message.ts";
 import { CompactionSummaryMessageComponent } from "./components/compaction-summary-message.ts";
+import { SystemPromptStatus } from "./components/system-prompt-status.ts";
 import { ContinuityNoticeTracker } from "./components/continuity-notice.ts";
 import { CustomEditor } from "./components/custom-editor.ts";
 import { CustomEntryComponent, replacedEntryCardIndex } from "./components/custom-entry.ts";
@@ -1292,6 +1293,7 @@ export class InteractiveMode {
 			historyMarker: (hidden) => theme.fg("muted", ` ${defaultHistoryMarker(hidden)}`),
 		});
 		this.chatContainer.setToolDisplayDensity(this.settingsManager.getToolDisplayDensity());
+		this.chatContainer.setToolDisplayColors(this.settingsManager.getToolDisplayColors());
 		this.documentContainer = new Container();
 		this.documentContainer.addChild(this.headerContainer);
 		this.documentContainer.addChild(this.loadedResourcesContainer);
@@ -2976,6 +2978,7 @@ export class InteractiveMode {
 		this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();
 		this.outputPad = this.settingsManager.getOutputPad();
 		this.chatContainer.setToolDisplayDensity(this.settingsManager.getToolDisplayDensity());
+		this.chatContainer.setToolDisplayColors(this.settingsManager.getToolDisplayColors());
 		this.applySmoothStreamingRenderFps();
 		this.ui.setShowHardwareCursor(this.settingsManager.getShowHardwareCursor());
 		const clearOnShrink = this.settingsManager.getClearOnShrink();
@@ -5446,6 +5449,7 @@ export class InteractiveMode {
 			case "system_prompt_change":
 				this.showStatus(
 					event.systemPromptName ? `System prompt: ${event.systemPromptName}` : "System prompt changed",
+					"system-prompt",
 				);
 				break;
 
@@ -6266,7 +6270,7 @@ export class InteractiveMode {
 	 * If multiple status messages are emitted back-to-back (without anything else being added to the chat),
 	 * we update the previous status line instead of appending new ones to avoid log spam.
 	 */
-	private showStatus(message: string): void {
+	private showStatus(message: string, kind?: "system-prompt"): void {
 		const children = this.chatContainer.children;
 		// While a turn streams, a notice goes above the live message, like a custom entry does. Appended
 		// after it, a notice taller than the screen pushed the live output above the viewport, and every
@@ -6277,7 +6281,10 @@ export class InteractiveMode {
 		const secondLast = end > 1 ? children[end - 2] : undefined;
 		this.lastStatusMessage = message;
 		// Each row owns its content, even if its first render or a theme invalidation happens after another notice.
-		const text = new ThemedText(() => theme.fg("dim", message), 1, 0);
+		const text =
+			kind === "system-prompt"
+				? new SystemPromptStatus(message)
+				: new ThemedText(() => theme.fg("dim", message), 1, 0);
 
 		if (last && secondLast && last === this.lastStatusText && secondLast === this.lastStatusSpacer) {
 			children[end - 1] = text;
@@ -8019,6 +8026,8 @@ export class InteractiveMode {
 					availableThemes: getAvailableThemes(),
 					hideThinkingBlock: this.hideThinkingBlock,
 					toolDisplayDensity: this.settingsManager.getToolDisplayDensity(),
+					toolDisplayColorFrames: this.settingsManager.getToolDisplayColors().colorFrames,
+					toolDisplayColorNames: this.settingsManager.getToolDisplayColors().colorNames,
 					smoothStreaming: this.settingsManager.getSmoothStreaming(),
 					smoothStreamingFps: this.settingsManager.getSmoothStreamingFps(),
 					mermaidRenderingMode: this.settingsManager.getMermaidRenderingMode(),
@@ -8108,6 +8117,16 @@ export class InteractiveMode {
 					onToolDisplayDensityChange: (density) => {
 						this.settingsManager.setToolDisplayDensity(density);
 						this.chatContainer.setToolDisplayDensity(this.settingsManager.getToolDisplayDensity());
+						this.ui.requestRender();
+					},
+					onToolDisplayColorFramesChange: (enabled) => {
+						this.settingsManager.setToolDisplayColorFrames(enabled);
+						this.chatContainer.setToolDisplayColors(this.settingsManager.getToolDisplayColors());
+						this.ui.requestRender();
+					},
+					onToolDisplayColorNamesChange: (enabled) => {
+						this.settingsManager.setToolDisplayColorNames(enabled);
+						this.chatContainer.setToolDisplayColors(this.settingsManager.getToolDisplayColors());
 						this.ui.requestRender();
 					},
 					onHideThinkingBlockChange: (hidden) => {
@@ -9859,6 +9878,7 @@ export class InteractiveMode {
 			this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();
 			this.outputPad = this.settingsManager.getOutputPad();
 			this.chatContainer.setToolDisplayDensity(this.settingsManager.getToolDisplayDensity());
+			this.chatContainer.setToolDisplayColors(this.settingsManager.getToolDisplayColors());
 			// Reload replaces the session runner: a genuine ownership boundary, so the
 			// external-owner delegation episode ends here (settings-only rebuilds below
 			// go through rebuildChatFromMessages and must NOT reset it — post-#1188 core

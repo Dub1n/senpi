@@ -1,7 +1,14 @@
-import type { ProviderNativeContent } from "@earendil-works/pi-ai";
-import { nextRenderRevision, Text, truncateToWidth } from "@earendil-works/pi-tui";
-import { formatProviderNativeBody } from "../../provider-native-rendering.ts";
+import type { AssistantMessage, ProviderNativeContent } from "@earendil-works/pi-ai";
+import {
+	type DensityCardView,
+	nextRenderRevision,
+	Text,
+	truncateToWidth,
+	wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
+import { formatProviderNativeBody, formatProviderNativeSummary } from "../../provider-native-rendering.ts";
 import { theme } from "../theme/theme.ts";
+import type { AssistantRenderDescriptor } from "./assistant-render-descriptors.ts";
 import type { DensityCardSource } from "./tool-density-row.ts";
 
 export type AssistantDensityCardDescriptor =
@@ -11,6 +18,7 @@ export type AssistantDensityCardDescriptor =
 			readonly summary: string;
 			readonly expandedSummary: string;
 			readonly content: ProviderNativeContent;
+			readonly provider: AssistantMessage["provider"];
 	  }
 	| {
 			readonly kind: "handoff";
@@ -20,6 +28,30 @@ export type AssistantDensityCardDescriptor =
 			readonly expandedTitle: string;
 			readonly body: string;
 	  };
+
+export function describeProviderNative(
+	message: AssistantMessage,
+	content: ProviderNativeContent,
+	{ expanded, index }: { readonly expanded: boolean; readonly index: number },
+): readonly AssistantRenderDescriptor[] {
+	const summary = theme.fg("muted", formatProviderNativeSummary(message, content, false));
+	const expandedSummary = theme.fg("muted", formatProviderNativeSummary(message, content, true));
+	return [
+		{
+			kind: "provider-native-summary",
+			text: expanded ? expandedSummary : summary,
+			densityCard: {
+				kind: "provider-native",
+				id: `provider-native:${index}`,
+				provider: message.provider,
+				summary,
+				expandedSummary,
+				content,
+			},
+		},
+		{ kind: "provider-native-body", text: theme.fg("dim", formatProviderNativeBody(content, expanded)) },
+	];
+}
 
 /** A lazily expanded assistant detail used by the exploration transcript projection. */
 export class AssistantDensityCard implements DensityCardSource {
@@ -78,6 +110,35 @@ export class AssistantDensityCard implements DensityCardSource {
 		return this.descriptor.kind === "provider-native" && !grouped && this.status
 			? [this.summary, theme.fg("muted", `status: ${this.status}`)]
 			: [this.summary];
+	}
+
+	renderDensityCard(_width: number, { grouped }: { readonly grouped: boolean }): DensityCardView | undefined {
+		const descriptor = this.descriptor;
+		if (descriptor.kind !== "provider-native" || descriptor.content.subtype !== "web_search_call") return undefined;
+
+		const providerStatus = this.status;
+		const status =
+			providerStatus === "completed"
+				? "done"
+				: providerStatus === "failed"
+					? "failed"
+					: providerStatus === "in_progress" || providerStatus === "searching"
+						? "running"
+						: undefined;
+		const provider = descriptor.provider ? `${descriptor.provider} · ` : "";
+		const statusLabel = grouped && status === undefined && providerStatus ? ` · ${providerStatus}` : "";
+		const foldedDetails = !grouped && providerStatus ? [theme.fg("muted", `status: ${providerStatus}`)] : undefined;
+		return {
+			title: theme.fg("muted", `${provider}web_search${statusLabel}`),
+			...(status === undefined ? {} : { status }),
+			...(foldedDetails === undefined ? {} : { foldedDetails }),
+			renderContent: (width) =>
+				wrapTextWithAnsi(
+					theme.fg("dim", formatProviderNativeBody(descriptor.content, true).replaceAll("\t", "   ")),
+					width,
+				),
+			sections: [],
+		};
 	}
 
 	get densityExpanded(): boolean {

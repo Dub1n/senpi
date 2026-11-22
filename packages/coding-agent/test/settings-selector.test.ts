@@ -17,12 +17,16 @@ describe("SettingsSelectorComponent", () => {
 
 	it("cycles through tool display density and fullscreen settings", () => {
 		const onToolDisplayDensityChange = vi.fn();
+		const onToolDisplayColorFramesChange = vi.fn();
+		const onToolDisplayColorNamesChange = vi.fn();
 		const onExitOutputChange = vi.fn();
 		const onScrollbarChange = vi.fn();
 		const onCopyOnSelectChange = vi.fn();
 		const onWheelScrollLinesChange = vi.fn();
 		const config = {
 			toolDisplayDensity: "compact",
+			toolDisplayColorFrames: false,
+			toolDisplayColorNames: true,
 			fullscreenExitOutput: "transcript",
 			fullscreenScrollbar: "auto",
 			fullscreenCopyOnSelect: true,
@@ -36,6 +40,8 @@ describe("SettingsSelectorComponent", () => {
 		} as unknown as SettingsConfig;
 		const callbacks = {
 			onToolDisplayDensityChange,
+			onToolDisplayColorFramesChange,
+			onToolDisplayColorNamesChange,
 			onFullscreenExitOutputChange: onExitOutputChange,
 			onFullscreenScrollbarChange: onScrollbarChange,
 			onFullscreenCopyOnSelectChange: onCopyOnSelectChange,
@@ -50,6 +56,11 @@ describe("SettingsSelectorComponent", () => {
 
 		cycle("Tool display density", 3);
 		expect(onToolDisplayDensityChange.mock.calls.flat()).toEqual(["grouped", "default", "compact"]);
+		cycle("Color tool frames", 2);
+		expect(onToolDisplayColorFramesChange.mock.calls.flat()).toEqual([true, false]);
+		expect(onToolDisplayColorNamesChange.mock.calls).toEqual([]);
+		cycle("Color tool names", 2);
+		expect(onToolDisplayColorNamesChange.mock.calls.flat()).toEqual([false, true]);
 		cycle("Fullscreen exit output", 2);
 		expect(onExitOutputChange.mock.calls.flat()).toEqual(["resume-hint", "transcript"]);
 		cycle("Fullscreen scrollbar", 3);

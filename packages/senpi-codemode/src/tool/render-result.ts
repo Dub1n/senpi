@@ -15,9 +15,11 @@ import {
 	renderNow,
 	style,
 } from "./render-blocks.ts";
+import { createEvalDensityCard } from "./render-density-card.ts";
 import { summaryBlock } from "./render-cell.ts";
-import { nestedToolCallBlock, renderDetailedLines, renderJsonOutputs, toolCallRows } from "./render-detail.ts";
+import { renderDetailedLines, renderJsonOutputs, toolCallRows } from "./render-detail.ts";
 import { hasLiveCell } from "./render-live.ts";
+import { nestedToolCallBlock } from "./render-nested-tool-calls.ts";
 import { formatThroughputBadge, renderStatusEvents } from "./render-status.ts";
 import { formatRuntimeBadge } from "./runtime-label.ts";
 import { formatDuration, type NestedToolRenderers } from "./tool-widgets.ts";
@@ -93,6 +95,7 @@ export function renderEvalResult(
 	const component = componentFor(context);
 	const details = result.details;
 	if (details && "action" in details) {
+		component.setDensityCard(undefined);
 		component.syncLiveTicker(false, context.invalidate);
 		component.setBlocks([
 			{ kind: "text", text: style(theme, "toolTitle", "eval list") },
@@ -103,6 +106,18 @@ export function renderEvalResult(
 	const expanded = options.expanded || context.expanded;
 	const imageProtocol = context.imageProtocol ?? null;
 	component.syncLiveTicker(hasLiveCell(details), context.invalidate, expanded ? "expanded" : "collapsed");
+	const outputText = textOutput(result, context.showImages && imageProtocol === null);
+	component.setDensityCard(
+		createEvalDensityCard({
+			details,
+			output: outputText,
+			isPartial: options.isPartial,
+			isError: context.isError,
+			theme,
+			context,
+			...(renderers === undefined ? {} : { renderers }),
+		}),
+	);
 	if (details?.cells !== undefined && details.cells.length > 0) {
 		const blocks: RenderBlock[] = [
 			{
@@ -125,7 +140,12 @@ export function renderEvalResult(
 			},
 		];
 		const calls = toolCallRows(details);
-		const nestedCalls = nestedToolCallBlock(details, theme, context.cwd, expanded, renderers);
+		const nestedCalls = nestedToolCallBlock(details, {
+			theme,
+			cwd: context.cwd,
+			expanded,
+			...(renderers === undefined ? {} : { renderers }),
+		});
 		if (calls.length > 0)
 			blocks.push({ kind: "blank" }, nestedCalls ?? { kind: "toolCalls", calls, expanded, theme });
 		component.setBlocks(blocks);
@@ -138,7 +158,7 @@ export function renderEvalResult(
 		...resultMetadata(details, options, theme, status),
 		{ kind: "blank" },
 	];
-	const rawOutput = textOutput(result, context.showImages && imageProtocol === null);
+	const rawOutput = outputText;
 	const output = rawOutput.trimEnd();
 	const hasRenderedImage =
 		context.showImages &&
@@ -196,7 +216,12 @@ export function renderEvalResult(
 		);
 	}
 	const calls = toolCallRows(details);
-	const nestedCalls = nestedToolCallBlock(details, theme, context.cwd, expanded, renderers);
+	const nestedCalls = nestedToolCallBlock(details, {
+		theme,
+		cwd: context.cwd,
+		expanded,
+		...(renderers === undefined ? {} : { renderers }),
+	});
 	if (calls.length > 0) blocks.push({ kind: "blank" }, nestedCalls ?? { kind: "toolCalls", calls, expanded, theme });
 	component.setBlocks(blocks);
 	return component;

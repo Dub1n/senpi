@@ -1,4 +1,12 @@
-import { type Theme, type ThemeColor, type ToolDefinition, truncateToVisualLines } from "@code-yeongyu/senpi";
+import {
+	type DensityCardSource,
+	type DensityCardRenderOptions,
+	type DensityCardView,
+	type Theme,
+	type ThemeColor,
+	type ToolDefinition,
+	truncateToVisualLines,
+} from "@code-yeongyu/senpi";
 import type { TruncationMeta } from "../output/output-meta.ts";
 import { codePointPrefix } from "./tool-widgets.ts";
 import type { EvalInputSchema, EvalResultDetails, EvalToolInput, EvalToolRequest } from "./types.ts";
@@ -8,10 +16,7 @@ export type CallRenderContext = Parameters<NonNullable<EvalToolDefinition["rende
 export type ResultRenderContext = Parameters<NonNullable<EvalToolDefinition["renderResult"]>>[3];
 type CollapsibleKind = "code" | "output";
 
-export interface EvalRenderComponent {
-	render(width: number): string[];
-	invalidate(): void;
-}
+export interface EvalRenderComponent extends DensityCardSource {}
 type ToolCallRow = {
 	readonly summary: string;
 	readonly error?: string;
@@ -63,6 +68,7 @@ export type PrefixStyle = { readonly prefix: string; readonly continuation: stri
 
 class PlainTextComponent implements EvalRenderComponent {
 	#blocks: readonly RenderBlock[] = [];
+	#densityCard: DensityCardView | undefined;
 	#ticker: ReturnType<typeof setInterval> | undefined;
 	#live = false;
 	#invalidate: (() => void) | undefined;
@@ -76,6 +82,14 @@ class PlainTextComponent implements EvalRenderComponent {
 
 	setBlocks(blocks: readonly RenderBlock[]): void {
 		this.#blocks = blocks;
+	}
+
+	setDensityCard(view: DensityCardView | undefined): void {
+		this.#densityCard = view;
+	}
+
+	renderDensityCard(_width: number, _options: DensityCardRenderOptions): DensityCardView | undefined {
+		return this.#densityCard;
 	}
 
 	/**

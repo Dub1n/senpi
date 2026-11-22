@@ -6,22 +6,22 @@ import {
 } from "@earendil-works/pi-ai";
 import { usageLimitScope } from "../../../core/retry-fallback/usage-limit.ts";
 import { formatDuration } from "../../../utils/duration.ts";
-import { formatProviderNativeBody, formatProviderNativeSummary } from "../../provider-native-rendering.ts";
 import { describedProviderError } from "../provider-error-description.ts";
 import { interactiveErrorText } from "../required-compaction-wording.ts";
 import { theme } from "../theme/theme.ts";
 import { type HandoffSegment, splitHandoffBlocks } from "./handoff-fold.ts";
-import type { AssistantDensityCardDescriptor } from "./assistant-density-card.ts";
+import { type AssistantDensityCardDescriptor, describeProviderNative } from "./assistant-density-card.ts";
 
-type MarkdownDescriptorKind = "text-md" | "thinking-md";
-type TextDescriptorKind =
+type AssistantRenderDescriptorKind =
+	| "spacer"
+	| "text-md"
+	| "thinking-md"
 	| "thinking-label"
 	| "provider-native-summary"
 	| "provider-native-body"
 	| "error-text"
 	| "handoff-line"
 	| "handoff-body";
-type AssistantRenderDescriptorKind = "spacer" | MarkdownDescriptorKind | TextDescriptorKind;
 
 export type AssistantRenderDescriptor = {
 	readonly kind: AssistantRenderDescriptorKind;
@@ -193,30 +193,11 @@ export function createAssistantRenderDescriptors(
 					descriptors.push(SPACER_DESCRIPTOR);
 				break;
 			}
-			case "providerNative": {
-				const densitySummary = theme.fg("muted", formatProviderNativeSummary(message, content, false));
-				const expandedSummary = theme.fg("muted", formatProviderNativeSummary(message, content, true));
-				descriptors.push(
-					{
-						kind: "provider-native-summary",
-						text: options.expanded ? expandedSummary : densitySummary,
-						densityCard: {
-							kind: "provider-native",
-							id: `provider-native:${i}`,
-							summary: densitySummary,
-							expandedSummary,
-							content,
-						},
-					},
-					{
-						kind: "provider-native-body",
-						text: theme.fg("dim", formatProviderNativeBody(content, options.expanded)),
-					},
-				);
+			case "providerNative":
+				descriptors.push(...describeProviderNative(message, content, { expanded: options.expanded, index: i }));
 				if (message.content.slice(i + 1).some((following) => isVisibleContent(following, true)))
 					descriptors.push(SPACER_DESCRIPTOR);
 				break;
-			}
 			case "toolCall":
 				break;
 			default:

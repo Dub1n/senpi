@@ -217,7 +217,7 @@ describe("tool display density", () => {
 			const lines = chat.render(64);
 			const title = lines.findIndex((line) => line.includes("STORED_NOTE"));
 			expect(stripTerminalSequences(lines[title]).trim()).toBe("╭─ STORED_NOTE");
-			expect(stripTerminalSequences(lines[title + 1]).trim()).toBe("│  Stored note detail");
+			expect(stripTerminalSequences(lines[title + 1]).trim()).toBe("│ Stored note detail");
 			expect(stripTerminalSequences(lines[title + 2]).trim()).toBe("╰─");
 			expect(lines[title + 3]).toContain("fixture-neighbor");
 			for (const line of lines.slice(title - 1, title + 4)) expect(line.startsWith(standard)).toBe(true);

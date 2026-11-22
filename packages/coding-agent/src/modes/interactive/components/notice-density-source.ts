@@ -1,4 +1,12 @@
-import { Box, type Component, stripTerminalSequences, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import {
+	Box,
+	type Component,
+	type DensityCardView,
+	joinLineArrays,
+	stripTerminalSequences,
+	truncateToWidth,
+	visibleWidth,
+} from "@earendil-works/pi-tui";
 import { theme } from "../theme/theme.ts";
 
 /** Returns the first styled title line from a recognized purple notice box. */
@@ -27,6 +35,43 @@ export function isNoticeBox(component: Component | undefined): boolean {
 export function isRememberedNoticeBox(component: Component | undefined): boolean {
 	const box = purpleBox(component);
 	return box !== undefined && hasTitle(box, (title) => /^(?:●\s*)?Remembered(?:$|\s|·)/u.test(title));
+}
+
+/** Adapt the title slot of a known local or pinned OmO notice; keep its child rows intact. */
+export function renderNamedNoticeCard(
+	component: Component | undefined,
+	kind: "memory" | "rules" | "kibitz",
+): DensityCardView | undefined {
+	const box = purpleBox(component);
+	if (!box) return undefined;
+	const title = stripTerminalSequences(box.children[0]?.render(4096)[0] ?? "").trim();
+	const match = /^(?:(●|⚠|⚡|✦|↯)\s+)?(.*)$/u.exec(title);
+	if (!match) return undefined;
+	const [, glyph, text] = match;
+	const prefix = kind === "memory" ? "Remembered" : kind === "rules" ? "Project rules" : "Kibitzer";
+	if (!(text === prefix || text.startsWith(`${prefix} `) || text.startsWith(`${prefix} ·`))) return undefined;
+	return {
+		name: kind === "kibitz" ? "kibitz" : prefix.toLowerCase(),
+		kind,
+		title: text.slice(prefix.length),
+		...(glyph ? { statusGlyph: glyph } : {}),
+		renderContent: (width) => joinLineArrays(box.children.slice(1).map((child) => child.render(width))),
+		sections: [],
+	};
+}
+
+/** These custom types are the identities used by the rule and pinned OmO notice producers. */
+export function namedNoticeKind(customType: string): "rules" | "kibitz" | undefined {
+	switch (customType) {
+		case "rule-activation":
+			return "rules";
+		case "omo-kibitzer:nudged":
+		case "omo-kibitzer:gate":
+		case "omo-kibitzer:unavailable":
+			return "kibitz";
+		default:
+			return undefined;
+	}
 }
 
 function noticeBox(component: Component | undefined): Box | undefined {

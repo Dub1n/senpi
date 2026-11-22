@@ -7,17 +7,17 @@
  */
 
 import { basename, dirname, isAbsolute, relative, resolve as resolvePath, sep } from "node:path";
-import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
-import { Text } from "@earendil-works/pi-tui";
+import { type DensityCardView, sanitizeTerminalLabel, Text, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { getReadmePath } from "../../../config.ts";
 import { keyHint, keyText } from "../../../modes/interactive/components/keybinding-hints.ts";
 import { getLanguageFromPath, highlightCode, type Theme } from "../../../modes/interactive/theme/theme.ts";
 import { formatPathRelativeToCwdOrAbsolute } from "../../../utils/paths.ts";
-import type { ToolDefinition, ToolRenderResultOptions } from "../../extensions/types.ts";
+import type { ToolDefinition } from "../../extensions/types.ts";
+import type { TSchema } from "typebox";
 import { resolveToCwd } from "../path-utils.ts";
 import type { ReadToolDetails } from "../read.ts";
 import { type CompactReadClassification, classifyRead } from "../read-classifiers.ts";
-import { getTextOutput, linkPath, renderToolPath, replaceTabs, str } from "../render-utils.ts";
+import { getTextOutput, linkPath, renderToolPath, replaceTabs, shortenPath, str } from "../render-utils.ts";
 import { getSkillReadPath } from "./skill-read-path.ts";
 
 /**
@@ -29,12 +29,26 @@ export interface ReadRenderState {
 }
 const COMPACT_RESOURCE_FILE_NAMES = new Set(["AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]);
 export type ReadRenderArgs = { path?: string; file_path?: string; offset?: number; limit?: number };
-function formatReadLineRange(args: ReadRenderArgs | undefined, theme: Theme): string {
+function readRenderArgs(args: unknown): ReadRenderArgs | undefined {
+	if (typeof args !== "object" || args === null) return undefined;
+	return {
+		...("path" in args && typeof args.path === "string" ? { path: args.path } : {}),
+		...("file_path" in args && typeof args.file_path === "string" ? { file_path: args.file_path } : {}),
+		...("offset" in args && typeof args.offset === "number" && Number.isSafeInteger(args.offset)
+			? { offset: args.offset }
+			: {}),
+		...("limit" in args && typeof args.limit === "number" && Number.isSafeInteger(args.limit)
+			? { limit: args.limit }
+			: {}),
+	};
+}
+
+function formatReadLineRange(args: ReadRenderArgs | undefined): string {
 	// Strict tool schemas make models send null for omitted optional fields.
 	if (args?.offset == null && args?.limit == null) return "";
 	const startLine = args.offset ?? 1;
 	const endLine = args.limit != null ? startLine + args.limit - 1 : "";
-	return theme.fg("warning", `:${startLine}${endLine ? `-${endLine}` : ""}`);
+	return `:${startLine}${endLine ? `-${endLine}` : ""}`;
 }
 function formatReadCall(args: ReadRenderArgs | undefined, theme: Theme, cwd: string): string {
 	const rawPath = str(args?.file_path ?? args?.path);
@@ -43,14 +57,24 @@ function formatReadCall(args: ReadRenderArgs | undefined, theme: Theme, cwd: str
 		rawPath && skillPath
 			? linkPath(theme.fg("accent", skillPath), rawPath, cwd)
 			: renderToolPath(rawPath, theme, cwd);
-	return `${theme.fg("toolTitle", theme.bold("read"))} ${pathDisplay}${formatReadLineRange(args, theme)}`;
+	return `${theme.fg("toolTitle", theme.bold("read"))} ${pathDisplay}${theme.fg("warning", formatReadLineRange(args))}`;
 }
-function trimTrailingEmptyLines(lines: string[]): string[] {
-	let end = lines.length;
-	while (end > 0 && lines[end - 1] === "") {
-		end--;
-	}
-	return lines.slice(0, end);
+
+function readDensityHeading(
+	args: ReadRenderArgs | undefined,
+	cwd: string,
+	classification: CompactReadClassification | undefined,
+): Pick<DensityCardView, "name" | "kind" | "title" | "expandedTitle"> {
+	const path = args?.file_path ?? args?.path ?? "";
+	const skill = classification?.kind === "skill" ? classification.label : undefined;
+	const name = skill === undefined ? "read" : "skill";
+	const label = (value: string) => (path ? linkPath(sanitizeTerminalLabel(value), path, cwd) : "…");
+	return {
+		name,
+		kind: name,
+		title: ` ${label(skill ?? basename(path))}`,
+		expandedTitle: ` ${label(skill ?? shortenPath(path))}${formatReadLineRange(args)}`,
+	};
 }
 function toPosixPath(filePath: string): string {
 	return filePath.split(sep).join("/");
@@ -109,7 +133,7 @@ function formatCompactReadCall(
 		return (
 			theme.fg("customMessageLabel", `\x1b[1m[skill]\x1b[22m `) +
 			theme.fg("customMessageText", classification.label) +
-			formatReadLineRange(args, theme) +
+			theme.fg("warning", formatReadLineRange(args)) +
 			expandHint
 		);
 	}
@@ -119,7 +143,7 @@ function formatCompactReadCall(
 			theme.fg("accent", `\x1b[1m✦ ${classification.headline ?? "Recalled"}\x1b[22m`) +
 			" " +
 			theme.fg("customMessageText", classification.label) +
-			formatReadLineRange(args, theme) +
+			theme.fg("warning", formatReadLineRange(args)) +
 			expandHint
 		);
 	}
@@ -128,74 +152,89 @@ function formatCompactReadCall(
 		theme.fg("toolTitle", theme.bold(`read ${classification.kind}`)) +
 		" " +
 		theme.fg("accent", classification.label) +
-		formatReadLineRange(args, theme) +
+		theme.fg("warning", formatReadLineRange(args)) +
 		expandHint
 	);
 }
-function formatReadResult(
-	args: ReadRenderArgs | undefined,
-	result: { content: (TextContent | ImageContent)[]; details?: ReadToolDetails },
-	options: ToolRenderResultOptions,
-	theme: Theme,
-	showImages: boolean,
-	_cwd: string,
-	isError: boolean,
-): string {
-	if (!options.expanded && !isError) {
-		return "";
-	}
-
-	const rawPath = str(args?.file_path ?? args?.path);
-	const output = getTextOutput(result, showImages);
-	const lang = !isError && rawPath ? getLanguageFromPath(rawPath) : undefined;
-	const renderedLines = lang ? highlightCode(replaceTabs(output), lang) : output.split("\n");
-	const lines = trimTrailingEmptyLines(renderedLines);
-	const maxLines = options.expanded ? lines.length : 10;
-	const displayLines = lines.slice(0, maxLines);
-	const remaining = lines.length - maxLines;
-	let text = `\n${displayLines.map((line) => (lang ? replaceTabs(line) : theme.fg("toolOutput", replaceTabs(line)))).join("\n")}`;
-	if (remaining > 0) {
-		text += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("app.tools.expand", "to expand")}${theme.fg("muted", ")")}`;
-	}
-
-	return text;
-}
-
-export const readRenderers: Pick<
-	ToolDefinition<any, ReadToolDetails | undefined, ReadRenderState>,
-	"renderCall" | "renderResult"
-> = {
-	renderCall(rawArgs, theme, context) {
-		const args = rawArgs as ReadRenderArgs | undefined;
-		const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-		let classification: CompactReadClassification | undefined;
-		if (!context.expanded) {
-			const rawPath = str(args?.file_path ?? args?.path);
-			context.state.classifications ??= new Map();
-			const classifications = context.state.classifications;
-			if (!classifications.has(rawPath)) {
-				classifications.set(rawPath, getCompactReadClassification(args, context.cwd));
-			}
-			classification = classifications.get(rawPath);
-		}
+export const readRenderers = {
+	renderCall(rawArgs: unknown, theme, context) {
+		const args = readRenderArgs(rawArgs);
+		const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+		const classify = () => readClassification(args, context);
+		const classification = context.expanded ? undefined : classify();
 		text.setText(
 			classification ? formatCompactReadCall(classification, args, theme) : formatReadCall(args, theme, context.cwd),
 		);
-		return text;
+		return Object.assign(text, {
+			renderDensityCard(): DensityCardView | undefined {
+				if (context.hasResult) return undefined;
+				return {
+					...readDensityHeading(args, context.cwd, classify()),
+					status: context.executionStarted ? "running" : "pending",
+					renderContent: () => [],
+					sections: [],
+				};
+			},
+		});
 	},
-	renderResult(result, options, theme, context) {
-		const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-		text.setText(
-			formatReadResult(
-				context.args as ReadRenderArgs | undefined,
-				result,
-				options,
-				theme,
-				context.showImages,
-				context.cwd,
-				context.isError,
-			),
-		);
-		return text;
+	renderResult(result, { expanded, isPartial }, theme, context) {
+		const { cwd, showImages, imageProtocol, isError, executionStarted } = context;
+		const args = readRenderArgs(context.args);
+		const path = str(args?.file_path ?? args?.path);
+		let lines: string[] | undefined;
+		function payload(): string[] {
+			if (lines) return lines;
+			const output = replaceTabs(getTextOutput(result, showImages));
+			const lang = !isError && path ? getLanguageFromPath(path) : undefined;
+			lines = lang
+				? highlightCode(output, lang)
+				: output.split("\n").map((line) => line && theme.fg("toolOutput", line));
+			return lines;
+		}
+
+		let defaultText: Text | undefined;
+		return {
+			render(width: number) {
+				if (!expanded && !isError) return [];
+				if (!defaultText) {
+					const rows = payload();
+					let end = rows.length;
+					while (end > 0 && rows[end - 1] === "") end--;
+					const shown = expanded ? end : Math.min(end, 10);
+					let text = `\n${rows.slice(0, shown).join("\n")}`;
+					if (end > shown) {
+						text += `${theme.fg("muted", `\n... (${end - shown} more lines,`)} ${keyHint("app.tools.expand", "to expand")}${theme.fg("muted", ")")}`;
+					}
+					defaultText = new Text(text, 0, 0);
+				}
+				return defaultText.render(width);
+			},
+			invalidate() {
+				lines = undefined;
+				defaultText = undefined;
+			},
+			renderDensityCard(): DensityCardView | undefined {
+				// Inline images live in ToolExecutionImages, outside the read result's text renderer.
+				if (expanded && showImages && imageProtocol && result.content.some((part) => part.type === "image")) {
+					return undefined;
+				}
+				return {
+					...readDensityHeading(args, cwd, readClassification(args, context)),
+					status: isError ? "failed" : isPartial ? (executionStarted ? "running" : "pending") : "done",
+					renderContent: (width) => wrapTextWithAnsi(payload().join("\n"), width),
+					sections: [],
+				};
+			},
+		};
 	},
-};
+} satisfies Pick<ToolDefinition<TSchema, ReadToolDetails | undefined, ReadRenderState>, "renderCall" | "renderResult">;
+
+function readClassification(
+	args: ReadRenderArgs | undefined,
+	context: { readonly cwd: string; readonly state: ReadRenderState },
+): CompactReadClassification | undefined {
+	const path = str(args?.file_path ?? args?.path);
+	const classifications = (context.state.classifications ??= new Map());
+	if (!classifications.has(path)) classifications.set(path, getCompactReadClassification(args, context.cwd));
+	return classifications.get(path);
+}

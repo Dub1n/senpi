@@ -85,6 +85,8 @@ export interface SettingsConfig {
 	availableThemes: string[];
 	hideThinkingBlock: boolean;
 	toolDisplayDensity: ToolDisplayDensity;
+	readonly toolDisplayColorFrames: boolean;
+	readonly toolDisplayColorNames: boolean;
 	smoothStreaming: boolean;
 	smoothStreamingFps: number;
 	mermaidRenderingMode: MermaidRenderingMode;
@@ -126,6 +128,8 @@ export interface SettingsCallbacks {
 	onThemePreview?: (theme: string) => void;
 	onHideThinkingBlockChange: (hidden: boolean) => void;
 	onToolDisplayDensityChange: (density: ToolDisplayDensity) => void;
+	readonly onToolDisplayColorFramesChange: (enabled: boolean) => void;
+	readonly onToolDisplayColorNamesChange: (enabled: boolean) => void;
 	onSmoothStreamingChange: (enabled: boolean) => void;
 	onSmoothStreamingFpsChange: (fps: number) => void;
 	onMermaidRenderingModeChange: (mode: MermaidRenderingMode) => void;
@@ -572,6 +576,20 @@ export class SettingsSelectorComponent extends Container {
 				values: Object.values(TOOL_DISPLAY_DENSITY_LABELS),
 			},
 			{
+				id: "tool-display-color-frames",
+				label: "Color tool frames",
+				description: "Color the left gutter by item type in Compact and Grouped tool displays",
+				currentValue: config.toolDisplayColorFrames ? "true" : "false",
+				values: ["true", "false"],
+			},
+			{
+				id: "tool-display-color-names",
+				label: "Color tool names",
+				description: "Color the item name by type in Compact and Grouped tool displays",
+				currentValue: config.toolDisplayColorNames ? "true" : "false",
+				values: ["true", "false"],
+			},
+			{
 				id: "hide-thinking",
 				label: "Hide thinking",
 				description: "Hide thinking blocks in assistant responses",
@@ -905,6 +923,12 @@ export class SettingsSelectorComponent extends Container {
 						}
 						break;
 					}
+					case "tool-display-color-frames":
+						callbacks.onToolDisplayColorFramesChange(newValue === "true");
+						break;
+					case "tool-display-color-names":
+						callbacks.onToolDisplayColorNamesChange(newValue === "true");
+						break;
 					case "smooth-streaming":
 						callbacks.onSmoothStreamingChange(newValue === "true");
 						break;

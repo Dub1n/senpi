@@ -1,4 +1,4 @@
-import { sanitizeTerminalLabel, type Theme } from "@code-yeongyu/senpi";
+import { sanitizeTerminalLabel, type DensityCardView, type Theme } from "@code-yeongyu/senpi";
 import { displayCode } from "./display-code.ts";
 import { normalizeEvalSummary } from "./eval-request.ts";
 import { knownLanguage } from "./live-headline.ts";
@@ -9,6 +9,7 @@ import {
 	type EvalRenderComponent,
 	isEvalRunInput,
 	type RenderEnvironment,
+	renderAllVisualLines,
 	renderNow,
 	renderPrefixed,
 	spinner,
@@ -35,6 +36,7 @@ export function renderEvalCall(
 	context: CallRenderContext,
 ): EvalRenderComponent {
 	const component = componentFor(context);
+	component.setDensityCard(undefined);
 	if (context.hasResult === true) {
 		// The result renderer owns the full pending -> running -> done frame once a result exists.
 		// Rendering the call frame too would stack a duplicate box, so yield to it here.
@@ -46,6 +48,12 @@ export function renderEvalCall(
 		// While a peek/stop call streams in, `cell_id` can still be missing; the title is the action alone until it arrives.
 		const cellId = "cell_id" in args ? args.cell_id : undefined;
 		const title = args.action === "list" ? "eval list" : `eval ${args.action}${cellIdSuffix(cellId)}`;
+		component.setDensityCard({
+			title: style(theme, "toolTitle", title),
+			status: context.executionStarted ? "running" : "pending",
+			renderContent: () => [],
+			sections: [],
+		});
 		component.syncLiveTicker(false, context.invalidate);
 		component.setBlocks([{ kind: "text", text: style(theme, "toolTitle", title) }]);
 		return component;
@@ -54,6 +62,35 @@ export function renderEvalCall(
 	// renders (the host would otherwise fall back to a raw key=value row).
 	const code = typeof args.code === "string" ? args.code : "";
 	const language = knownLanguage(args.language);
+	const summary = displaySummary(args.summary);
+	const title = summary ?? (language === undefined ? "eval" : `eval ${language}`);
+	const metadata = [
+		language === undefined ? undefined : `eval ${language}`,
+		args.reset === true ? "reset" : undefined,
+		args.timeout === undefined ? undefined : `timeout ${args.timeout}s`,
+	]
+		.filter((part): part is string => part !== undefined)
+		.join(" · ");
+	const densityCard: DensityCardView = {
+		title: style(theme, "toolTitle", title),
+		status: context.executionStarted ? "running" : "pending",
+		...(metadata.length === 0 ? {} : { metadata: style(theme, "muted", metadata) }),
+		renderContent: (width) =>
+			renderAllVisualLines(
+				style(
+					theme,
+					"mdCodeBlock",
+					code.trim().length === 0
+						? "..."
+						: language === undefined
+							? code
+							: displayCode(code, language, context.argsComplete ? context.invalidate : undefined),
+				),
+				width,
+			),
+		sections: [],
+	};
+	component.setDensityCard(densityCard);
 	component.syncLiveTicker(theme !== undefined, context.invalidate, context.expanded ? "expanded" : "collapsed");
 	if (theme === undefined && context.spinnerFrame === undefined) {
 		const reset = args.reset === true ? " reset" : "";

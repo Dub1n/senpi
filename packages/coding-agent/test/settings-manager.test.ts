@@ -871,6 +871,26 @@ describe("SettingsManager", () => {
 			writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ toolDisplayDensity: "dense" }));
 			expect(SettingsManager.create(projectDir, agentDir).getToolDisplayDensity()).toBe("default");
 		});
+
+		it("defaults dense colors off and persists the two switches independently", async () => {
+			const manager = SettingsManager.create(projectDir, agentDir);
+			expect(manager.getToolDisplayColors()).toEqual({ colorFrames: false, colorNames: false });
+
+			manager.setToolDisplayColorFrames(true);
+			await manager.flush();
+			expect(SettingsManager.create(projectDir, agentDir).getToolDisplayColors()).toEqual({
+				colorFrames: true,
+				colorNames: false,
+			});
+
+			manager.setToolDisplayColorNames(true);
+			manager.setToolDisplayColorFrames(false);
+			await manager.flush();
+			expect(SettingsManager.create(projectDir, agentDir).getToolDisplayColors()).toEqual({
+				colorFrames: false,
+				colorNames: true,
+			});
+		});
 	});
 
 	describe("TUI mode", () => {

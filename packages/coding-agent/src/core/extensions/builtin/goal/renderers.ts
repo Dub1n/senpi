@@ -1,4 +1,4 @@
-import { Text } from "@earendil-works/pi-tui";
+import { type DensityCardView, Text, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { Theme, ThemeColor } from "../../../../modes/interactive/theme/theme.ts";
 import type { ToolRenderResultOptions } from "../../types.ts";
 import {
@@ -37,18 +37,78 @@ export function renderGoalToolCall(toolName: string, args: unknown, theme: Theme
 	return new Text(title, 0, 0);
 }
 
-export function renderGoalToolResult(result: ResultLike, options: ToolRenderResultOptions, theme: Theme): Text {
+type GoalDensityCardView = DensityCardView & {
+	readonly name: "goal";
+	readonly kind: "goal";
+};
+
+class GoalResultCard extends Text {
+	private readonly details: GoalToolRenderDetails | undefined;
+	private readonly theme: Theme;
+
+	constructor(text: string, details: GoalToolRenderDetails | undefined, theme: Theme) {
+		super(text, 0, 0);
+		this.details = details;
+		this.theme = theme;
+	}
+
+	renderDensityCard(
+		_width: number,
+		_options: { readonly grouped: boolean; readonly expanded?: boolean },
+	): GoalDensityCardView | undefined {
+		const goal = this.details?.goal;
+		if (goal === undefined || goal === null) return undefined;
+
+		const displayStatus = goalDisplayStatus(goal);
+		const title = this.theme.fg(
+			"text",
+			` ${goalStatusLabel(goal.status, goal.continuationStoppedAt)} • ${formatTokensCompact(goal.tokensUsed)} tokens • ${formatGoalElapsedSeconds(goal.timeUsedSeconds)}`,
+		);
+		return {
+			name: "goal",
+			kind: "goal",
+			title,
+			expandedTitle: title,
+			status: "done",
+			statusGlyph: this.theme.fg(statusColor(displayStatus), statusGlyph(displayStatus)),
+			renderContent: (width) => {
+				const lines = goal.objective
+					.split("\n")
+					.flatMap((line) => wrapTextWithAnsi(line, width))
+					.map((line) => this.theme.fg("toolOutput", line));
+				if (goal.blockedReason !== undefined && goal.blockedReason.length > 0) {
+					lines.push(
+						...wrapTextWithAnsi(`⚠ ${goal.blockedReason}`, width).map((line) => this.theme.fg("warning", line)),
+					);
+				}
+				lines.push(this.theme.fg("dim", `created ${isoTimestamp(goal.createdAt)}`));
+				lines.push(this.theme.fg("dim", `updated ${isoTimestamp(goal.updatedAt)}`));
+				if (this.details?.notice !== undefined) {
+					lines.push(...wrapTextWithAnsi(this.details.notice, width).map((line) => this.theme.fg("dim", line)));
+				}
+				return lines;
+			},
+			sections: [],
+		};
+	}
+}
+
+export function renderGoalToolResult(
+	result: ResultLike,
+	options: ToolRenderResultOptions,
+	theme: Theme,
+): GoalResultCard {
 	const text = result.content.find((block) => block.type === "text")?.text ?? "";
 	const details = resolveRenderDetails(result.details, text);
-	if (details === undefined) return new Text(theme.fg("toolOutput", text), 0, 0);
+	if (details === undefined) return new GoalResultCard(theme.fg("toolOutput", text), undefined, theme);
 	if (details.goal === null) {
 		const lines = [theme.fg("dim", "No active goal is set.")];
 		appendNotice(lines, details.notice, theme);
-		return new Text(lines.join("\n"), 0, 0);
+		return new GoalResultCard(lines.join("\n"), details, theme);
 	}
 	const lines = goalWidgetLines(details.goal, options.expanded, theme);
 	appendNotice(lines, details.notice, theme);
-	return new Text(lines.join("\n"), 0, 0);
+	return new GoalResultCard(lines.join("\n"), details, theme);
 }
 
 function goalWidgetLines(goal: GoalToolSnapshot, expanded: boolean, theme: Theme): string[] {

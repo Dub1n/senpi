@@ -1,4 +1,13 @@
-import { Box, Container, Markdown, type MarkdownTheme, MouseRegion, Spacer, Text } from "@earendil-works/pi-tui";
+import {
+	Box,
+	Container,
+	type DensityCardView,
+	Markdown,
+	type MarkdownTheme,
+	MouseRegion,
+	Spacer,
+	Text,
+} from "@earendil-works/pi-tui";
 import type { CompactionSummaryMessage } from "../../../core/messages.ts";
 import { sharedMarkdownTheme, theme } from "../theme/theme.ts";
 import { keyText } from "./keybinding-hints.ts";
@@ -29,6 +38,17 @@ function formatCompactionDetails(details: unknown): string | undefined {
 	return `${route}: ${retainedText}${requestedText}`;
 }
 
+/** Session summaries have a pre-compaction count only. Remote usage measures the request, not the retained context. */
+function denseRemoteDetails(details: unknown) {
+	if (!isRecord(details) || details.schema !== "senpi.compaction.openai-remote.v1") return undefined;
+	const count = (n: unknown) => (typeof n === "number" && Number.isSafeInteger(n) && n >= 0 ? n : undefined);
+	return {
+		transport: details.transport,
+		requested: count(details.requestInputItemCount),
+		retained: count(details.retainedInputItemCount),
+	};
+}
+
 /**
  * Component that renders a compaction message with collapsed/expanded state.
  * Uses same background color as custom messages for visual consistency.
@@ -55,6 +75,81 @@ export class CompactionSummaryMessageComponent extends Box {
 		this.updateDisplay();
 	}
 
+	get densityExpanded(): boolean {
+		return this.expanded;
+	}
+
+	renderDensitySummary(): string[] {
+		return [`compacted${this.densitySuffix()}`];
+	}
+
+	getBackgroundPainter(): (text: string) => string {
+		return (text) => theme.bg("customMessageBg", text);
+	}
+
+	renderDensityCard(_width: number, _options: { readonly grouped: boolean }): DensityCardView {
+		return {
+			name: "compacted",
+			kind: "compaction",
+			title: this.densitySuffix(),
+			statusGlyph: theme.fg("success", "✓"),
+			renderContent: (width) => this.densityMarkdown().render(width),
+			sections: [],
+		};
+	}
+
+	private densityMarkdown(): Markdown {
+		const summary = sanitizeCompactionSummary(this.message.summary);
+		const remote = denseRemoteDetails(this.message.details);
+		let content = summary;
+		if (remote) {
+			const requested =
+				remote.requested === undefined
+					? ""
+					: ` from ${remote.requested.toLocaleString()} OpenAI input item${remote.requested === 1 ? "" : "s"}`;
+			if (
+				remote.transport === "responses-v2" &&
+				remote.retained === 1 &&
+				summary === "OpenAI remote compaction retained 1 native item (responses-v2)."
+			) {
+				content = `${summary.slice(0, -1)}${requested}.`;
+			} else {
+				const route =
+					remote.transport === "websocket"
+						? "OpenAI Responses WebSocket compaction"
+						: remote.transport === "responses-v2"
+							? "OpenAI remote compaction (responses-v2)"
+							: remote.transport === "compact-endpoint"
+								? "OpenAI remote compact API"
+								: "OpenAI remote compaction";
+				const retained =
+					remote.retained === undefined
+						? ""
+						: `: ${remote.retained.toLocaleString()} retained item${remote.retained === 1 ? "" : "s"}`;
+				content = [summary, `${route}${retained}${requested}`].filter(Boolean).join("\n\n");
+			}
+		}
+		return new Markdown(content, 0, 0, this.markdownTheme, {
+			color: (text: string) => theme.fg("customMessageText", text),
+		});
+	}
+
+	private expandedMarkdown(): Markdown {
+		const details = formatCompactionDetails(this.message.details);
+		const detailLine = details ? `\n${details}\n\n` : "\n\n";
+		const markdown = `**Compacted from ${this.message.tokensBefore.toLocaleString()} tokens**${detailLine}${sanitizeCompactionSummary(this.message.summary)}`;
+		return new Markdown(markdown, 0, 0, this.markdownTheme, {
+			color: (text: string) => theme.fg("customMessageText", text),
+		});
+	}
+
+	private densitySuffix(): string {
+		const retained = denseRemoteDetails(this.message.details)?.retained;
+		const suffix =
+			retained === undefined ? "" : ` · ${retained.toLocaleString()} retained item${retained === 1 ? "" : "s"}`;
+		return ` from ${this.message.tokensBefore.toLocaleString()} tokens${suffix}`;
+	}
+
 	override invalidate(): void {
 		super.invalidate();
 		this.updateDisplay();
@@ -71,13 +166,7 @@ export class CompactionSummaryMessageComponent extends Box {
 		content.addChild(new Spacer(1));
 
 		if (this.expanded) {
-			const detailLine = details ? `\n${details}\n\n` : "\n\n";
-			const header = `**Compacted from ${tokenStr} tokens**${detailLine}`;
-			content.addChild(
-				new Markdown(header + sanitizeCompactionSummary(this.message.summary), 0, 0, this.markdownTheme, {
-					color: (text: string) => theme.fg("customMessageText", text),
-				}),
-			);
+			content.addChild(this.expandedMarkdown());
 		} else {
 			const prefix = details ? `${details}; ` : "";
 			content.addChild(

@@ -1,3 +1,22 @@
+## 2026-11-20 - Shared dense card render contract
+
+### What changed
+
+- `packages/tui/src/index.ts`: exports the optional semantic render contract used by the coding agent's dense row and by tool-specific renderers in separate packages.
+- `packages/tui/src/components/box.ts`: exposes the horizontal layout padding so a dense frame can share a gutter cell with the original box without stripping indentation from its content.
+
+### Why
+
+- The renderer can supply separate title, metadata and sections without leaking frame characters into the content contract.
+
+### Why an extension could not handle it
+
+- The host and the eval extension need a shared presentation contract without depending on each other's interactive implementation.
+
+### Expected merge conflict zones
+
+- LOW: the public barrel's type and helper exports, and the Box padding accessor.
+
 ## 2026-11-03 - Copy original Markdown from fullscreen drag selections (senpi#5617)
 
 ### What changed

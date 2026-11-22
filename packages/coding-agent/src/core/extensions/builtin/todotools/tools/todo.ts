@@ -3,43 +3,31 @@
 // Copyright (c) 2025-2026 Can Bölük
 // https://github.com/can1357/oh-my-pi
 
-import { Text } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
-import { partialStrikethrough, strikeRevealCount } from "../../../../../modes/interactive/components/todo-strike.ts";
-import type { Theme } from "../../../../../modes/interactive/theme/theme.ts";
 import { resolvePromptSurface } from "../../../../dynamic-prompt/build.ts";
 import { resolveActivePresetName } from "../../prompt-preset/active-preset.ts";
 import { presetHandoffCueKind } from "../../prompt-preset/contract.ts";
-import type {
-	AgentToolResult,
-	ExtensionAPI,
-	ExtensionContext,
-	ToolDefinition,
-	ToolRenderContext,
-	ToolRenderResultOptions,
-} from "../../../types.ts";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../../../types.ts";
 import { normalizeTodoParams, prepareTodoArguments, splitPreparedCorrections } from "../normalize.ts";
 import { TODO_TOOL_DESCRIPTION } from "../prompt.ts";
 import {
 	applyParams,
 	captureListAsk,
 	clonePhases,
-	findTaskByContent,
 	formatHandoffCue,
 	formatSummary,
 	getCompletionTransitions,
-	getTodoMarker,
 	handoffMomentOf,
-	nextActionableTask,
-	sanitizeTodoText,
 	TODO_STATE_ENTRY_TYPE,
 	type TodoAsk,
 	type TodoCompletionTransition,
-	type TodoOperation,
 	type TodoPhase,
 	type TodoStateEntry,
 	type TodoToolDetails,
 } from "../state.ts";
+
+import { renderTodoCall, renderTodoResult } from "./todo-card.ts";
+export { phaseRomanNumeral } from "./todo-checklist.ts";
 
 const TodoOperationSchema = Type.Union(
 	[
@@ -74,7 +62,7 @@ export const TODO_PARAMS_SCHEMA = Type.Object({
 	),
 });
 
-type TodoParams = Static<typeof TODO_PARAMS_SCHEMA>;
+export type TodoParams = Static<typeof TODO_PARAMS_SCHEMA>;
 
 type TodoAccessors = {
 	getCurrentPhases: () => TodoPhase[];
@@ -85,211 +73,6 @@ type TodoAccessors = {
 	/** Records a call this extension instance executed, so its own result is not adopted again as a foreign list. */
 	noteExecuted?: (toolCallId: string) => void;
 };
-
-function countInitItems(params: TodoParams): { phases: number; tasks: number } {
-	if (params.list) {
-		return {
-			phases: params.list.length,
-			tasks: params.list.reduce((total, phase) => total + phase.items.length, 0),
-		};
-	}
-	if (params.items) return { phases: params.items.length > 0 ? 1 : 0, tasks: params.items.length };
-	return { phases: 0, tasks: 0 };
-}
-
-function countLabel(count: number, singular: string): string {
-	return `${count} ${singular}${count === 1 ? "" : "s"}`;
-}
-
-function renderCallLabel(params: TodoParams): string {
-	switch (params.op) {
-		case "init": {
-			const counts = countInitItems(params);
-			return `todo init (${countLabel(counts.phases, "phase")}, ${countLabel(counts.tasks, "task")})`;
-		}
-		case "append":
-			return `todo append: ${sanitizeTodoText(params.phase ?? "") || "(missing phase)"} (${countLabel(
-				params.items?.length ?? 0,
-				"item",
-			)})`;
-		case "start":
-		case "done":
-		case "drop":
-			return `todo ${params.op}: ${sanitizeTodoText(params.task ?? params.phase ?? "") || "(missing target)"}`;
-		case "rm":
-			return `todo rm: ${sanitizeTodoText(params.task ?? params.phase ?? "all") || "all"}`;
-		case "view":
-			return "todo view";
-		// Normalization can rescue a call that omitted `op`; label it generically until
-		// execute resolves the effective operation. Listing `undefined` explicitly (instead
-		// of `default`) keeps this switch exhaustive, so a new TodoOperation fails typecheck.
-		case undefined:
-			return "todo";
-	}
-}
-
-export function phaseRomanNumeral(oneBasedIndex: number): string {
-	if (oneBasedIndex <= 0) return "";
-	const pairs: ReadonlyArray<readonly [number, string]> = [
-		[1000, "M"],
-		[900, "CM"],
-		[500, "D"],
-		[400, "CD"],
-		[100, "C"],
-		[90, "XC"],
-		[50, "L"],
-		[40, "XL"],
-		[10, "X"],
-		[9, "IX"],
-		[5, "V"],
-		[4, "IV"],
-		[1, "I"],
-	];
-	let remaining = oneBasedIndex;
-	let output = "";
-	for (const [value, symbol] of pairs) {
-		while (remaining >= value) {
-			output += symbol;
-			remaining -= value;
-		}
-	}
-	return output;
-}
-
-function formatPhaseHeader(name: string, index: number, theme: Theme): string {
-	return theme.fg("accent", theme.bold(`${phaseRomanNumeral(index)}. ${sanitizeTodoText(name)}`));
-}
-
-function formatPhaseSummary(phase: TodoPhase, index: number, theme: Theme): string {
-	const closed = phase.tasks.filter((task) => task.status === "completed" || task.status === "abandoned").length;
-	return theme.fg(
-		"dim",
-		`${phaseRomanNumeral(index)}. ${sanitizeTodoText(phase.name)} - ${closed}/${phase.tasks.length} done`,
-	);
-}
-
-function formatTaskLine(
-	task: TodoPhase["tasks"][number],
-	theme: Theme,
-	completionKeys: ReadonlySet<string>,
-	frame: number | undefined,
-): string {
-	const content = sanitizeTodoText(task.content);
-	const line = `${getTodoMarker(task.status)} ${content}`;
-	switch (task.status) {
-		case "completed": {
-			const reveal = completionKeys.has(task.content) ? strikeRevealCount(line, frame) : undefined;
-			return reveal === undefined
-				? theme.fg("dim", theme.strikethrough(line))
-				: theme.fg(
-						"dim",
-						partialStrikethrough(line, reveal, (text) => theme.strikethrough(text)),
-					);
-		}
-		case "in_progress":
-			return theme.fg("accent", theme.bold(line));
-		case "abandoned":
-			return theme.fg("dim", line);
-		case "pending":
-			return line;
-	}
-}
-
-function computeTouchedPhases(
-	args: TodoParams,
-	operation: TodoOperation | undefined,
-	phases: readonly TodoPhase[],
-	completedTasks: readonly TodoCompletionTransition[],
-): Set<string> | null {
-	const touched = new Set<string>();
-	const activeTask = nextActionableTask(phases);
-	if (activeTask) {
-		const activePhase = phases.find((phase) => phase.tasks.includes(activeTask));
-		if (activePhase) touched.add(activePhase.name);
-	}
-	for (const transition of completedTasks) touched.add(transition.phase);
-	// Exhaustive over TodoOperation | undefined so adding an operation is a typecheck
-	// failure here rather than a silent fall-through into target-scoped highlighting.
-	switch (operation) {
-		case "init":
-			for (const phase of phases) touched.add(phase.name);
-			break;
-		case "start":
-		case "done":
-		case "drop":
-		case "rm":
-		case "append":
-		case "view":
-		case undefined: {
-			if (args.phase) {
-				const phase = phases.find((candidate) => candidate.name === args.phase);
-				if (phase) touched.add(phase.name);
-			}
-			if (args.task) {
-				const hit = findTaskByContent([...phases], args.task);
-				if (hit) touched.add(hit.phase.name);
-			}
-			break;
-		}
-		default: {
-			const _exhaustive: never = operation;
-			return touched.size > 0 ? touched : null;
-		}
-	}
-	return touched.size > 0 ? touched : null;
-}
-
-const EMPTY_SET: ReadonlySet<string> = new Set();
-
-function renderTodoPhases(
-	phases: readonly TodoPhase[],
-	completedTasks: readonly TodoCompletionTransition[],
-	options: ToolRenderResultOptions,
-	args: TodoParams,
-	operation: TodoOperation | undefined,
-	theme: Theme,
-	frame: number | undefined,
-): string {
-	const visiblePhases = phases.filter((phase) => phase.tasks.length > 0);
-	if (visiblePhases.length === 0) return "";
-
-	const touched =
-		options.expanded || visiblePhases.length === 1
-			? null
-			: computeTouchedPhases(args, operation, visiblePhases, completedTasks);
-	const completionKeysByPhase = new Map<string, Set<string>>();
-	for (const transition of completedTasks) {
-		let completionKeys = completionKeysByPhase.get(transition.phase);
-		if (!completionKeys) {
-			completionKeys = new Set();
-			completionKeysByPhase.set(transition.phase, completionKeys);
-		}
-		completionKeys.add(transition.content);
-	}
-	const lines: string[] = [];
-	for (let index = 0; index < visiblePhases.length; index += 1) {
-		const phase = visiblePhases[index];
-		const oneBasedIndex = index + 1;
-		if (touched && !touched.has(phase.name)) {
-			lines.push(formatPhaseSummary(phase, oneBasedIndex, theme));
-			continue;
-		}
-		lines.push(formatPhaseHeader(phase.name, oneBasedIndex, theme));
-		const completionKeys = completionKeysByPhase.get(phase.name) ?? EMPTY_SET;
-		for (const task of phase.tasks) lines.push(`  ${formatTaskLine(task, theme, completionKeys, frame)}`);
-	}
-	return lines.join("\n");
-}
-
-function getTextContent(result: AgentToolResult<TodoToolDetails>): string {
-	return result.content
-		.filter(
-			(content): content is { type: "text"; text: string } =>
-				content.type === "text" && typeof content.text === "string",
-		)
-		.map((content) => content.text)
-		.join("\n");
-}
 
 export function registerTodoTool(pi: ExtensionAPI, accessors: TodoAccessors): void {
 	const tool: ToolDefinition<typeof TODO_PARAMS_SCHEMA, TodoToolDetails, unknown> = {
@@ -374,28 +157,8 @@ export function registerTodoTool(pi: ExtensionAPI, accessors: TodoAccessors): vo
 
 			return { content: [{ type: "text", text }], details };
 		},
-		renderCall(args, theme) {
-			return new Text(theme.fg("toolTitle", theme.bold(renderCallLabel(args))), 0, 0);
-		},
-		renderResult(result, options, theme, context: ToolRenderContext<unknown, TodoParams>) {
-			if (context.isError) {
-				return new Text(theme.fg("toolOutput", getTextContent(result)), 0, 0);
-			}
-			const phases = result.details?.phases ?? [];
-			const rendered = renderTodoPhases(
-				phases,
-				result.details?.completedTasks ?? [],
-				options,
-				context.args,
-				result.details?.op,
-				theme,
-				context.spinnerFrame,
-			);
-			if (!rendered) return new Text(getTextContent(result) || "Todo list is empty.", 0, 0);
-			const ask = result.details?.ask;
-			// The in-progress row stays the bold Now line; a result without a captured ask renders as before.
-			return new Text(ask ? `${theme.fg("dim", `Ask: ${ask.text}`)}\n${rendered}` : rendered, 0, 0);
-		},
+		renderCall: renderTodoCall,
+		renderResult: renderTodoResult,
 	};
 
 	pi.registerTool(tool);

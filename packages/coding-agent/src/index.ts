@@ -11,6 +11,13 @@ export type {
 } from "./modes/rpc/mcp-presenter-account.ts";
 
 export { sanitizeTerminalLabel, visibleWidth } from "@earendil-works/pi-tui";
+export type {
+	DensityCardSection,
+	DensityCardRenderOptions,
+	DensityCardSource,
+	DensityCardStatus,
+	DensityCardView,
+} from "@earendil-works/pi-tui";
 export { type Args, parseArgs } from "./cli/args.ts";
 // The shared-daemon command surface: one JSON line, one exit code, for launchers without a shell
 export { runHostCommand } from "./cli/host-command.ts";
