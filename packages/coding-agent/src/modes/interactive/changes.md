@@ -1,3 +1,21 @@
+## 2026-11-23 - Show OmO worker nicknames in dense task cards
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/omo-task-density.ts` displays optional structured worker nicknames on single spawns, batch items, resolved sends, and task output snapshots. It shows the canonical handle or task ID alongside the nickname.
+
+### Why
+
+- Nicknames make worker cards easier to scan, but are not unique and cannot replace an address.
+
+### Why an extension could not handle it
+
+- The transcript's OmO adapter takes precedence over the source renderer for recognized results in Compact and Grouped.
+
+### Expected merge conflict zones
+
+- LOW: the OmO result projection only. Default, cancellation, incoming messages, and task routing are unchanged.
+
 ## 2026-11-23 - Project applied patch files as dense cards
 
 ### What changed

@@ -45,6 +45,15 @@ function label(value: string): string {
 	return sanitizeTerminalLabel(value.replace(/\s+/gu, " "));
 }
 
+function nicknamedWorker(worker: RecordValue): string | undefined {
+	const taskId = label(text(worker.task_id) ?? "");
+	const nickname = label(text(worker.nickname) ?? "");
+	if (!taskId || !nickname) return undefined;
+	const name = label(text(worker.name) ?? "");
+	const address = name && name !== nickname ? name : taskId;
+	return nickname === address ? address : `${nickname} (${address})`;
+}
+
 function messageCard(args: RecordValue, details: RecordValue, isError: boolean): OmoCard | undefined {
 	const recipient = text(args.to);
 	const kind = text(details.kind);
@@ -132,7 +141,16 @@ function messageCard(args: RecordValue, details: RecordValue, isError: boolean):
 				? JSON.stringify(args.message)
 				: undefined;
 	const lines = [state, ...(message === undefined ? [] : [message])];
-	return card("outgoing-message", label(recipient), failure ? "✗" : "→", lines);
+	const worker =
+		kind === "team_message" ||
+		kind === "shutdown_requested" ||
+		kind === "shutdown_responded" ||
+		kind === "not_found" ||
+		kind === "invalid_arguments" ||
+		kind === "scope_denied"
+			? undefined
+			: nicknamedWorker(details);
+	return card("outgoing-message", worker ?? label(recipient), failure ? "✗" : "→", lines);
 }
 
 function outputCard(args: RecordValue, details: RecordValue, isError: boolean): OmoCard | undefined {
@@ -186,9 +204,10 @@ function outputCard(args: RecordValue, details: RecordValue, isError: boolean): 
 		default:
 			return undefined;
 	}
+	const worker = snapshot && (kind === "status" || kind === "transcript") ? nicknamedWorker(snapshot) : undefined;
 	return card(
 		"task-peek",
-		`${mode} ${label(id)}`,
+		`${mode} ${worker ?? label(id)}`,
 		isError || kind === "not_found" || kind === "invalid_arguments" ? "✗" : "◉",
 		lines,
 	);
@@ -219,15 +238,19 @@ function taskCard(args: RecordValue, details: RecordValue, isError: boolean): Om
 			"plan_error",
 		].includes(status ?? "");
 	const title = text(details.task_summary) ?? text(args.task_summary) ?? text(args.description) ?? text(args.prompt);
-	const suffix = `${id ? label(id) : ""}${title ? `${id ? " " : ""}"${label(title)}"` : ""}`;
+	const worker = items ? undefined : nicknamedWorker(details);
+	const suffix = `${worker ?? label(id ?? "")}${title ? `${id ? " " : ""}"${label(title)}"` : ""}`;
 	const lines: string[] = [];
 	if (items) {
 		for (const item of items) {
 			if (!isRecord(item) || typeof item.task_id !== "string" || !text(item.status)) return undefined;
 			const itemId = text(item.task_id);
-			const itemTitle = text(item.task_summary) ?? text(item.name);
+			const itemWorker = nicknamedWorker(item);
+			const itemTitle = text(item.task_summary) ?? (itemWorker === undefined ? text(item.name) : undefined);
 			lines.push(
-				[itemId ?? "task", itemTitle, text(item.status), text(item.error_message)].filter(Boolean).join(" · "),
+				[itemWorker ?? itemId ?? "task", itemTitle, text(item.status), text(item.error_message)]
+					.filter(Boolean)
+					.join(" · "),
 			);
 		}
 	} else {
