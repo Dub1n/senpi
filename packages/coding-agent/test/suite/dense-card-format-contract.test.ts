@@ -1,7 +1,8 @@
 import { stripTerminalSequences, type DensityCardStructuredView } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it } from "vitest";
+import { renderKillBashResult } from "../../src/core/extensions/builtin/terminal/tools/render.ts";
 import { ToolDensityRow } from "../../src/modes/interactive/components/tool-density-row.ts";
-import { initTheme } from "../../src/modes/interactive/theme/theme.ts";
+import { initTheme, theme } from "../../src/modes/interactive/theme/theme.ts";
 
 describe("structured dense card layout", () => {
 	beforeAll(() => initTheme("dark"));
@@ -81,5 +82,36 @@ describe("structured dense card layout", () => {
 		};
 		const row = new ToolDensityRow(card, () => {});
 		expect(row.render(60).map(stripTerminalSequences).join("\n")).toContain(expected);
+	});
+
+	it("does not show the success acknowledgment for a partial empty kill result", () => {
+		const component = renderKillBashResult(
+			{ content: [], details: undefined },
+			{ expanded: false, isPartial: true },
+			theme,
+			{
+				args: { bash_id: "bash_21" },
+				toolCallId: "kill-21",
+				invalidate() {},
+				lastComponent: undefined,
+				state: {},
+				cwd: "/workspace",
+				executionStarted: true,
+				argsComplete: true,
+				isPartial: true,
+				expanded: false,
+				showImages: false,
+				imageProtocol: null,
+				isError: false,
+				hasResult: true,
+				spinnerFrame: 0,
+			},
+		);
+		if (!("renderDensityCard" in component)) throw new TypeError("Expected a kill result card");
+		const view = component.renderDensityCard();
+		if (!view || view.format !== "structured") throw new TypeError("Expected a structured kill result card");
+		expect(view.status).toBe("running");
+		expect(view.heading.details).toEqual(["killing"]);
+		expect(view.body).toEqual([]);
 	});
 });

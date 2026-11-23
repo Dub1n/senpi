@@ -12,6 +12,7 @@ import { renderEvalCall, renderEvalResult } from "../../../senpi-codemode/src/to
 import { resolveSourceSelection } from "../../../tui/src/selection-source.ts";
 import { linearRanges } from "../../../tui/src/source-ranges.ts";
 import { VirtualTerminal } from "../../../tui/test/virtual-terminal.ts";
+import { renderTodoCall, renderTodoResult } from "../../src/core/extensions/builtin/todotools/tools/todo-card.ts";
 import { ExplorationTranscriptContainer } from "../../src/modes/interactive/components/exploration-transcript-container.ts";
 import { ToolDensityRow } from "../../src/modes/interactive/components/tool-density-row.ts";
 import { ToolExecutionComponent } from "../../src/modes/interactive/components/tool-execution.ts";
@@ -51,7 +52,80 @@ function cellOf({ terminal }: Awaited<ReturnType<typeof terminalRows>>, row: num
 describe("semantic density card styling", () => {
 	beforeAll(() => initTheme("dark"));
 
+	it.each([false, true])(
+		"takes the glyph color from the host, not a legacy producer (icons=%s)",
+		async (colorIcons) => {
+			const card = {
+				densityExpanded: false,
+				setExpanded() {},
+				getBackgroundPainter: () => undefined,
+				renderDensitySummary: () => [],
+				renderDensityCard: () => ({
+					kind: "memory" as const,
+					name: "remembered",
+					title: " · recovered context",
+					statusGlyph: theme.fg("success", "●"),
+					renderContent: () => [],
+					sections: [],
+				}),
+				render: () => [],
+				invalidate() {},
+			};
+			const row = new ToolDensityRow(
+				card,
+				() => {},
+				() => ({ colorIcons, colorFrames: true, colorNames: true }),
+			);
+			using rendered = await terminalRows(row.render(width));
+			using expected = await terminalRows([theme.fg(colorIcons ? "customMessageLabel" : "text", "●")]);
+			expect(cellOf(rendered, 2, 4).color).toEqual(cellOf(expected, 0, 0).color);
+			expect(cellOf(rendered, 2, 6).color).toEqual(cellOf(rendered, 2, 1).color);
+		},
+	);
+
 	describe.each(["compact", "grouped"] as const)("%s", (density) => {
+		it.each([
+			{ op: "drop", status: "abandoned", glyph: "×", italic: false },
+			{ op: "done", status: "completed", glyph: "✓", italic: true },
+		] as const)("strikes a $status todo description with italic=$italic", async ({ op, status, glyph, italic }) => {
+			const task = "Review changes";
+			const card = new ToolExecutionComponent(
+				"todo",
+				"todo-close",
+				{ op, task },
+				{},
+				{ renderShell: "self", renderCall: renderTodoCall, renderResult: renderTodoResult },
+				new TUI(new VirtualTerminal()),
+				process.cwd(),
+			);
+			try {
+				card.updateResult({
+					content: [{ type: "text", text: "Checklist updated." }],
+					details: { op, storage: "memory", phases: [{ name: "Review", tasks: [{ content: task, status }] }] },
+					isError: false,
+				});
+				const row = new ToolDensityRow(card, () => {});
+				row.setLayout(density === "grouped", true, true);
+				for (const [expanded, frame] of [
+					[false, "╶─"],
+					[true, "╭─"],
+				] as const) {
+					card.setExpanded(expanded);
+					const rows = row.render(width);
+					expect(stripTerminalSequences(rows[2]).trimEnd()).toBe(` ${frame} ${glyph} todo • ${task}`);
+					using rendered = await terminalRows(rows);
+					for (const column of [6, 11]) {
+						expect(cellOf(rendered, 2, column)).toMatchObject({ italic: false, strike: false });
+					}
+					for (const column of [13, 13 + task.length - 1]) {
+						expect(cellOf(rendered, 2, column)).toMatchObject({ italic, strike: true });
+					}
+				}
+			} finally {
+				card.dispose();
+			}
+		});
+
 		it("keeps the output label the same foreground as a descriptive eval title", async () => {
 			const summary = "Review result";
 			const args = { language: "js", code: 'print("Example payload");', summary };
@@ -82,7 +156,7 @@ describe("semantic density card styling", () => {
 					() => ({
 						colorFrames: true,
 						colorNames: true,
-						colorIcons: false,
+						colorIcons: true,
 					}),
 				);
 				row.setLayout(density === "grouped", true, true);
@@ -96,6 +170,7 @@ describe("semantic density card styling", () => {
 				using swatch = await terminalRows([theme.fg("toolTitle", "N")]);
 				expect(cellOf(terminal, title, 6).color).toEqual(cellOf(swatch, 0, 0).color);
 				expect(cellOf(terminal, output, 4).color).toEqual(cellOf(swatch, 0, 0).color);
+				expect(cellOf(terminal, title, 4).color).toEqual(cellOf(terminal, title, 1).color);
 			} finally {
 				card.dispose();
 			}

@@ -1,5 +1,23 @@
 # todotools Fork Tracker
 
+## 2026-11-23 - Distinguish cancelled and completed dense Todo descriptions
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/todotools/tools/todo-card.ts` strikes cancelled and completed descriptions, italicizing only completed descriptions.
+
+### Why
+
+- The two terminal states should read as closed while remaining distinguishable.
+
+### Why an extension could not handle it
+
+- The Todo builtin owns the status used in its dense heading.
+
+### Expected merge conflict zones
+
+- LOW: the description span styling; the Default checklist is unchanged.
+
 ## 2026-11-22 - Structured dense Todo cards
 
 ### What changed

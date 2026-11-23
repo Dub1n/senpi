@@ -1,3 +1,22 @@
+## 2026-11-23 - Show single-session kill results as Bash cards
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/terminal/tools/kill-bash.ts` registers a renderer for kill calls and results.
+- `packages/coding-agent/src/core/extensions/builtin/terminal/tools/render.ts` projects single-session kills into the Bash palette and keeps substantive output or errors in the expanded card. Only a completed success with no other output shows the acknowledgment.
+
+### Why
+
+- The session number and kill outcome belong in the title rather than in a redundant body identifier.
+
+### Why an extension could not handle it
+
+- The terminal builtin registers the tool and owns the result renderer; execution and persisted tool output do not change.
+
+### Expected merge conflict zones
+
+- LOW: the single-session kill renderer and its registration.
+
 ## 2026-11-22 - Structured bash output cards
 
 ### What changed

@@ -179,9 +179,9 @@ describe.each(densities)("%s individual card goldens", (density) => {
 	});
 
 	it.each([
-		{ op: "done", status: "completed", attribute: "strike" },
-		{ op: "drop", status: "abandoned", attribute: "italic" },
-	] as const)("preserves Todo $attribute in the folded action heading", async ({ op, status, attribute }) => {
+		{ op: "done", status: "completed", italic: true },
+		{ op: "drop", status: "abandoned", italic: false },
+	] as const)("styles the $status Todo description in the folded heading", async ({ op, status, italic }) => {
 		const details = {
 			...todoInitDetails,
 			op,
@@ -210,7 +210,9 @@ describe.each(densities)("%s individual card goldens", (density) => {
 			const row = rows.findIndex((line) => stripTerminalSequences(line).includes("Verify the runtime"));
 			const column = stripTerminalSequences(rows[row] ?? "").indexOf("Verify the runtime");
 			const cell = terminal.buffer.active.getLine(row)?.getCell(column);
-			expect(cell && (attribute === "strike" ? cell.isStrikethrough() : cell.isItalic())).toBeTruthy();
+			expect(cell).toBeDefined();
+			expect(Boolean(cell?.isStrikethrough())).toBe(true);
+			expect(Boolean(cell?.isItalic())).toBe(italic);
 		} finally {
 			terminal.dispose();
 			surface.cleanup();

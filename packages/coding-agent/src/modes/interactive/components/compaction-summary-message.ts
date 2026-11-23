@@ -97,7 +97,7 @@ export class CompactionSummaryMessageComponent extends Box {
 			format: "structured",
 			kind: "compaction",
 			heading: { details },
-			statusGlyph: theme.fg("success", "✓"),
+			status: "done",
 			body: [{ type: "rich", render: (width) => this.densityMarkdown().render(width) }],
 			sections: [],
 		};

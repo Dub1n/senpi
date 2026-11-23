@@ -7887,6 +7887,10 @@
 			"class": "constant",
 			"reason": "lookup data literal; never written after load"
 		},
+		"packages/coding-agent/src/modes/interactive/components/apply-patch-density.ts#defaultColors": {
+			"class": "constant",
+			"reason": "read-only fallback palette for patch card headings; never written after load"
+		},
 		"packages/coding-agent/src/modes/interactive/components/armin.ts#BITS": {
 			"class": "constant",
 			"reason": "lookup data literal; never written after load"
@@ -7926,6 +7930,10 @@
 		"packages/coding-agent/src/modes/interactive/components/continuity-notice.ts#SETTING_SOURCE_LABELS": {
 			"class": "constant",
 			"reason": "lookup data literal; never written after load"
+		},
+		"packages/coding-agent/src/modes/interactive/components/density-card-style.ts#cardRegistry": {
+			"class": "constant",
+			"reason": "read-only semantic card names and theme roles; never written after load"
 		},
 		"packages/coding-agent/src/modes/interactive/components/earendil-announcement.ts#attemptedImageLoad": {
 			"class": "per-copy-safe",

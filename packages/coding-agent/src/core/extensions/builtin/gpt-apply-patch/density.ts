@@ -42,7 +42,14 @@ export function patchDensityCard(input: DensityInput): DensityCardStructuredView
 	const files = settled ? (result?.details?.preview?.files ?? []) : [];
 	const successful = settled !== undefined && !failed && !isPartial;
 	const single = successful && files.length === 1 ? files[0] : undefined;
-	const kind = single ? operation(single) : "tool";
+	const allSameOperation = files.every((file) => file.operation === files[0]?.operation);
+	const kind = single
+		? operation(single)
+		: successful && files.length >= 3
+			? allSameOperation
+				? operation(files[0])
+				: "patched"
+			: "tool";
 	const details = single
 		? [summary(single)]
 		: successful && files.length > 0
@@ -50,13 +57,26 @@ export function patchDensityCard(input: DensityInput): DensityCardStructuredView
 			: failed
 				? ["failed"]
 				: [];
-	const heading = { identity: single ? filePath(single, cwd, true) : "apply_patch", details };
-	const expandedHeading = single ? { identity: filePath(single, cwd, false), details } : heading;
+	const heading = {
+		identity: single
+			? filePath(single, cwd, true)
+			: successful && files.length >= 3
+				? files.map((file) => path.basename(file.movePath ?? file.filePath)).join(" ")
+				: "apply_patch",
+		details: single ? details : successful && files.length >= 3 ? [] : details,
+	};
+	const expandedHeading = single
+		? { identity: filePath(single, cwd, false), identitySuffix: `:${summary(single)}` }
+		: heading;
 	const status = failed ? "failed" : isPartial || !settled ? (executionStarted ? "running" : "pending") : "done";
 	const renderFile = (file: ApplyPatchPreviewFile, width: number) =>
 		file.diff
 			? wrapTextWithAnsi(
-					renderToolDiff(truncatePreview(file.diff), { filePath: file.movePath ?? file.filePath, theme }),
+					renderToolDiff(truncatePreview(file.diff), {
+						filePath: file.movePath ?? file.filePath,
+						theme,
+						contextContentColor: "muted",
+					}),
 					width,
 				)
 			: [];
@@ -87,7 +107,8 @@ export function patchDensityCard(input: DensityInput): DensityCardStructuredView
 					placement: "frame" as const,
 					heading: {
 						kind: operation(file),
-						heading: { identity: filePath(file, cwd, false), details: [summary(file)] },
+						heading: { identity: filePath(file, cwd, false), identitySuffix: `:${summary(file)}` },
+						status: "done" as const,
 					},
 					body: [{ type: "rich" as const, render: (width: number) => renderFile(file, width) }],
 				})),

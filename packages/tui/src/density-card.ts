@@ -11,6 +11,7 @@ export type DensityCardKind =
 	| "bash-output"
 	| "wait"
 	| "wake"
+	| "loop-guard"
 	| "read"
 	| "todo"
 	| "goal"
@@ -19,6 +20,7 @@ export type DensityCardKind =
 	| "added"
 	| "edited"
 	| "deleted"
+	| "patched"
 	| "memory"
 	| "skill"
 	| "rules"
@@ -57,7 +59,7 @@ export interface DensityCardLegacyView {
 	readonly expandedTitle?: string;
 	/** Omit execution status for notices and action-specific rows. */
 	readonly status?: DensityCardStatus;
-	/** An already-styled glyph that replaces the standard execution glyph. */
+	/** A glyph that replaces the standard execution glyph. The host owns its foreground. */
 	readonly statusGlyph?: string;
 	/** Additional folded rows, such as a provider's secondary status. */
 	readonly foldedDetails?: readonly string[];
@@ -78,6 +80,8 @@ export type DensityCardText = string | readonly DensityCardSpan[];
 
 export interface DensityCardHeading {
 	readonly identity?: string;
+	/** Text attached directly to the identity, with no heading separator. */
+	readonly identitySuffix?: DensityCardText;
 	readonly details?: readonly DensityCardText[];
 	readonly description?: string;
 }
@@ -89,7 +93,7 @@ export type DensityCardBlock =
 export interface DensityCardStructuredSection {
 	readonly placement: "frame" | "after" | "grouped";
 	readonly heading:
-		| { readonly label: string; readonly role?: "title" }
+		| { readonly label: string; readonly role?: "title"; readonly bold?: boolean }
 		| {
 				readonly kind: DensityCardKind;
 				readonly heading: DensityCardHeading;

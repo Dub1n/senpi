@@ -144,7 +144,7 @@ class TodoCard extends Text implements DensityCardSource {
 		const target = sanitizeTodoText(task?.content ?? args.task ?? args.phase ?? "");
 		const name: DensityCardText =
 			task?.status === "completed" || task?.status === "abandoned"
-				? [{ text: target, strikethrough: task.status === "completed", italic: task.status === "abandoned" }]
+				? [{ text: target, strikethrough: true, italic: task.status === "completed" }]
 				: target;
 		let label: DensityCardText | undefined;
 		let statusGlyph: string | undefined;

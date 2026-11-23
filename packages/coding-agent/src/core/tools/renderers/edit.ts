@@ -164,7 +164,11 @@ function buildEditCallComponent(
 								type: "rich" as const,
 								render: (width: number) =>
 									wrapTextWithAnsi(
-										renderToolDiff(preview.diff, { filePath: path ?? undefined, theme }),
+										renderToolDiff(preview.diff, {
+											filePath: path ?? undefined,
+											theme,
+											contextContentColor: "muted",
+										}),
 										width,
 									),
 							},
@@ -331,7 +335,14 @@ export const editRenderers: Pick<ToolDefinition<any, any>, "renderCall" | "rende
 									{
 										type: "rich",
 										render: (width) =>
-											wrapTextWithAnsi(renderToolDiff(diff, { filePath: path ?? undefined, theme }), width),
+											wrapTextWithAnsi(
+												renderToolDiff(diff, {
+													filePath: path ?? undefined,
+													theme,
+													contextContentColor: "muted",
+												}),
+												width,
+											),
 									},
 								]
 							: [],

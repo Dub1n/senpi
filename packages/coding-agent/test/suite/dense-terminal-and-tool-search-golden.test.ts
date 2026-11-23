@@ -6,6 +6,7 @@ import { VirtualTerminal } from "../../../tui/test/virtual-terminal.ts";
 import { AgentSessionRuntime } from "../../src/core/agent-session-runtime.ts";
 import { TerminalManager } from "../../src/core/extensions/builtin/terminal/manager.ts";
 import { createBashOutputTool } from "../../src/core/extensions/builtin/terminal/tools/bash-output.ts";
+import { createKillBashTool } from "../../src/core/extensions/builtin/terminal/tools/kill-bash.ts";
 import toolSearchExtension from "../../src/core/extensions/builtin/tool-search/index.ts";
 import { ExplorationTranscriptContainer } from "../../src/modes/interactive/components/exploration-transcript-container.ts";
 import { InteractiveMode } from "../../src/modes/interactive/interactive-mode.ts";
@@ -15,7 +16,7 @@ import { createHarness, type HarnessOptions } from "./harness.ts";
 const wide = 64;
 const densities = ["compact", "grouped"] as const;
 type Density = "default" | (typeof densities)[number];
-type ToolName = "bash_output" | "tool_search";
+type ToolName = "bash_output" | "kill_bash" | "tool_search";
 type Result = Pick<ToolResultMessage, "content" | "details"> & { readonly isError?: boolean | undefined };
 
 const catalogExtensions: HarnessOptions["extensionFactories"] = [
@@ -49,7 +50,15 @@ async function transcript(
 		extensionFactories:
 			name === "tool_search"
 				? catalogExtensions
-				: [{ name: "density-terminal", factory: (pi) => pi.registerTool(terminalTool) }],
+				: [
+						{
+							name: "density-terminal",
+							factory: (pi) => {
+								pi.registerTool(terminalTool);
+								pi.registerTool(killTerminalTool);
+							},
+						},
+					],
 	});
 	const runtime = Object.assign(Object.create(AgentSessionRuntime.prototype), { _session: harness.session });
 	const mode = new InteractiveMode(runtime);
@@ -90,13 +99,15 @@ async function transcript(
 	}
 }
 
-const terminalTool = createBashOutputTool({
+const terminalContext = {
 	cwd: "/workspace",
 	defaultCols: 80,
 	defaultRows: 24,
 	getEnv: () => ({}),
 	manager: new TerminalManager(),
-});
+};
+const terminalTool = createBashOutputTool(terminalContext);
+const killTerminalTool = createKillBashTool(terminalContext);
 const bashArgs = { bash_id: "bash_39" };
 
 function text(value: string): Result {
@@ -180,6 +191,49 @@ describe.each(densities)("bash output in %s", (density) => {
 		const result = text("status: running\n  older output\nstatus: killed");
 		expect(await transcript("bash_output", bashArgs, result, { density, expanded: true, width: wide })).toEqual(
 			rows(wide, " ╭─ ✓ bash 39 • running", " │   older output", " │ status: killed", " ╰─"),
+		);
+	});
+});
+
+describe.each(densities)("bash kill in %s", (density) => {
+	it("renders the successful kill title and keeps the original result on replay", async () => {
+		const result = text("bash_id: bash_39\nKilled bash_39.\nworker output");
+		expect(await transcript("kill_bash", bashArgs, result, { density, expanded: false, width: wide })).toEqual(
+			rows(wide, " ╶─ ✓ bash 39 • killed"),
+		);
+		expect(await transcript("kill_bash", bashArgs, result, { density, expanded: true, width: wide })).toEqual(
+			rows(wide, " ╭─ ✓ bash 39 • killed", " │ worker output", " ╰─"),
+		);
+	});
+
+	it("shows a failed status and preserves the terminal error on replay", async () => {
+		const result = { ...text("bash_id: bash_39\nCould not kill bash_39: session already exited."), isError: true };
+		expect(await transcript("kill_bash", bashArgs, result, { density, expanded: false, width: wide })).toEqual(
+			rows(wide, " ╶─ ✗ bash 39 • failed"),
+		);
+		expect(await transcript("kill_bash", bashArgs, result, { density, expanded: true, width: wide })).toEqual(
+			rows(wide, " ╭─ ✗ bash 39 • failed", " │ Could not kill bash_39: session already exited.", " ╰─"),
+		);
+	});
+
+	it("uses the kill acknowledgment when success has no substantive output", async () => {
+		const result = text("bash_id: bash_39\nKilled bash_39.");
+		expect(await transcript("kill_bash", bashArgs, result, { density, expanded: true, width: wide })).toEqual(
+			rows(wide, " ╭─ ✓ bash 39 • killed", " │ Killed bash_39.", " ╰─"),
+		);
+	});
+
+	it("keeps non-standalone session-id text when rendering useful output", async () => {
+		const result = text("worker bash_id: bash_39 finished");
+		expect(await transcript("kill_bash", bashArgs, result, { density, expanded: true, width: wide })).toEqual(
+			rows(wide, " ╭─ ✓ bash 39 • killed", " │ worker bash_id: bash_39 finished", " ╰─"),
+		);
+	});
+
+	it("does not invent a success acknowledgment for an empty failure", async () => {
+		const result = { ...text(""), isError: true };
+		expect(await transcript("kill_bash", bashArgs, result, { density, expanded: true, width: wide })).toEqual(
+			rows(wide, " ╭─ ✗ bash 39 • failed", " ╰─"),
 		);
 	});
 });
@@ -279,4 +333,16 @@ it("keeps the Default bash output call, status and output rows", async () => {
 			width: wide,
 		}),
 	).toEqual(rows(wide, " bash_output bash_39", " status: running", " (no new output)"));
+});
+
+it("keeps kill-all on the Default tool result renderer", async () => {
+	const output = "Killed 2 session(s).";
+	const rendered = await transcript("kill_bash", { all: true }, text(output), {
+		density: "default",
+		expanded: true,
+		width: wide,
+	});
+	expect(rendered.join("\n")).toContain("kill_bash");
+	expect(rendered.join("\n")).toContain(output);
+	expect(rendered.join("\n")).not.toContain("bash 39");
 });

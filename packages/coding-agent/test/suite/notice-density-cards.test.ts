@@ -82,7 +82,7 @@ describe("notice density cards", () => {
 			renderResult: () =>
 				buildNoticeBox(
 					{
-						title: "● Remembered · Prefers concise reports",
+						title: "● Remembered · 2nd entry today",
 						why: "Keep the report brief.",
 					},
 					{ expanded: false },
@@ -94,7 +94,17 @@ describe("notice density cards", () => {
 		memory.updateResult({ content: [], isError: false });
 		other.updateResult({ content: [], isError: false });
 
-		expect(memory.renderNoticeDensitySummary(100)?.[0]).toContain("● Remembered · Prefers concise reports");
+		expect(memory.renderNoticeDensitySummary(100)?.[0]).toContain("● Remembered · 2nd entry today");
+		for (const grouped of [false, true]) {
+			const row = new ToolDensityRow(memory, () => {});
+			row.setLayout(grouped, true, true);
+			expect(row.render(80).map(stripTerminalSequences)[2]?.trimEnd()).toBe(" ╶─ ● remembered • 2nd entry today");
+			memory.setExpanded(true);
+			const expanded = row.render(80).map(stripTerminalSequences);
+			expect(expanded[2]?.trimEnd()).toBe(" ╭─ ● remembered • 2nd entry today");
+			expect(expanded[3]?.trimEnd()).toBe(" │ Keep the report brief.");
+			memory.setExpanded(false);
+		}
 		expect(other.renderNoticeDensitySummary(100)).toBeUndefined();
 		memory.dispose();
 		other.dispose();

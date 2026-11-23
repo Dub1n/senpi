@@ -1,5 +1,23 @@
 # loop-guard changes
 
+## 2026-11-23 - Format Loop guard as a structured dense notice
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/loop-guard/renderer.ts` supplies the detection and escalation summaries as structured dense headings with a single-cell ASCII `!`.
+
+### Why
+
+- Dense notices should share punctuation and palette toggles with tool cards instead of inheriting the Default notice's ANSI.
+
+### Why an extension could not handle it
+
+- The built-in extension owns these message renderers and uses the existing structured notice hook.
+
+### Expected merge conflict zones
+
+- LOW: the notice renderer; detection and persisted data are unchanged.
+
 ## loop-guard: give polling blocks a terminal recovery action (2026-08-25)
 
 - Block reasons for `bash_output` and `task_output` now tell the agent to stop

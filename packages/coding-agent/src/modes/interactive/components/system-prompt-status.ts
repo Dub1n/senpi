@@ -26,7 +26,7 @@ export class SystemPromptStatus extends ThemedText {
 			format: "structured",
 			kind: "system",
 			heading: { description: this.message },
-			statusGlyph: theme.fg("dim", "✓"),
+			statusGlyph: "✓",
 			body: [],
 			sections: [],
 		};

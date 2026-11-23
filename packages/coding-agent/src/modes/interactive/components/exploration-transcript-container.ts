@@ -8,7 +8,13 @@ import {
 	type TuiMouseEvent,
 } from "@earendil-works/pi-tui";
 import type { ToolDisplayColors, ToolDisplayDensity } from "../../../core/settings-manager.ts";
+import { patchDensityCard } from "../../../core/extensions/builtin/gpt-apply-patch/density.ts";
+import type {
+	ApplyPatchPreviewFile,
+	ApplyPatchToolDetails,
+} from "../../../core/extensions/builtin/gpt-apply-patch/types.ts";
 import { AssistantMessageComponent } from "./assistant-message.ts";
+import { PatchDensityCard, PatchDensityProjection, type ApplyPatchDensityProjection } from "./apply-patch-density.ts";
 import { CustomEntryComponent } from "./custom-entry.ts";
 import { CompactionSummaryMessageComponent } from "./compaction-summary-message.ts";
 import { type DenseReadMember, denseReadProjection, DenseReadRun } from "./dense-read-run.ts";
@@ -21,6 +27,7 @@ import {
 } from "./progressive-transcript-container.ts";
 import { type DensityCardSource, isDensityCardSource, ToolDensityRow } from "./tool-density-row.ts";
 import { ToolExecutionComponent } from "./tool-execution.ts";
+import { theme } from "../theme/theme.ts";
 import { TranscriptNotice } from "./transcript-notice.ts";
 import { SystemPromptStatus } from "./system-prompt-status.ts";
 
@@ -36,6 +43,8 @@ export class ExplorationTranscriptContainer extends Container {
 	private densityColors: ToolDisplayColors = { colorFrames: false, colorNames: false, colorIcons: false };
 	private readonly densityRows = new WeakMap<ToolExecutionComponent | DensityCardSource, ToolDensityRow>();
 	private readonly denseReadRuns = new WeakMap<ToolExecutionComponent, DenseReadRun>();
+	private patchDensityProjections = new WeakMap<ToolExecutionComponent, PatchDensityProjection>();
+	private patchDensityGroups = new WeakMap<ToolExecutionComponent, PatchDensityCard>();
 	private densityProjection:
 		| {
 				readonly source: readonly Component[];
@@ -96,6 +105,7 @@ export class ExplorationTranscriptContainer extends Container {
 		const projected: Component[] = [];
 		let previous: ToolDensityRow | undefined;
 		let previousFirst = true;
+		let patchRun: { readonly owner: ToolExecutionComponent; readonly files: PatchDensityCard[] }[] = [];
 		const appendRow = (child: Component): void => {
 			const row =
 				child instanceof SystemPromptStatus && !grouped
@@ -126,7 +136,39 @@ export class ExplorationTranscriptContainer extends Container {
 			}
 			reads = [];
 		};
+		const flushPatches = (): void => {
+			if (patchRun.length === 0) return;
+			const files = patchRun.flatMap((run) => run.files);
+			if (files.length >= 3) {
+				const first = patchRun[0].owner;
+				let group = this.patchDensityGroups.get(first);
+				if (!group) {
+					group = new PatchDensityCard();
+					this.patchDensityGroups.set(first, group);
+				}
+				group.setGroup(files);
+				appendRow(group);
+			} else {
+				for (const file of files) appendRow(file);
+			}
+			patchRun = [];
+		};
 		const append = (child: Component): void => {
+			if (child instanceof ToolExecutionComponent && child.summarySnapshot.name === "apply_patch") {
+				flushReads();
+				const patch = this.applyPatchProjectionOf(child);
+				if (patch?.status === "done") {
+					patchRun.push({ owner: child, files: [...patch.files] });
+					return;
+				}
+				flushPatches();
+				if (patch?.status === "failed") {
+					appendRow(patch.failure);
+					for (const file of patch.files) appendRow(file);
+				} else appendRow(child);
+				return;
+			}
+			flushPatches();
 			const read = denseReadProjection(child);
 			if (read === "hidden") return;
 			if (read) {
@@ -155,9 +197,33 @@ export class ExplorationTranscriptContainer extends Container {
 			}
 		}
 		flushReads();
+		flushPatches();
 		previous?.setLayout(grouped, previousFirst, true);
 		this.densityProjection = { source: [...this.children], projected, clock: currentRenderRevision() };
 		return projected;
+	}
+
+	private applyPatchProjectionOf(card: ToolExecutionComponent): ApplyPatchDensityProjection | undefined {
+		const snapshot = card.summarySnapshot;
+		if (snapshot.pending) return undefined;
+		const { identity, state } = card.presentationSnapshot;
+		if (!state.result) return undefined;
+		const details = applyPatchToolDetails(state.result.details);
+		if (!details) return undefined;
+		const view = patchDensityCard({
+			result: { content: state.result.content, details },
+			isError: state.result.isError,
+			isPartial: state.isPartial,
+			executionStarted: state.executionStarted,
+			cwd: identity.cwd,
+			theme,
+		});
+		let projection = this.patchDensityProjections.get(card);
+		if (!projection) {
+			projection = new PatchDensityProjection();
+			this.patchDensityProjections.set(card, projection);
+		}
+		return projection.update(card, view);
 	}
 
 	private densityRowOf(card: ToolExecutionComponent | DensityCardSource): ToolDensityRow {
@@ -238,6 +304,8 @@ export class ExplorationTranscriptContainer extends Container {
 	override invalidate(): void {
 		this.display.invalidateCache();
 		this.calls = new WeakMap();
+		this.patchDensityProjections = new WeakMap();
+		this.patchDensityGroups = new WeakMap();
 		this.densityProjection = undefined;
 		super.invalidate();
 	}
@@ -272,4 +340,30 @@ function sameComponents(left: readonly Component[], right: readonly Component[])
 		if (left[index] !== right[index]) return false;
 	}
 	return true;
+}
+
+function applyPatchToolDetails(value: unknown): ApplyPatchToolDetails | undefined {
+	if (!isRecord(value) || !isRecord(value.result) || !Array.isArray(value.result.failures)) return undefined;
+	if (value.preview === undefined) return value as ApplyPatchToolDetails;
+	if (!isRecord(value.preview) || !Array.isArray(value.preview.files)) return undefined;
+	if (!value.preview.files.every(isApplyPatchPreviewFile)) return undefined;
+	return value as ApplyPatchToolDetails;
+}
+
+function isApplyPatchPreviewFile(value: unknown): value is ApplyPatchPreviewFile {
+	return (
+		isRecord(value) &&
+		typeof value.filePath === "string" &&
+		(value.movePath === undefined || typeof value.movePath === "string") &&
+		(value.operation === "add" || value.operation === "delete" || value.operation === "update") &&
+		typeof value.diff === "string" &&
+		(value.binary === undefined || value.binary === true) &&
+		(value.patch === undefined || typeof value.patch === "string") &&
+		typeof value.added === "number" &&
+		typeof value.removed === "number"
+	);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

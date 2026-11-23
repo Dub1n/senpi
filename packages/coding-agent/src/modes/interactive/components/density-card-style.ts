@@ -2,6 +2,7 @@ import {
 	extractAnsiCode,
 	getCapabilities,
 	hyperlink,
+	stripTerminalSequences,
 	type DensityCardHeading,
 	type DensityCardKind,
 	type DensityCardText,
@@ -15,25 +16,65 @@ type DensityCardPalette = {
 	readonly frame: "accent" | "muted";
 	readonly body: "text" | "muted";
 	readonly section: "title" | "muted";
-	readonly identityIsName?: boolean;
+	readonly identityPlacement?: "name" | "detail";
 };
 
+const memoryAccent = "customMessageLabel";
+const bashAccent = "syntaxFunction";
+
 const cardRegistry = {
-	eval: { name: "eval", accent: "syntaxType", frame: "muted", body: "muted", section: "muted", identityIsName: true },
-	shell: { name: "bash", accent: "syntaxFunction", frame: "accent", body: "text", section: "muted" },
+	eval: {
+		name: "eval",
+		accent: "syntaxType",
+		frame: "muted",
+		body: "muted",
+		section: "muted",
+		identityPlacement: "name",
+	},
+	shell: { name: "bash", accent: bashAccent, frame: "accent", body: "text", section: "muted" },
 	powershell: { name: "powershell", accent: "syntaxFunction", frame: "accent", body: "text", section: "muted" },
-	"bash-output": { name: "bash", accent: "syntaxFunction", frame: "accent", body: "muted", section: "muted" },
+	"bash-output": { name: "bash", accent: bashAccent, frame: "accent", body: "muted", section: "muted" },
+	"loop-guard": { name: "Loop guard", accent: bashAccent, frame: "accent", body: "muted", section: "muted" },
 	wait: { name: "wait", accent: "syntaxFunction", frame: "accent", body: "text", section: "muted" },
 	wake: { name: "wake", accent: "syntaxFunction", frame: "accent", body: "text", section: "muted" },
-	read: { name: "read", accent: "syntaxVariable", frame: "accent", body: "text", section: "muted" },
+	read: { name: "read", accent: "syntaxVariable", frame: "accent", body: "muted", section: "muted" },
 	todo: { name: "todo", accent: "syntaxKeyword", frame: "accent", body: "text", section: "muted" },
 	goal: { name: "goal", accent: "mdHeading", frame: "accent", body: "text", section: "muted" },
-	edit: { name: "edit", accent: "mdLink", frame: "accent", body: "text", section: "muted" },
-	write: { name: "write", accent: "mdLink", frame: "accent", body: "text", section: "muted" },
-	added: { name: "added", accent: "error", frame: "accent", body: "text", section: "muted" },
-	edited: { name: "edited", accent: "mdLink", frame: "accent", body: "text", section: "muted" },
-	deleted: { name: "deleted", accent: "success", frame: "accent", body: "text", section: "muted" },
-	memory: { name: "remembered", accent: "customMessageLabel", frame: "accent", body: "text", section: "muted" },
+	edit: { name: "edit", accent: "mdLink", frame: "accent", body: "muted", section: "muted" },
+	write: { name: "write", accent: "mdLink", frame: "accent", body: "muted", section: "muted" },
+	added: {
+		name: "added",
+		accent: "error",
+		frame: "accent",
+		body: "muted",
+		section: "muted",
+		identityPlacement: "detail",
+	},
+	edited: {
+		name: "edited",
+		accent: "mdLink",
+		frame: "accent",
+		body: "muted",
+		section: "muted",
+		identityPlacement: "detail",
+	},
+	deleted: {
+		name: "deleted",
+		accent: "success",
+		frame: "accent",
+		body: "muted",
+		section: "muted",
+		identityPlacement: "detail",
+	},
+	patched: {
+		name: "patched",
+		accent: "mdLink",
+		frame: "accent",
+		body: "muted",
+		section: "muted",
+		identityPlacement: "detail",
+	},
+	memory: { name: "remembered", accent: memoryAccent, frame: "accent", body: "text", section: "muted" },
 	skill: { name: "skill", accent: "customMessageLabel", frame: "accent", body: "text", section: "muted" },
 	rules: { name: "rules", accent: "customMessageLabel", frame: "accent", body: "text", section: "muted" },
 	"project-rules": {
@@ -60,7 +101,7 @@ const cardRegistry = {
 	find: { name: "find", accent: "mdLink", frame: "accent", body: "text", section: "muted" },
 	grep: { name: "grep", accent: "mdLink", frame: "accent", body: "text", section: "muted" },
 	ls: { name: "ls", accent: "mdLink", frame: "accent", body: "text", section: "muted" },
-	compaction: { name: "compacted", accent: "customMessageLabel", frame: "accent", body: "text", section: "muted" },
+	compaction: { name: "compacted", accent: memoryAccent, frame: "accent", body: "text", section: "muted" },
 	system: { name: "system", accent: "muted", frame: "accent", body: "text", section: "muted" },
 } as const satisfies Readonly<Record<DensityCardKind, DensityCardPalette>>;
 
@@ -75,10 +116,12 @@ export function densityCardStyle(colors: ToolDisplayColors, kind?: DensityCardKi
 	const palette: DensityCardPalette | undefined = kind === undefined ? undefined : cardRegistry[kind];
 	const role = palette?.accent;
 	const nameColor = (colors.colorNames && role) || "toolTitle";
+	const frameColor = (palette?.frame === "accent" && role) || "borderMuted";
+	// Compatibility producers may still pass ANSI. A renderer cannot override the glyph policy.
+	const icon = (glyph: string) => theme.fg(colors.colorIcons ? frameColor : "text", stripTerminalSequences(glyph));
 	return {
-		frame: (gutter: string) =>
-			theme.fg((palette?.frame === "accent" && colors.colorFrames && role) || "borderMuted", gutter),
-		icon: (glyph: string) => theme.fg((colors.colorIcons && role) || "text", glyph),
+		frame: (gutter: string) => theme.fg(colors.colorFrames ? frameColor : "borderMuted", gutter),
+		icon,
 		label: (label: string) => theme.style(label, { fg: nameColor, bold: true }),
 		description: (label: string) => theme.fg("toolTitle", label),
 		titleSection: (label: string, heading: DensityCardHeading) =>
@@ -86,7 +129,7 @@ export function densityCardStyle(colors: ToolDisplayColors, kind?: DensityCardKi
 		bodyRole: palette?.body ?? "text",
 		sectionRole: palette?.section ?? "muted",
 		title: ({ name, detail, glyph }: DensityTitle) => {
-			const marker = glyph ? `${glyph} ` : "";
+			const marker = glyph ? `${icon(glyph)} ` : "";
 			if (name === undefined) return marker + detail;
 			const painted = theme.style(name, { fg: nameColor, bold: true });
 			return marker + painted + neutralDetail(detail);
@@ -113,16 +156,20 @@ export function densityCardHeading(
 ): string {
 	if (heading.description !== undefined) return style.description(heading.description);
 	const palette: DensityCardPalette = cardRegistry[kind];
-	const name = palette.identityIsName && heading.identity ? heading.identity : palette.name;
-	const identity = !palette.identityIsName && heading.identity ? ` ${densityCardText(heading.identity)}` : "";
+	const name = palette.identityPlacement === "name" && heading.identity ? heading.identity : palette.name;
+	const identitySuffix = heading.identitySuffix === undefined ? "" : densityCardText(heading.identitySuffix);
+	const identity = heading.identity ? densityCardText(heading.identity) + identitySuffix : "";
 	const details =
 		heading.details
 			?.filter((detail) =>
 				typeof detail === "string" ? detail.length > 0 : detail.some((span) => span.text.length > 0),
 			)
-			.map((detail) => densityCardText(detail))
-			.join(theme.fg("text", " · ")) ?? "";
-	return style.label(name) + identity + (details ? theme.fg("text", " • ") + details : "");
+			.map((detail) => densityCardText(detail)) ?? [];
+	if (palette.identityPlacement === "detail" && identity) details.unshift(identity);
+	const nameSuffix = palette.identityPlacement === "name" && heading.identity ? identitySuffix : "";
+	const inlineIdentity = palette.identityPlacement === undefined && identity ? ` ${identity}` : "";
+	const separatedDetails = details.length > 0 ? theme.fg("text", " • ") + details.join(theme.fg("text", " · ")) : "";
+	return style.label(name) + nameSuffix + inlineIdentity + separatedDetails;
 }
 
 /** Retain only italic and strike from a semantic suffix, not its original color or weight. */

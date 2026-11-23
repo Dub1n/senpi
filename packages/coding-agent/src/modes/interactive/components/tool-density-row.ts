@@ -276,7 +276,7 @@ export class ToolDensityRow implements Component {
 					"label" in heading
 						? (heading.role ?? style.sectionRole) === "title"
 							? style.titleSection(heading.label, view.expandedHeading ?? view.heading)
-							: theme.fg("muted", heading.label)
+							: theme.style(heading.label, { fg: "muted", bold: heading.bold })
 						: renderStructuredHeading(heading, sectionStyle);
 				frame.push(...renderLabel(` ${style.frame("├─")} `, label));
 				appendContent(bodyPrefix, renderBlocks(section.body, contentWidth, sectionStyle.bodyRole));
@@ -373,11 +373,7 @@ function renderToolSummary(
 		name: summary.name,
 		detail: summary.name === undefined ? theme.fg("text", summary.detail) : summary.detail,
 	});
-	const marker = `${
-		toolDensityKind(state.name) === undefined
-			? densityStatusGlyph(summary.status)
-			: style.icon(rawDensityStatusGlyph(summary.status))
-	} `;
+	const marker = `${style.icon(rawDensityStatusGlyph(summary.status))} `;
 	const label = densityStatusLabel(summary.status);
 	const color =
 		summary.status === "pending" || summary.status === "queued"
@@ -405,7 +401,7 @@ function renderDensityCardSummary(
 	const title = style.title({
 		name: view.name,
 		detail: expanded ? (view.expandedTitle ?? view.title) : view.title,
-		glyph: view.statusGlyph ?? densityStatusGlyph(view.status),
+		glyph: view.statusGlyph ?? rawDensityStatusGlyph(view.status),
 	});
 	const status = densityStatusLabel(view.status);
 	return title + (status ? ` · ${theme.fg("muted", status)}` : "");
@@ -441,29 +437,6 @@ function rawDensityStatusGlyph(status: DensityCardStatus | undefined): string {
 			return "✗";
 		case "cancelled":
 			return "×";
-		default:
-			return assertNever(status);
-	}
-}
-
-function densityStatusGlyph(status: DensityCardStatus | undefined): string {
-	switch (status) {
-		case undefined:
-			return "";
-		case "pending":
-			return theme.fg("muted", "○");
-		case "running":
-			return theme.fg("warning", "○");
-		case "queued":
-			return theme.fg("muted", "○");
-		case "detached":
-			return theme.fg("warning", "↗");
-		case "done":
-			return theme.fg("success", "✓");
-		case "failed":
-			return theme.fg("error", "✗");
-		case "cancelled":
-			return theme.fg("error", "×");
 		default:
 			return assertNever(status);
 	}

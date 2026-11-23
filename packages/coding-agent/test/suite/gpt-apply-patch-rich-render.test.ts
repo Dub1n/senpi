@@ -8,6 +8,7 @@ import {
 	renderPatchPreview,
 	truncatePreview,
 } from "../../src/core/extensions/builtin/gpt-apply-patch/index.ts";
+import { renderToolDiff } from "../../src/core/tools/diff-render.ts";
 import type { ToolRenderContext } from "../../src/core/extensions/types.ts";
 import { initTheme, theme } from "../../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../../src/utils/ansi.ts";
@@ -375,6 +376,21 @@ describe("gpt apply_patch rich TUI rendering", () => {
 		expect(rendered).toContain("<bg:toolSuccessBg><fg:toolDiffAdded>+</fg:toolDiffAdded><fg:muted>1</fg:muted>");
 		expect(rendered).toContain("<fg:toolDiffAdded>alpha <inverse>new</inverse></fg:toolDiffAdded>");
 		expect(rendered).toContain("<fg:toolDiffContext> </fg:toolDiffContext><fg:muted>2</fg:muted> same");
+	});
+
+	it("mutes only context content when requested by a dense preview", () => {
+		const rendered = renderToolDiff(" 1 before\n-2 alpha old\n+2 alpha new\n 3 after", {
+			filePath: "src/foo.txt",
+			theme: markerTheme as never,
+			contextContentColor: "muted",
+		});
+
+		expect(stripAnsi(rendered).split("\n")).toEqual([
+			"<fg:toolDiffContext> </fg:toolDiffContext><fg:muted>1</fg:muted> <fg:muted>before</fg:muted>",
+			"<bg:toolErrorBg><fg:toolDiffRemoved>-</fg:toolDiffRemoved><fg:muted>2</fg:muted> <fg:toolDiffRemoved>alpha <inverse>old</inverse></fg:toolDiffRemoved></bg:toolErrorBg>",
+			"<bg:toolSuccessBg><fg:toolDiffAdded>+</fg:toolDiffAdded><fg:muted>2</fg:muted> <fg:toolDiffAdded>alpha <inverse>new</inverse></fg:toolDiffAdded></bg:toolSuccessBg>",
+			"<fg:toolDiffContext> </fg:toolDiffContext><fg:muted>3</fg:muted> <fg:muted>after</fg:muted>",
+		]);
 	});
 
 	it("renders partial progress previews with realtime pending status", () => {

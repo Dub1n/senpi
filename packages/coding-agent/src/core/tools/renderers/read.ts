@@ -199,7 +199,7 @@ export const readRenderers = {
 			const lang = !isError && path ? getLanguageFromPath(path) : undefined;
 			const rendered = lang
 				? highlightCode(output, lang)
-				: output.split("\n").map((line) => line && theme.fg("toolOutput", line));
+				: output.split("\n").map((line) => line && theme.fg(dense && !isError ? "muted" : "toolOutput", line));
 			if (dense) denseLines = rendered;
 			else lines = rendered;
 			return rendered;

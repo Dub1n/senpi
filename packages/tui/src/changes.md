@@ -1,3 +1,21 @@
+## 2026-11-23 - Extend the semantic dense card presentation contract
+
+### What changed
+
+- `packages/tui/src/density-card.ts` documents host-owned glyph color, adds a bold section label option, and distinguishes the mixed patch palette.
+
+### Why
+
+- A producer should describe the card without styling its title, frame, or glyph.
+
+### Why an extension could not handle it
+
+- The types are shared between the transcript host and tool producers.
+
+### Expected merge conflict zones
+
+- LOW: the optional dense card contract; layout and terminal primitives are unchanged.
+
 ## 2026-11-22 - Structured dense card content
 
 ### What changed

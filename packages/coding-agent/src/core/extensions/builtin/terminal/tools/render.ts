@@ -6,10 +6,12 @@ import {
 } from "@earendil-works/pi-tui";
 import { truncateToVisualLines } from "../../../../../modes/interactive/components/visual-truncate.ts";
 import { isModelOnlyText } from "../../../../tools/model-only-text.ts";
+import { formatToolCallWithArgs, getTextOutput } from "../../../../tools/render-utils.ts";
 import { formatJobWidgetLine, type JobWidgetLineStyle, jobWidgetLineStyle } from "../../job-widgets/tui-line.ts";
 import type { JobWidgetEntry } from "../../job-widgets/view-types.ts";
 import type { AgentToolResult, ToolDefinition } from "../../../types.ts";
 import type { BashOutputInput, bashOutputSchema } from "./bash-output.ts";
+import type { KillBashInput, killBashSchema } from "./kill-bash.ts";
 import type { MonitorInput, monitorSchema } from "./monitor.ts";
 
 type BashOutputDetails = Record<string, unknown> | undefined;
@@ -22,8 +24,12 @@ type BashOutputViewDetails = {
 };
 type BashOutputToolDefinition = ToolDefinition<typeof bashOutputSchema, BashOutputDetails>;
 type MonitorToolDefinition = ToolDefinition<typeof monitorSchema, BashOutputDetails>;
+type KillBashToolDefinition = ToolDefinition<typeof killBashSchema, BashOutputDetails>;
 type RenderCallContext = Parameters<NonNullable<BashOutputToolDefinition["renderCall"]>>[2];
 type RenderResultOptions = Parameters<NonNullable<BashOutputToolDefinition["renderResult"]>>[1];
+type KillBashCallContext = Parameters<NonNullable<KillBashToolDefinition["renderCall"]>>[2];
+type KillBashResultOptions = Parameters<NonNullable<KillBashToolDefinition["renderResult"]>>[1];
+type KillBashResultContext = Parameters<NonNullable<KillBashToolDefinition["renderResult"]>>[3];
 
 const OUTPUT_PREVIEW_LINES = 8;
 
@@ -92,21 +98,67 @@ function legacyProcessHeader(
 class BashOutputCallComponent extends Text implements DensityCardSource {
 	readonly #status: "pending" | "running";
 	readonly #sessionId: string;
+	readonly #details: readonly string[];
 
-	constructor(text: string, sessionId: string, context?: RenderCallContext) {
+	constructor(text: string, sessionId: string, executionStarted: boolean, details: readonly string[] = []) {
 		super(text, 0, 0);
 		this.#sessionId = sessionId;
-		this.#status = context?.executionStarted ? "running" : "pending";
+		this.#status = executionStarted ? "running" : "pending";
+		this.#details = details;
 	}
 
 	renderDensityCard(): DensityCardStructuredView {
 		return {
 			format: "structured",
 			kind: "bash-output",
-			heading: bashHeading(this.#sessionId),
+			heading: bashHeading(this.#sessionId, this.#details),
 			status: this.#status,
 			sections: [],
 			body: [],
+		};
+	}
+}
+
+class KillBashResultComponent extends Text implements DensityCardSource {
+	#text = "";
+	#bodyText = "";
+	#sessionId = "";
+	#status: "running" | "done" | "failed" = "running";
+	#detail = "killing";
+
+	setResult(
+		result: AgentToolResult<BashOutputDetails>,
+		options: KillBashResultOptions,
+		context: KillBashResultContext,
+		sessionId: string,
+		theme: Parameters<NonNullable<KillBashToolDefinition["renderResult"]>>[2],
+	): void {
+		this.#text = getTextOutput(result, context.showImages);
+		this.setText(theme.fg("toolOutput", this.#text));
+		this.#sessionId = sessionId;
+		this.#status = context.isError ? "failed" : options.isPartial ? "running" : "done";
+		this.#detail = context.isError ? "failed" : options.isPartial ? "killing" : "killed";
+		const lines = this.#text.split("\n").filter((line) => line.trim() !== `bash_id: ${sessionId}`);
+		if (context.isError) {
+			this.#bodyText = lines.join("\n");
+			return;
+		}
+		const output = lines.filter((line) => line.trim() !== `Killed ${sessionId}.`);
+		this.#bodyText = output.some((line) => line.trim().length > 0)
+			? output.join("\n")
+			: this.#status === "done"
+				? `Killed ${sessionId}.`
+				: "";
+	}
+
+	renderDensityCard(): DensityCardStructuredView {
+		return {
+			format: "structured",
+			kind: "bash-output",
+			heading: bashHeading(this.#sessionId, [this.#detail]),
+			status: this.#status,
+			body: this.#bodyText.length > 0 ? [{ type: "text", lines: this.#bodyText.split("\n") }] : [],
+			sections: [],
 		};
 	}
 }
@@ -209,8 +261,35 @@ export function renderBashOutputCall(
 	return new BashOutputCallComponent(
 		theme.fg("toolTitle", theme.bold(`bash_output ${args.bash_id}`)),
 		args.bash_id,
-		context,
+		context?.executionStarted ?? false,
 	);
+}
+
+export function renderKillBashCall(
+	args: KillBashInput,
+	theme: Parameters<NonNullable<KillBashToolDefinition["renderCall"]>>[1],
+	context: KillBashCallContext,
+): Text | BashOutputCallComponent {
+	const call = formatToolCallWithArgs("kill_bash", args, theme, context.expanded);
+	if (args.all === true || args.bash_id === undefined || args.bash_id.length === 0) return new Text(call, 0, 0);
+	return new BashOutputCallComponent(call, args.bash_id, context.executionStarted, ["killing"]);
+}
+
+export function renderKillBashResult(
+	result: AgentToolResult<BashOutputDetails>,
+	options: KillBashResultOptions,
+	theme: Parameters<NonNullable<KillBashToolDefinition["renderResult"]>>[2],
+	context: KillBashResultContext,
+): Text | KillBashResultComponent {
+	const rawSessionId = context.args?.bash_id;
+	const sessionId = typeof rawSessionId === "string" ? sanitizeTerminalLabel(rawSessionId) || undefined : undefined;
+	if (context.args?.all === true || sessionId === undefined) {
+		return new Text(theme.fg("toolOutput", getTextOutput(result, context.showImages)), 0, 0);
+	}
+	const component =
+		(context.lastComponent as KillBashResultComponent | undefined) ?? new KillBashResultComponent("", 0, 0);
+	component.setResult(result, options, context, sessionId, theme);
+	return component;
 }
 
 export function renderMonitorCall(

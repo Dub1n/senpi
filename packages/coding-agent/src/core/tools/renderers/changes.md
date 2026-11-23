@@ -1,5 +1,24 @@
 # core/tools/renderers changes
 
+## 2026-11-23 - Use the Bash output foreground for plain dense file content
+
+### What changed
+
+- `packages/coding-agent/src/core/tools/renderers/read.ts` uses the muted foreground for successful plain-text dense previews.
+- `packages/coding-agent/src/core/tools/renderers/edit.ts` and `packages/coding-agent/src/core/tools/renderers/write.ts` ask the diff renderer to mute unchanged dense preview rows while keeping change markers distinct.
+
+### Why
+
+- Neutral file context should not look like a patch addition. Syntax-highlighted reads and the Default renderers retain their existing presentation.
+
+### Why an extension could not handle it
+
+- The stock renderers select the preview and its format before handing off to the transcript.
+
+### Expected merge conflict zones
+
+- LOW: dense file-body rendering only.
+
 ## 2026-11-22 - Structured dense cards for stock tool renderers
 
 ### What changed

@@ -1,12 +1,16 @@
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import xterm from "@xterm/headless";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import { registerReadClassifier } from "../../src/core/tools/read-classifiers.ts";
+import { readRenderers } from "../../src/core/tools/renderers/read.ts";
 import { ExplorationTranscriptContainer } from "../../src/modes/interactive/components/exploration-transcript-container.ts";
+import { initTheme, theme } from "../../src/modes/interactive/theme/theme.ts";
 import { explorationSurface, invoke, runTool } from "./exploration-surface-harness.ts";
 
 const width = 80;
 const row = (text: string) => text.padEnd(width, " ");
+const markerTheme = { fg: (name: string, text: string) => `<fg:${name}>${text}</fg:${name}>` };
 
 async function fixture(density: "compact" | "grouped") {
 	const surface = await explorationSurface();
@@ -20,6 +24,22 @@ async function fixture(density: "compact" | "grouped") {
 
 function rows(surface: Awaited<ReturnType<typeof fixture>>) {
 	return surface.chat.render(width).map(stripTerminalSequences);
+}
+
+async function foregroundAt(lines: readonly string[], text: string) {
+	const plain = lines.map(stripTerminalSequences);
+	const row = plain.findIndex((line) => line.includes(text));
+	const column = plain[row]?.indexOf(text) ?? -1;
+	if (row < 0 || column < 0) throw new TypeError(`Missing rendered text: ${text}`);
+	const terminal = new xterm.Terminal({ cols: width + 1, rows: lines.length, allowProposedApi: true });
+	try {
+		await new Promise<void>((resolve) => terminal.write(lines.join("\x1b[0m\r\n"), resolve));
+		const cell = terminal.buffer.active.getLine(row)?.getCell(column);
+		if (!cell) throw new TypeError(`Missing terminal cell ${row},${column}`);
+		return { colorMode: cell.getFgColorMode(), color: cell.getFgColor(), dim: cell.isDim() };
+	} finally {
+		terminal.dispose();
+	}
 }
 
 function click(surface: Awaited<ReturnType<typeof fixture>>, y: number) {
@@ -157,6 +177,50 @@ describe("dense consecutive read projection", () => {
 		} finally {
 			surface.cleanup();
 		}
+	});
+
+	it("uses the muted foreground for plain dense read content", async () => {
+		initTheme("dark");
+		const surface = await fixture("grouped");
+		try {
+			await runTool(surface, {
+				id: "plain",
+				toolName: "read",
+				args: { path: "plain.txt" },
+				output: "unchanged",
+			});
+			invoke(surface.mode, "setToolsExpanded", true);
+			const rows = surface.chat.render(width);
+			expect(await foregroundAt(rows, "unchanged")).toEqual(await foregroundAt([theme.fg("muted", "M")], "M"));
+			surface.chat.setToolDisplayDensity("default");
+			expect(await foregroundAt(surface.chat.render(width), "unchanged")).toEqual(
+				await foregroundAt([theme.fg("toolOutput", "M")], "M"),
+			);
+		} finally {
+			surface.cleanup();
+		}
+	});
+
+	it("requests the muted role from the renderer for plain dense read content", () => {
+		const component = readRenderers.renderResult?.(
+			{ content: [{ type: "text", text: "unchanged" }], details: undefined },
+			{ expanded: true, isPartial: false },
+			markerTheme as never,
+			{
+				args: { path: "plain.txt" },
+				cwd: "/workspace",
+				showImages: false,
+				imageProtocol: undefined,
+				isError: false,
+				executionStarted: true,
+				state: {},
+			} as never,
+		);
+		if (!component) throw new TypeError("Expected the read result renderer");
+		const view = component.renderDensityCard();
+		if (!view || view.format !== "structured") throw new TypeError("Expected a structured read card");
+		const body = view.body.flatMap((block) => (block.type === "rich" ? block.render(width) : [])).join("\n");
+		expect(body).toContain("<fg:muted>unchanged</fg:muted>");
 	});
 
 	it.each(["compact", "grouped"] as const)(

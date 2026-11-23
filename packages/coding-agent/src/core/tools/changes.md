@@ -1,5 +1,23 @@
 # core/tools changes
 
+## 2026-11-23 - Distinguish unchanged file text from dense diff changes
+
+### What changed
+
+- `packages/coding-agent/src/core/tools/diff-render.ts` supports an opt-in muted context foreground and an explicit unified input format for dense previews.
+
+### Why
+
+- Unchanged lines should share the Bash output foreground without losing the colors of actual additions and deletions. The write producer supplies unified patches, not numbered compact rows.
+
+### Why an extension could not handle it
+
+- The shared diff renderer owns row classification and color; applying the color after rendering would also touch changed rows.
+
+### Expected merge conflict zones
+
+- LOW: diff row parsing and optional context styling; callers keep their existing defaults.
+
 ## 2026-11-18 - The local shell attests its spawned shell to the calling session (#6978)
 
 ### What changed

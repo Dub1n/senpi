@@ -26,7 +26,7 @@ const registerEvalRenderer: InlineExtension = (pi) => {
 	);
 };
 
-function evalReplay(): { readonly assistant: AssistantMessage; readonly result: ToolResultMessage } {
+function evalReplay(toolName = "bash"): { readonly assistant: AssistantMessage; readonly result: ToolResultMessage } {
 	const assistant: AssistantMessage = {
 		...fauxAssistantMessage(""),
 		content: [
@@ -52,9 +52,9 @@ function evalReplay(): { readonly assistant: AssistantMessage; readonly result: 
 		toolCallCount: 1,
 		toolCalls: [
 			{
-				name: "bash",
+				name: toolName,
 				ok: true,
-				args: { command: "git status --short" },
+				args: toolName === "bash" ? { command: "git status --short" } : { path: "viewer.ts" },
 				durationMs: 550,
 				resultPreview: "M viewer.ts",
 			},
@@ -197,7 +197,6 @@ describe("Grouped eval density golden", () => {
 				paddedRow("", evalDensityGolden.wide.width),
 			]);
 			expectPaddedRows(wideExpandedBlock, evalDensityGolden.wide.width);
-
 			invoke(surface.mode, "setToolsExpanded", false);
 			const narrowFolded = surface.chat.render(evalDensityGolden.narrow.width).map(stripTerminalSequences);
 			const narrowFoldedBlock = foldedBlock(narrowFolded, "Review the changed eval density");
@@ -219,6 +218,40 @@ describe("Grouped eval density golden", () => {
 				paddedRow("", evalDensityGolden.narrow.width),
 			]);
 			expectPaddedRows(narrowExpandedBlock, evalDensityGolden.narrow.width);
+		} finally {
+			surface.cleanup();
+		}
+	});
+
+	it.each([
+		["bash", "commands"],
+		["read", "tool calls"],
+	])("bolds the %s replay's %s heading without bolding the gutter", async (toolName, label) => {
+		const surface = await explorationSurface(true, [registerEvalRenderer]);
+		try {
+			if (!(surface.chat instanceof ExplorationTranscriptContainer)) {
+				throw new TypeError("Expected the real exploration transcript");
+			}
+			const { assistant, result } = evalReplay(toolName);
+			invoke(surface.mode, "renderSessionItems", [assistant, result]);
+			surface.chat.setToolDisplayDensity("grouped");
+			invoke(surface.mode, "setToolsExpanded", true);
+			const rows = surface.chat.render(100);
+			const section = rows.map(stripTerminalSequences).findIndex((line) => line.trimEnd() === ` ├─ ${label}`);
+			expect(section).toBeGreaterThanOrEqual(0);
+			const terminal = new xterm.Terminal({ cols: 101, rows: rows.length + 1, allowProposedApi: true });
+			try {
+				await new Promise<void>((resolve) => terminal.write(rows.join("\x1b[0m\r\n"), resolve));
+				const line = terminal.buffer.active.getLine(section);
+				expect(line?.getCell(1)?.isBold()).toBe(0);
+				for (let index = 0; index < label.length; index++) {
+					const cell = line?.getCell(4 + index);
+					expect(cell?.getChars()).toBe(label[index]);
+					expect(Boolean(cell?.isBold())).toBe(true);
+				}
+			} finally {
+				terminal.dispose();
+			}
 		} finally {
 			surface.cleanup();
 		}

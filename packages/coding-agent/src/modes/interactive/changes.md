@@ -1,3 +1,44 @@
+## 2026-11-23 - Project applied patch files as dense cards
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/exploration-transcript-container.ts` projects settled `apply_patch` file results into per-file cards for one or two files and one grouped card for three or more consecutive successful files.
+- `packages/coding-agent/src/modes/interactive/components/apply-patch-density.ts` builds file and failure cards from persisted result facts, preserving lazy rendering and independent expansion.
+- `packages/coding-agent/src/core/extensions/builtin/gpt-apply-patch/density.ts` provides operation-specific file headings and muted diff context for the projection.
+
+### Why
+
+- Compact and Grouped need truthful file-level landmarks for small patches and a concise summary for larger consecutive patch results.
+
+### Why an extension could not handle it
+
+- The interactive transcript owns grouping across tool results, row hit mapping, global expansion and progressive hydration.
+
+### Expected merge conflict zones
+
+- MEDIUM: patch projection in the transcript and structured patch headings; Default rendering remains unchanged.
+
+## 2026-11-23 - Apply the dense card palette to host-owned glyphs
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/density-card-style.ts` owns glyph foreground, shares the remembered and compaction accent, and places file-operation identities after the major separator.
+- `packages/coding-agent/src/modes/interactive/components/tool-density-row.ts` uses that glyph rule for structured and legacy views, and supports bold section labels independent of their foreground.
+- `packages/coding-agent/src/modes/interactive/components/notice-density-source.ts` projects the pinned OmO remembered title slot to structured details without changing its rich body.
+- `packages/coding-agent/src/modes/interactive/components/compaction-summary-message.ts` and `packages/coding-agent/src/modes/interactive/components/system-prompt-status.ts` supply an unpainted glyph or execution status.
+
+### Why
+
+- Producer colors must not override the icon toggle, and an enabled glyph should use the card frame palette rather than a separate status accent.
+
+### Why an extension could not handle it
+
+- The transcript host owns folded and expanded headings, the palette toggles, and the legacy notice adapter.
+
+### Expected merge conflict zones
+
+- LOW: the semantic palette and notice producers; the Default renderers are unchanged.
+
 ## 2026-11-22 - Format structured dense card content
 
 ### What changed

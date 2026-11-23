@@ -274,14 +274,20 @@ export const writeRenderers: Pick<ToolDefinition<any, any>, "renderCall" | "rend
 									{
 										type: "rich",
 										render: (width) => {
+											const patch = details?.patch;
 											const diff =
-												details?.patch ??
+												patch ??
 												generateAddedContentDiff(
 													replaceTabs(normalizeDisplayText(content ?? "")),
 													Number.MAX_SAFE_INTEGER,
 												);
 											return wrapTextWithAnsi(
-												renderToolDiff(diff, { filePath: path ?? undefined, theme }),
+												renderToolDiff(diff, {
+													filePath: path ?? undefined,
+													theme,
+													contextContentColor: "muted",
+													inputFormat: patch === undefined ? "compact" : "unified",
+												}),
 												width,
 											);
 										},

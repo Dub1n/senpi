@@ -1,3 +1,5 @@
+import { stripTerminalSequences } from "@earendil-works/pi-tui";
+import xterm from "@xterm/headless";
 import { describe, expect, it } from "vitest";
 import type { LoopGuardDetection } from "../../src/core/extensions/builtin/loop-guard/detectors.ts";
 import loopGuardExtension from "../../src/core/extensions/builtin/loop-guard/index.ts";
@@ -7,6 +9,8 @@ import {
 } from "../../src/core/extensions/builtin/loop-guard/notice.ts";
 import { renderLoopGuardNotice } from "../../src/core/extensions/builtin/loop-guard/renderer.ts";
 import type { ExtensionAPI, ExtensionContext } from "../../src/core/extensions/types.ts";
+import { CustomMessageComponent } from "../../src/modes/interactive/components/custom-message.ts";
+import { ToolDensityRow } from "../../src/modes/interactive/components/tool-density-row.ts";
 import { initTheme, theme } from "../../src/modes/interactive/theme/theme.ts";
 
 type Handler = (event: unknown, ctx: ExtensionContext) => Promise<unknown> | unknown;
@@ -190,5 +194,62 @@ describe("loop-guard extension", () => {
 		expect(text).toContain("Loop guard");
 		expect(text).toContain("identical calls ×3 (read)");
 		expect(text).toContain("reuse the result or change the call");
+	});
+
+	it.each([false, true])("uses Bash's accent and the icon toggle in dense cards (grouped=%s)", async (grouped) => {
+		initTheme("dark");
+		const message = {
+			role: "custom",
+			customType: LOOP_GUARD_NOTICE_CUSTOM_TYPE,
+			content: "Repeated tool calls.",
+			display: true,
+			timestamp: 0,
+			details: { kind: "identical", toolName: "bash_output", count: 3, fingerprint: "repeat" },
+		} as const;
+		const card = new CustomMessageComponent(message, (_message, options, palette) =>
+			renderLoopGuardNotice(message, options, palette),
+		);
+		try {
+			let colorIcons = false;
+			const row = new ToolDensityRow(
+				card,
+				() => {},
+				() => ({ colorFrames: true, colorNames: true, colorIcons }),
+			);
+			row.setLayout(grouped, true, true);
+			for (const expanded of [false, true]) {
+				colorIcons = expanded;
+				card.setExpanded(expanded);
+				const rows = row.render(100);
+				const plain = rows.map(stripTerminalSequences);
+				const frame = expanded ? "╭─" : "╶─";
+				expect(plain[2]?.trimEnd()).toBe(` ${frame} ! Loop guard • identical calls ×3 (bash_output)`);
+				if (expanded) {
+					expect(plain[3]?.trimEnd()).toBe(
+						" │ Same tool, same arguments, again. The agent was told to reuse the result or change the call.",
+					);
+					expect(plain[4]?.trimEnd()).toBe(
+						" │ tool bash_output · 3 consecutive identical calls when the reminder fired",
+					);
+				}
+				const terminal = new xterm.Terminal({ cols: 101, rows: 20, allowProposedApi: true });
+				try {
+					const samples = theme.fg("syntaxFunction", "B") + theme.fg("text", "T");
+					await new Promise<void>((resolve) => terminal.write([samples, ...rows].join("\x1b[0m\r\n"), resolve));
+					const fg = (y: number, x: number) => {
+						const cell = terminal.buffer.active.getLine(y)?.getCell(x);
+						if (!cell) throw new Error(`Missing terminal cell ${x},${y}`);
+						return [cell.getFgColorMode(), cell.getFgColor()];
+					};
+					expect(fg(3, 1)).toEqual(fg(0, 0));
+					expect(fg(3, 6)).toEqual(fg(0, 0));
+					expect(fg(3, 4)).toEqual(fg(0, colorIcons ? 0 : 1));
+				} finally {
+					terminal.dispose();
+				}
+			}
+		} finally {
+			card.dispose();
+		}
 	});
 });

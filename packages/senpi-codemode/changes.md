@@ -1,3 +1,21 @@
+## 2026-11-23 - Emphasize nested eval section headings in Grouped
+
+### What changed
+
+- `packages/senpi-codemode/src/tool/render-density-card.ts` requests bold labels for the commands and tool calls sections.
+
+### Why
+
+- The heading should be distinguishable from the nested calls beneath it without changing the table's content styling.
+
+### Why an extension could not handle it
+
+- This renderer supplies semantic section data to the transcript host; the host paints the label.
+
+### Expected merge conflict zones
+
+- LOW: the nested section descriptor only.
+
 ## 2026-11-22 - Supply structured dense eval cards
 
 ### What changed

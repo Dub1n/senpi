@@ -6,30 +6,38 @@ import type { LoopGuardEscalationDetails } from "./notice.ts";
 export const renderLoopGuardNotice: MessageRenderer<LoopGuardDetection> = noticeMessageRenderer((message) => {
 	const details = message.details;
 	if (details === undefined) return undefined;
-	return { title: titleLine(details), why: whyLine(details), expandedLine: expandedLine(details) };
+	const summary = detectionSummary(details);
+	return {
+		title: `⚠ Loop guard · ${summary}`,
+		why: whyLine(details),
+		expandedLine: expandedLine(details),
+		densityCard: { kind: "loop-guard", statusGlyph: "!", heading: { details: [summary] } },
+	};
 });
 
 export const renderLoopGuardEscalation: MessageRenderer<LoopGuardEscalationDetails> = noticeMessageRenderer(
 	(message) => {
 		const details = message.details;
 		if (details === undefined) return undefined;
+		const summary = `turn interrupted (${details.toolName})`;
 		return {
-			title: `! Loop guard · turn interrupted (${details.toolName})`,
+			title: `! Loop guard · ${summary}`,
 			tone: "error",
 			why: `The agent ignored two warnings and repeated ${details.blockedCallCount} calls after blocking began.`,
 			expandedLine: "A user-role recovery message was queued and the active turn was stopped by a system abort.",
+			densityCard: { kind: "loop-guard", statusGlyph: "!", heading: { details: [summary] } },
 		};
 	},
 );
 
-function titleLine(detection: LoopGuardDetection): string {
+function detectionSummary(detection: LoopGuardDetection): string {
 	switch (detection.kind) {
 		case "identical":
-			return `⚠ Loop guard · identical calls ×${detection.count} (${detection.toolName})`;
+			return `identical calls ×${detection.count} (${detection.toolName})`;
 		case "similar":
-			return `⚠ Loop guard · near-identical calls ×${detection.count} (${detection.toolName})`;
+			return `near-identical calls ×${detection.count} (${detection.toolName})`;
 		case "cycle":
-			return `⚠ Loop guard · repeating pattern ×${detection.count} (period ${detection.period})`;
+			return `repeating pattern ×${detection.count} (period ${detection.period})`;
 	}
 }
 

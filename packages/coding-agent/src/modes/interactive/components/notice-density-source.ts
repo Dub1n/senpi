@@ -110,12 +110,29 @@ export function renderNamedNoticeCard(
 	const [, glyph, text] = match;
 	const prefix = kind === "memory" ? "Remembered" : kind === "rules" ? "Project rules" : "Kibitzer";
 	if (!(text === prefix || text.startsWith(`${prefix} `) || text.startsWith(`${prefix} ·`))) return undefined;
+	const renderContent = (width: number) => joinLineArrays(box.children.slice(1).map((child) => child.render(width)));
+	if (kind === "memory") {
+		// The pinned OmO memory renderer exposes its title slot as a painted Box child, not a density view.
+		const details = text
+			.slice(prefix.length)
+			.split(" · ")
+			.map((part) => part.trim())
+			.filter(Boolean);
+		return {
+			format: "structured",
+			kind,
+			heading: { details },
+			...(glyph ? { statusGlyph: glyph } : {}),
+			body: [{ type: "rich", render: renderContent }],
+			sections: [],
+		};
+	}
 	return {
 		name: kind === "kibitz" ? "kibitz" : prefix.toLowerCase(),
 		kind,
 		title: text.slice(prefix.length),
 		...(glyph ? { statusGlyph: glyph } : {}),
-		renderContent: (width) => joinLineArrays(box.children.slice(1).map((child) => child.render(width))),
+		renderContent,
 		sections: [],
 	};
 }
