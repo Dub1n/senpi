@@ -1,3 +1,22 @@
+## 2026-11-24 - Keep local OmO builds independent of Senpi worktrees
+
+### What changed
+
+- `scripts/omo-local-build.sh` routes source builds to `scripts/omo-local-build-candidate.sh` and retains the verified prebuilt activation path.
+- `scripts/omo-local-build-stage.mjs` stages the built Senpi packages, including the source-only codemode package.
+
+### Why
+
+- Temporary worktrees can be removed without losing pinned build inputs, validation receipts, or rollback files.
+
+### Why an extension could not handle it
+
+- Workstation packaging and activation happen outside the running agent.
+
+### Expected merge conflict zones
+
+- LOW: the fork-only local build entry points.
+
 ## 2026-11-16 - A CI-basis receipt waives the hosted CI wait, not a red hosted run (senpi#6859 follow-up)
 
 ### What changed
