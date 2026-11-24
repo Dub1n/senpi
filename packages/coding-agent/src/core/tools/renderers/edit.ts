@@ -167,7 +167,7 @@ function buildEditCallComponent(
 										renderToolDiff(preview.diff, {
 											filePath: path ?? undefined,
 											theme,
-											contextContentColor: "muted",
+											presentation: "dense",
 										}),
 										width,
 									),
@@ -339,7 +339,7 @@ export const editRenderers: Pick<ToolDefinition<any, any>, "renderCall" | "rende
 												renderToolDiff(diff, {
 													filePath: path ?? undefined,
 													theme,
-													contextContentColor: "muted",
+													presentation: "dense",
 												}),
 												width,
 											),

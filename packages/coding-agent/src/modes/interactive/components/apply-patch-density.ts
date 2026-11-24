@@ -199,6 +199,7 @@ export class PatchDensityProjection {
 }
 
 function patchFileViews(owner: ToolExecutionComponent, view: DensityCardStructuredView): PatchFileView[] {
+	if (view.status === "failed" && view.sections.length === 0) return [];
 	if (view.sections.length > 0) {
 		return view.sections.flatMap((section) => {
 			if (!("kind" in section.heading) || !isPatchKind(section.heading.kind)) return [];

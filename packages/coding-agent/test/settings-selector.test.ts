@@ -26,6 +26,7 @@ describe("SettingsSelectorComponent", () => {
 		const onWheelScrollLinesChange = vi.fn();
 		const config = {
 			toolDisplayDensity: "compact",
+			toolDisplayColorOverrides: {},
 			toolDisplayColorFrames: false,
 			toolDisplayColorNames: true,
 			toolDisplayColorIcons: false,
@@ -78,11 +79,115 @@ describe("SettingsSelectorComponent", () => {
 		expect(onWheelScrollLinesChange.mock.calls.flat()).toEqual([10, "auto", 1]);
 	});
 
+	it("edits per-card color overrides and leaves invalid values unsaved", () => {
+		const onOverrideChange = vi.fn();
+		const config = {
+			toolDisplayColorOverrides: {},
+			warnings: {},
+			availableThinkingLevels: [],
+			availableThemes: [],
+			currentTheme: "dark",
+			terminalTheme: "dark",
+		} as unknown as SettingsConfig;
+		const callbacks = {
+			onToolDisplayColorOverrideChange: onOverrideChange,
+			onCancel: () => {},
+		} as unknown as SettingsCallbacks;
+
+		const list = new SettingsSelectorComponent(config, callbacks).getSettingsList();
+		list.selectItem("tool-display-color-overrides");
+		list.handleInput("\r");
+		list.handleInput("todo");
+		list.handleInput("\r");
+		list.handleInput("#ff0000");
+		list.handleInput("\r");
+
+		expect(onOverrideChange).toHaveBeenCalledWith("todo", "#ff0000");
+
+		list.handleInput("\r");
+		list.handleInput("not-a-color");
+		list.handleInput("\r");
+
+		expect(onOverrideChange).toHaveBeenCalledTimes(1);
+		expect(stripAnsi(list.render(120).join("\n"))).toContain("Invalid color");
+
+		list.handleInput("\r");
+
+		expect(stripAnsi(list.render(120).join("\n"))).toContain("Invalid color");
+	});
+
+	it("resets a per-card color override when the editor is submitted empty", () => {
+		const onOverrideChange = vi.fn();
+		const config = {
+			toolDisplayColorOverrides: { remembered: "#ff0000", edit: "orange", edited: "teal", write: "pink" },
+			warnings: {},
+			availableThinkingLevels: [],
+			availableThemes: [],
+			currentTheme: "dark",
+			terminalTheme: "dark",
+		} as unknown as SettingsConfig;
+		const callbacks = {
+			onToolDisplayColorOverrideChange: onOverrideChange,
+			onCancel: () => {},
+		} as unknown as SettingsCallbacks;
+
+		const list = new SettingsSelectorComponent(config, callbacks).getSettingsList();
+		list.selectItem("tool-display-color-overrides");
+		list.handleInput("\r");
+		list.handleInput("edit");
+		const editSettings = stripAnsi(list.render(120).join("\n"));
+		expect(editSettings).toMatch(/\bedited +teal\b/);
+		expect(editSettings).not.toMatch(/\bedit +orange\b/);
+		for (const _ of "edit") list.handleInput("\x7f");
+		list.handleInput("write");
+		expect(stripAnsi(list.render(120).join("\n"))).not.toMatch(/\bwrite +pink\b/);
+		for (const _ of "write") list.handleInput("\x7f");
+		list.handleInput("remembered");
+		expect(stripAnsi(list.render(120).join("\n"))).toMatch(/remembered +#ff0000/);
+		list.handleInput("\r");
+		for (let i = 0; i < "#ff0000".length; i++) list.handleInput("\x7f");
+		list.handleInput("\r");
+
+		expect(onOverrideChange).toHaveBeenCalledWith("remembered", undefined);
+	});
+
+	it("cancels the color editor and submenu without saving", () => {
+		const onOverrideChange = vi.fn();
+		const onCancel = vi.fn();
+		const config = {
+			toolDisplayColorOverrides: { todo: "#ff0000" },
+			warnings: {},
+			availableThinkingLevels: [],
+			availableThemes: [],
+			currentTheme: "dark",
+			terminalTheme: "dark",
+		} as unknown as SettingsConfig;
+		const callbacks = {
+			onToolDisplayColorOverrideChange: onOverrideChange,
+			onCancel,
+		} as unknown as SettingsCallbacks;
+
+		const list = new SettingsSelectorComponent(config, callbacks).getSettingsList();
+		list.selectItem("tool-display-color-overrides");
+		list.handleInput("\r");
+		list.handleInput("todo");
+		list.handleInput("\r");
+		list.handleInput("\x1b");
+
+		list.handleInput("\x1b");
+		expect(onCancel).not.toHaveBeenCalled();
+
+		list.handleInput("\x1b");
+		expect(onOverrideChange).not.toHaveBeenCalled();
+		expect(onCancel).toHaveBeenCalledOnce();
+	});
+
 	it("keeps the configured fixed theme marked while browsing", () => {
 		const config = {
 			defaultModel: "not set",
 			availableDefaultModels: [],
 			modelThinkingLevels: {},
+			toolDisplayColorOverrides: {},
 			currentTheme: "dark",
 			terminalTheme: "dark",
 			availableThemes: ["system", "dark", "light"],
@@ -110,6 +215,7 @@ describe("SettingsSelectorComponent", () => {
 			defaultModel: "not set",
 			availableDefaultModels: [],
 			modelThinkingLevels: {},
+			toolDisplayColorOverrides: {},
 			currentTheme: "light/dark",
 			terminalTheme: "dark",
 			availableThemes: ["dark", "light", "other"],
@@ -141,6 +247,7 @@ describe("SettingsSelectorComponent", () => {
 			thinkingLevel: "medium",
 			availableThinkingLevels: ["medium", "high"],
 			modelThinkingLevels: {},
+			toolDisplayColorOverrides: {},
 			currentTheme: "dark",
 			terminalTheme: "dark",
 			availableThemes: ["dark", "light"],

@@ -7331,6 +7331,10 @@
 			"class": "constant",
 			"reason": "lookup collection filled at load; never written after load"
 		},
+		"packages/coding-agent/src/core/tool-display-color.ts#namedColors": {
+			"class": "constant",
+			"reason": "private lookup of color names to RGB hex; never written after load"
+		},
 		"packages/coding-agent/src/core/tool-dispatch/testing/kill-child.ts#KILL_CHILD_CASES": {
 			"class": "constant",
 			"reason": "lookup data literal; never written after load"
@@ -7931,9 +7935,21 @@
 			"class": "constant",
 			"reason": "lookup data literal; never written after load"
 		},
+		"packages/coding-agent/src/modes/interactive/components/density-card-style.ts#agentAccent": {
+			"class": "constant",
+			"reason": "fixed light and dark agent accent colors; never written after load"
+		},
 		"packages/coding-agent/src/modes/interactive/components/density-card-style.ts#cardRegistry": {
 			"class": "constant",
 			"reason": "read-only semantic card names and theme roles; never written after load"
+		},
+		"packages/coding-agent/src/modes/interactive/components/density-card-style.ts#densityCardColorNames": {
+			"class": "constant",
+			"reason": "sorted read-only card names derived once for the color settings UI"
+		},
+		"packages/coding-agent/src/modes/interactive/components/density-card-style.ts#todoAccent": {
+			"class": "constant",
+			"reason": "fixed light and dark todo accent colors; never written after load"
 		},
 		"packages/coding-agent/src/modes/interactive/components/earendil-announcement.ts#attemptedImageLoad": {
 			"class": "per-copy-safe",

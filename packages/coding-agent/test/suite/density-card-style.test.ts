@@ -1,8 +1,10 @@
 import {
 	type DensityCardStructuredView,
 	nextRenderRevision,
+	parseColor,
 	setLineSources,
 	stripTerminalSequences,
+	styleText,
 	Text,
 	TUI,
 } from "@earendil-works/pi-tui";
@@ -52,9 +54,9 @@ function cellOf({ terminal }: Awaited<ReturnType<typeof terminalRows>>, row: num
 describe("semantic density card styling", () => {
 	beforeAll(() => initTheme("dark"));
 
-	it.each([false, true])(
-		"takes the glyph color from the host, not a legacy producer (icons=%s)",
-		async (colorIcons) => {
+	it.each([{ colorIcons: false }, { colorIcons: true }, { colorIcons: true, override: "#5e9ad6" }])(
+		"takes the remembered glyph color from the host (icons=$colorIcons, override=$override)",
+		async ({ colorIcons, override }) => {
 			const card = {
 				densityExpanded: false,
 				setExpanded() {},
@@ -74,10 +76,19 @@ describe("semantic density card styling", () => {
 			const row = new ToolDensityRow(
 				card,
 				() => {},
-				() => ({ colorIcons, colorFrames: true, colorNames: true }),
+				() => ({
+					colorIcons,
+					colorFrames: true,
+					colorNames: true,
+					...(override ? { overrides: new Map([["remembered", parseColor(override)]]) } : {}),
+				}),
 			);
 			using rendered = await terminalRows(row.render(width));
-			using expected = await terminalRows([theme.fg(colorIcons ? "customMessageLabel" : "text", "●")]);
+			using expected = await terminalRows([
+				override
+					? styleText("●", { fg: parseColor(override) }, theme.getColorMode())
+					: theme.fg(colorIcons ? "customMessageLabel" : "text", "●"),
+			]);
 			expect(cellOf(rendered, 2, 4).color).toEqual(cellOf(expected, 0, 0).color);
 			expect(cellOf(rendered, 2, 6).color).toEqual(cellOf(rendered, 2, 1).color);
 		},
@@ -126,9 +137,10 @@ describe("semantic density card styling", () => {
 			}
 		});
 
-		it("keeps the output label the same foreground as a descriptive eval title", async () => {
+		it("colors the output label with the eval override without tinting its body or summary", async () => {
 			const summary = "Review result";
 			const args = { language: "js", code: 'print("Example payload");', summary };
+			const evalAccent = parseColor("#7cbddb");
 			const card = new ToolExecutionComponent(
 				"eval",
 				"eval-section-color",
@@ -157,6 +169,7 @@ describe("semantic density card styling", () => {
 						colorFrames: true,
 						colorNames: true,
 						colorIcons: true,
+						overrides: new Map([["eval", evalAccent]]),
 					}),
 				);
 				row.setLayout(density === "grouped", true, true);
@@ -167,9 +180,14 @@ describe("semantic density card styling", () => {
 				expect(plain[title]?.trimEnd(), plain.join("\n")).toBe(" ╭─ ✓ Review result");
 				expect(plain[output + 1]?.trimEnd()).toBe(" │ Example payload");
 				using terminal = await terminalRows(rows);
-				using swatch = await terminalRows([theme.fg("toolTitle", "N")]);
+				using swatch = await terminalRows([
+					theme.fg("toolTitle", "N"),
+					styleText("N", { fg: evalAccent }, theme.getColorMode()),
+					theme.fg("toolOutput", "N"),
+				]);
 				expect(cellOf(terminal, title, 6).color).toEqual(cellOf(swatch, 0, 0).color);
-				expect(cellOf(terminal, output, 4).color).toEqual(cellOf(swatch, 0, 0).color);
+				expect(cellOf(terminal, output, 4).color).toEqual(cellOf(swatch, 1, 0).color);
+				expect(cellOf(terminal, output + 1, 3).color).toEqual(cellOf(swatch, 2, 0).color);
 				expect(cellOf(terminal, title, 4).color).toEqual(cellOf(terminal, title, 1).color);
 			} finally {
 				card.dispose();
@@ -310,10 +328,14 @@ describe("semantic density card styling", () => {
 					});
 
 					const background = density === "grouped" ? "toolSuccessBg" : "toolErrorBg";
+					const paint = (color: (typeof colors)["frame" | "name" | "icon"], text: string, bold = false) =>
+						color === "customMessageLabel"
+							? styleText(text, { fg: parseColor("#c4b5fd"), bold }, theme.getColorMode())
+							: theme.style(text, { fg: color, bold });
 					using swatches = await terminalRows([
-						theme.bg(background, theme.fg(colors.frame, "F")),
-						theme.bg(background, theme.fg(colors.name, "\x1b[1mN\x1b[22m")),
-						theme.bg(background, theme.fg(colors.icon, "G")),
+						theme.bg(background, paint(colors.frame, "F")),
+						theme.bg(background, paint(colors.name, "N", true)),
+						theme.bg(background, paint(colors.icon, "G")),
 						theme.bg(background, theme.fg("text", "\x1b[9mD\x1b[29m")),
 						theme.bg(background, theme.fg("text", "\x1b[3mD\x1b[23m")),
 						theme.bg(background, theme.fg("muted", "M")),

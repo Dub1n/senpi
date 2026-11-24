@@ -1,3 +1,22 @@
+## 2026-11-24 - Persist dense card color overrides
+
+### What changed
+
+- `packages/coding-agent/src/core/settings-manager.ts` persists per-card accents through the ordinary settings merge, save, and reload path, including visible names with spaces or capitals.
+- `packages/coding-agent/src/core/tool-display-color.ts` accepts named colors, RGB hex, and ANSI palette indexes for these accents.
+
+### Why
+
+- Compact and Grouped users can customize card accents without changing their terminal theme or other tools.
+
+### Why an extension could not handle it
+
+- The host owns the persisted transcript-formatting preferences and forwards them to every dense row.
+
+### Expected merge conflict zones
+
+- LOW: adjacent tool display settings and accessors.
+
 ## 2026-11-22 - Persist a dense transcript icon color choice
 
 ### What changed

@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createApplyPatchTool } from "../../src/core/extensions/builtin/gpt-apply-patch/tool.ts";
+import type { DensityCardStructuredView } from "@earendil-works/pi-tui";
 import type { ToolRenderContext } from "../../src/core/extensions/types.ts";
 import type { Harness } from "./harness.ts";
 import { createHarness } from "./harness.ts";
@@ -105,5 +106,29 @@ describe("gpt apply_patch failure rendering", () => {
 		expect(rendered).toContain("<bold>Patch failed</bold>");
 		expect(rendered).toContain("No file actions were applied.");
 		expect(rendered).not.toContain("Applying patch");
+	});
+
+	it("keeps legacy diagnostics while deriving dense intent from the call", () => {
+		const args = {
+			input: "*** Begin Patch\n*** Update File: changed.txt\n@@\n-old\n+new\n*** End Patch",
+		};
+		const tool = createApplyPatchTool();
+		const component = tool.renderResult?.(
+			{ content: [{ type: "text", text: "Delete File: mismatch diagnostic" }], details: undefined },
+			{ expanded: true, isPartial: false },
+			markerTheme as never,
+			renderContext(process.cwd(), args),
+		);
+		if (!component) throw new TypeError("Expected apply_patch failure renderer");
+		const rendered = component.render(160).join("\n");
+		const view = (
+			component as typeof component & { renderDensityCard: () => DensityCardStructuredView }
+		).renderDensityCard();
+
+		expect(rendered).toContain("Delete File: mismatch diagnostic");
+		expect(view.kind).toBe("edited");
+		expect(view.heading.identity).toBe("changed.txt");
+		expect(view.heading.details).toContain("failed");
+		expect(view.body).toContainEqual({ type: "text", lines: ["Delete File: mismatch diagnostic"] });
 	});
 });

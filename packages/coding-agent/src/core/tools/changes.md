@@ -1,5 +1,23 @@
 # core/tools changes
 
+## 2026-11-24 - Match dense diff foreground to line status
+
+### What changed
+
+- `packages/coding-agent/src/core/tools/diff-render.ts` uses neutral text for unchanged Markdown prose and the standard diff foreground for all added and removed content in dense previews. Changed-word emphasis and diff backgrounds are retained in both compact and unified input formats.
+
+### Why
+
+- A file’s unchanged Markdown should look like a dense read, not like a change. Actual additions and deletions must remain visually distinct, even without a matching line on the other side.
+
+### Why an extension could not handle it
+
+- The shared stock diff renderer interprets both patch formats and applies the file content and gutter styles together.
+
+### Expected merge conflict zones
+
+- LOW: the dense presentation option in `renderToolDiff`; Default rendering is unchanged.
+
 ## 2026-11-23 - Distinguish unchanged file text from dense diff changes
 
 ### What changed

@@ -158,10 +158,10 @@ export class ToolDensityRow implements Component {
 	}
 
 	private cardStyle(kind?: DensityCardView["kind"]) {
-		return densityCardStyle(
-			this.getColors(),
-			kind ?? ("summarySnapshot" in this.card ? toolDensityKind(this.card.summarySnapshot.name) : undefined),
-		);
+		const toolName = "summarySnapshot" in this.card ? this.card.summarySnapshot.name : undefined;
+		const cardKind = kind ?? (toolName === undefined ? undefined : toolDensityKind(toolName));
+		const accentKind = cardKind === "tool" && toolName === "apply_patch" ? "patched" : cardKind;
+		return densityCardStyle(this.getColors(), cardKind, accentKind);
 	}
 
 	private renderExpanded(width: number, frameRow: number | undefined): string[] {
@@ -275,7 +275,7 @@ export class ToolDensityRow implements Component {
 				const label =
 					"label" in heading
 						? (heading.role ?? style.sectionRole) === "title"
-							? style.titleSection(heading.label, view.expandedHeading ?? view.heading)
+							? style.titleSection(heading.label)
 							: theme.style(heading.label, { fg: "muted", bold: heading.bold })
 						: renderStructuredHeading(heading, sectionStyle);
 				frame.push(...renderLabel(` ${style.frame("├─")} `, label));

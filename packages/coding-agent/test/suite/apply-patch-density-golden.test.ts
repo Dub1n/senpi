@@ -46,7 +46,7 @@ const fourth: ApplyPatchPreviewFile = {
 	removed: 1,
 };
 
-function replay(files: ApplyPatchPreviewFile[], failed = false, id = "patch") {
+function replay(files: ApplyPatchPreviewFile[], failed = false, id = "patch", input = "", structured = true) {
 	const result: ApplyPatchResult = {
 		summaries: [],
 		appliedFiles: files.map((item) => item.filePath),
@@ -64,18 +64,22 @@ function replay(files: ApplyPatchPreviewFile[], failed = false, id = "patch") {
 		timestamp: 0,
 		isError: failed,
 		content: [{ type: "text", text: failed ? "missing: not found" : "patch result" }],
-		details: {
-			result,
-			preview: {
-				files,
-				added: files.reduce((n, f) => n + f.added, 0),
-				removed: files.reduce((n, f) => n + f.removed, 0),
-			},
-		},
+		...(structured
+			? {
+					details: {
+						result,
+						preview: {
+							files,
+							added: files.reduce((n, f) => n + f.added, 0),
+							removed: files.reduce((n, f) => n + f.removed, 0),
+						},
+					},
+				}
+			: {}),
 	};
 	return [
 		fauxAssistantMessage(
-			{ type: "toolCall", id, name: "apply_patch", arguments: { input: "" } },
+			{ type: "toolCall", id, name: "apply_patch", arguments: { input } },
 			{ stopReason: "toolUse", timestamp: 0 },
 		),
 		toolResult,
@@ -88,12 +92,14 @@ async function rows(
 	files: ApplyPatchPreviewFile[],
 	failed = false,
 	width = 48,
+	input = "",
+	structured = true,
 ) {
 	const surface = await explorationSurface(true, [(pi) => pi.registerTool(createApplyPatchTool())]);
 	try {
 		if (!(surface.chat instanceof ExplorationTranscriptContainer))
 			throw new TypeError("Expected exploration transcript");
-		invoke(surface.mode, "renderSessionItems", replay(files, failed));
+		invoke(surface.mode, "renderSessionItems", replay(files, failed, "patch", input, structured));
 		surface.chat.setToolDisplayDensity(density);
 		invoke(surface.mode, "setToolsExpanded", expanded);
 		return surface.chat.render(width).map(stripTerminalSequences);
@@ -225,9 +231,10 @@ describe.each(["compact", "grouped"] as const)("%s apply patch density", (densit
 	});
 
 	it("distinguishes a partial failure from complete success", async () => {
-		const expanded = await rows(density, true, [file], true);
+		const input = "*** Begin Patch\n*** Update File: /p/old.txt\n@@\n-before\n+after\n*** End Patch";
+		const expanded = await rows(density, true, [file], true, 48, input);
 		expect(expanded.filter((line) => line.includes("╭─"))).toHaveLength(2);
-		expect(expanded).toContain(" ╭─ ✗ tool apply_patch • failed".padEnd(48));
+		expect(expanded.some((line) => line.includes("✗ edited •") && line.includes("/p/old.txt"))).toBe(true);
 		expect(expanded).toContain(" │ missing: not found".padEnd(48));
 		expect(expanded).toContain(" ╭─ ✓ edited • /p/old.txt → /p/new.txt:(+1 -1)".padEnd(48));
 		expect(expanded).toContain(" │ -1 before".padEnd(48));
@@ -236,16 +243,16 @@ describe.each(["compact", "grouped"] as const)("%s apply patch density", (densit
 		try {
 			if (!(surface.chat instanceof ExplorationTranscriptContainer))
 				throw new TypeError("Expected exploration transcript");
-			invoke(surface.mode, "renderSessionItems", replay([file], true));
+			invoke(surface.mode, "renderSessionItems", replay([file], true, "patch", input));
 			surface.chat.setToolDisplayDensity(density);
 			invoke(surface.mode, "setToolsExpanded", true);
 			let output = surface.chat.render(48).map(stripTerminalSequences);
-			const failureTitle = output.findIndex((line) => line.includes("tool apply_patch • failed"));
+			const failureTitle = output.findIndex((line) => line.includes("✗ edited • /p/old.txt"));
 			expect(click(surface, failureTitle, 48)?.handled).toBe(true);
 			invoke(surface.mode, "setToolsExpanded", false);
 			invoke(surface.mode, "setToolsExpanded", true);
 			output = surface.chat.render(48).map(stripTerminalSequences);
-			expect(output).toContain(" ╭─ ✗ tool apply_patch • failed".padEnd(48));
+			expect(output.some((line) => line.includes("╭─ ✗ edited • /p/old.txt"))).toBe(true);
 		} finally {
 			surface.cleanup();
 		}
@@ -253,8 +260,42 @@ describe.each(["compact", "grouped"] as const)("%s apply patch density", (densit
 
 	it("does not claim an operation when all files fail", async () => {
 		expect(await rows(density, true, [], true)).toEqual(
-			card(48, " ╭─ ✗ tool apply_patch • failed", " │ missing: not found", " ╰─"),
+			card(48, " ╭─ ✗ patched • apply_patch · failed", " │ missing: not found", " ╰─"),
 		);
+	});
+
+	it.each([
+		{
+			operation: "edited",
+			path: "/p/changed.txt",
+			input: "*** Begin Patch\n*** Update File: /p/changed.txt\n@@\n-old\n+new\n*** End Patch",
+		},
+		{
+			operation: "added",
+			path: "/p/created.txt",
+			input: "*** Begin Patch\n*** Add File: /p/created.txt\n+created\n*** End Patch",
+		},
+		{
+			operation: "deleted",
+			path: "/p/removed.txt",
+			input: "*** Begin Patch\n*** Delete File: /p/removed.txt\n*** End Patch",
+		},
+	])("classifies a legacy failure from its valid homogeneous $operation call", async ({ operation, path, input }) => {
+		const expanded = await rows(density, true, [], true, 48, input, false);
+		expect(expanded.filter((line) => line.includes("╭─"))).toHaveLength(1);
+		expect(expanded.some((line) => line.includes(`✗ ${operation} • `) && line.includes(path))).toBe(true);
+		expect(expanded).toContain(" │ missing: not found".padEnd(48));
+	});
+
+	it("uses patched for mixed or invalid intended operations", async () => {
+		const mixed = "*** Begin Patch\n*** Add File: created.txt\n+created\n*** Delete File: removed.txt\n*** End Patch";
+		const expanded = await rows(density, true, [], true, 48, mixed, false);
+		expect(expanded.filter((line) => line.includes("╭─"))).toHaveLength(1);
+		expect(expanded.some((line) => line.includes("✗ patched • apply_patch"))).toBe(true);
+		expect(expanded).toContain(" │ missing: not found".padEnd(48));
+
+		const invalid = await rows(density, true, [], true, 48, "not a patch", false);
+		expect(invalid.some((line) => line.includes("✗ patched • apply_patch"))).toBe(true);
 	});
 
 	it("does not claim an operation for an incomplete result", async () => {
@@ -342,9 +383,9 @@ describe.each(["compact", "grouped"] as const)("%s apply patch density", (densit
 			{ files: [], failed: true },
 			{ files: [second] },
 		]);
-		expect(failed.some((line) => line.includes("patched •"))).toBe(false);
+		expect(failed.some((line) => line.includes("patched • old.txt gone.txt"))).toBe(false);
 		expect(failed.some((line) => line.includes("edited • old.txt"))).toBe(true);
-		expect(failed.some((line) => line.includes("apply_patch • failed"))).toBe(true);
+		expect(failed.some((line) => line.includes("patched • apply_patch"))).toBe(true);
 		expect(failed.some((line) => line.includes("deleted • gone.txt"))).toBe(true);
 
 		const surface = await explorationSurface(true, [(pi) => pi.registerTool(createApplyPatchTool())]);

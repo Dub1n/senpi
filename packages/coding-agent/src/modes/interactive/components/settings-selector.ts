@@ -34,7 +34,10 @@ import {
 	theme,
 } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
+import { ExtensionInputComponent } from "./extension-input.ts";
 import { keyDisplayText } from "./keybinding-hints.ts";
+import { densityCardColorNames } from "./density-card-style.ts";
+import { parseToolDisplayColor } from "../../../core/tool-display-color.ts";
 
 const SETTINGS_SUBMENU_SELECT_LIST_LAYOUT: SelectListLayoutOptions = {
 	minPrimaryColumnWidth: 12,
@@ -85,6 +88,7 @@ export interface SettingsConfig {
 	availableThemes: string[];
 	hideThinkingBlock: boolean;
 	toolDisplayDensity: ToolDisplayDensity;
+	toolDisplayColorOverrides: Readonly<Record<string, string | number>>;
 	readonly toolDisplayColorFrames: boolean;
 	readonly toolDisplayColorNames: boolean;
 	readonly toolDisplayColorIcons: boolean;
@@ -129,6 +133,7 @@ export interface SettingsCallbacks {
 	onThemePreview?: (theme: string) => void;
 	onHideThinkingBlockChange: (hidden: boolean) => void;
 	onToolDisplayDensityChange: (density: ToolDisplayDensity) => void;
+	onToolDisplayColorOverrideChange: (name: string, value: string | undefined) => void;
 	readonly onToolDisplayColorFramesChange: (enabled: boolean) => void;
 	readonly onToolDisplayColorNamesChange: (enabled: boolean) => void;
 	readonly onToolDisplayColorIconsChange: (enabled: boolean) => void;
@@ -519,6 +524,95 @@ class ThemeSubmenu extends Container {
 	}
 }
 
+class ToolDisplayColorInput extends Container {
+	private readonly input: ExtensionInputComponent;
+	private errorText: Text | undefined;
+
+	constructor(name: string, currentValue: string, onSave: (value: string | undefined) => void, onCancel: () => void) {
+		super();
+
+		this.input = new ExtensionInputComponent(
+			`Color for ${name}`,
+			undefined,
+			(value) => {
+				const normalized = value.trim();
+				if (normalized && parseToolDisplayColor(normalized) === undefined) {
+					this.showValidationError();
+					return;
+				}
+				onSave(normalized || undefined);
+			},
+			onCancel,
+			{
+				initialValue: currentValue === "Default" ? "" : currentValue,
+				description: "Enter a color name, #RGB, #RRGGBB, or ANSI index (0-255). Leave blank to reset.",
+			},
+		);
+		this.addChild(this.input);
+	}
+
+	handleInput(data: string): void {
+		this.errorText?.setText("");
+		this.input.handleInput(data);
+	}
+
+	private showValidationError(): void {
+		const message = theme.fg("error", "Invalid color. Use a name, #RGB, #RRGGBB, or 0-255.");
+		if (this.errorText) this.errorText.setText(message);
+		else {
+			this.errorText = new Text(message, 1, 0);
+			this.addChild(this.errorText);
+		}
+	}
+}
+
+class ToolDisplayColorOverridesSubmenu extends Container {
+	private readonly settingsList: SettingsList;
+
+	constructor(
+		overrides: Readonly<Record<string, string | number>>,
+		callbacks: SettingsCallbacks,
+		onCancel: () => void,
+	) {
+		super();
+
+		const items: SettingItem[] = densityCardColorNames.map((name) => {
+			const currentValue = overrides[name];
+			return {
+				id: name,
+				label: name,
+				description: `Color override for ${name} cards`,
+				currentValue: currentValue === undefined ? "Default" : String(currentValue),
+				submenu: (value, done) =>
+					new ToolDisplayColorInput(
+						name,
+						value,
+						(color) => done(color ?? "Default"),
+						() => done(),
+					),
+			};
+		});
+
+		this.settingsList = new SettingsList(
+			items,
+			10,
+			getSettingsListTheme(),
+			(name, value) => {
+				callbacks.onToolDisplayColorOverrideChange(name, value === "Default" ? undefined : value);
+			},
+			onCancel,
+			{ enableSearch: true },
+		);
+		this.addChild(new Text(theme.bold(theme.fg("accent", "Tool Display Colors")), 0, 0));
+		this.addChild(new Spacer(1));
+		this.addChild(this.settingsList);
+	}
+
+	handleInput(data: string): void {
+		this.settingsList.handleInput(data);
+	}
+}
+
 /**
  * Main settings selector component.
  */
@@ -576,6 +670,14 @@ export class SettingsSelectorComponent extends Container {
 				description: "Choose how tool calls appear in the transcript",
 				currentValue: TOOL_DISPLAY_DENSITY_LABELS[config.toolDisplayDensity],
 				values: Object.values(TOOL_DISPLAY_DENSITY_LABELS),
+			},
+			{
+				id: "tool-display-color-overrides",
+				label: "Tool card colors",
+				description: "Set a custom color for individual tool and activity cards",
+				currentValue: "Configure",
+				submenu: (_currentValue, done) =>
+					new ToolDisplayColorOverridesSubmenu(config.toolDisplayColorOverrides, callbacks, () => done()),
 			},
 			{
 				id: "tool-display-color-frames",

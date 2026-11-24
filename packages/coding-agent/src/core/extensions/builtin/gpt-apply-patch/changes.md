@@ -1,5 +1,24 @@
 # changes
 
+## 2026-11-24 - Classify failed dense patch cards from the call
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/gpt-apply-patch/density.ts` parses valid call input with the existing patch parser and gives homogeneous failures their edited, added, or deleted kind and path identity; mixed or invalid input remains patched.
+- `packages/coding-agent/src/core/extensions/builtin/gpt-apply-patch/tool.ts` passes the original call input into dense result rendering.
+
+### Why
+
+- Legacy error results may omit structured patch details, so dense cards need to classify intent from the validated call while preserving the result diagnostic and separating already-applied file sections.
+
+### Why an extension could not handle it
+
+- The apply-patch builtin owns its parser, call arguments, and structured result renderer.
+
+### Expected merge conflict zones
+
+- LOW: failure heading selection in `density.ts` and input forwarding in `tool.ts`.
+
 ## 2026-11-22 - Structured dense patch cards
 
 ### What changed

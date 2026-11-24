@@ -198,8 +198,8 @@ export const readRenderers = {
 			const output = dense ? raw.replace(/(?:\n[^\S\n]*)+$/u, "").replace(/^[^\S\n]*$/u, "") : raw;
 			const lang = !isError && path ? getLanguageFromPath(path) : undefined;
 			const rendered = lang
-				? highlightCode(output, lang)
-				: output.split("\n").map((line) => line && theme.fg(dense && !isError ? "muted" : "toolOutput", line));
+				? highlightCode(output, lang, dense && lang === "markdown" ? "text" : undefined)
+				: output.split("\n").map((line) => line && theme.fg(dense && !isError ? "text" : "toolOutput", line));
 			if (dense) denseLines = rendered;
 			else lines = rendered;
 			return rendered;

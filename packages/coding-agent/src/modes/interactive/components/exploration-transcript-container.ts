@@ -13,6 +13,7 @@ import type {
 	ApplyPatchPreviewFile,
 	ApplyPatchToolDetails,
 } from "../../../core/extensions/builtin/gpt-apply-patch/types.ts";
+import { normalizeApplyPatchArguments } from "../../../core/extensions/builtin/gpt-apply-patch/params.ts";
 import { AssistantMessageComponent } from "./assistant-message.ts";
 import { PatchDensityCard, PatchDensityProjection, type ApplyPatchDensityProjection } from "./apply-patch-density.ts";
 import { CustomEntryComponent } from "./custom-entry.ts";
@@ -82,7 +83,8 @@ export class ExplorationTranscriptContainer extends Container {
 		if (
 			this.densityColors.colorFrames === colors.colorFrames &&
 			this.densityColors.colorNames === colors.colorNames &&
-			this.densityColors.colorIcons === colors.colorIcons
+			this.densityColors.colorIcons === colors.colorIcons &&
+			this.densityColors.overrides === colors.overrides
 		)
 			return;
 		this.densityColors = colors;
@@ -209,12 +211,13 @@ export class ExplorationTranscriptContainer extends Container {
 		const { identity, state } = card.presentationSnapshot;
 		if (!state.result) return undefined;
 		const details = applyPatchToolDetails(state.result.details);
-		if (!details) return undefined;
+		if (!details && !state.result.isError) return undefined;
 		const view = patchDensityCard({
 			result: { content: state.result.content, details },
 			isError: state.result.isError,
 			isPartial: state.isPartial,
 			executionStarted: state.executionStarted,
+			input: normalizeApplyPatchArguments(state.args).input,
 			cwd: identity.cwd,
 			theme,
 		});

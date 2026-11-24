@@ -164,6 +164,7 @@ When this value is anything other than `"auto"`, it overrides any model-level `p
 | `toolDisplayColorFrames` | boolean | `false` | **Color tool frames** in `/settings`. Color the left gutter by item type in Compact and Grouped; otherwise it uses the muted border color. Does not affect Default. |
 | `toolDisplayColorNames` | boolean | `false` | **Color tool names** in `/settings`. Color the bold item name by type in Compact and Grouped. The rest of the title stays in the standard text color. Cards without semantic names keep their existing title styling. Does not affect Default. |
 | `toolDisplayColorIcons` | boolean | `false` | **Color tool icons** in `/settings`. Make the title icon use the item type's name color in Compact and Grouped, even if name coloring is off. With the switch off the icon is neutral. Does not affect Default. |
+| `toolDisplayColorOverrides` | object | `{}` | Override the accent for individual card types in Compact and Grouped. The name, frame, and icon switches still control where the accent appears. |
 | `autocompleteMaxVisible` | number | `5` | Max visible items in autocomplete dropdown (3-20) |
 | `showHardwareCursor` | boolean | `false` | Show the terminal cursor while TUI positions it for IME support |
 | `tuiMode` | string | `"regular"` | Interactive TUI mode: `"regular"` or experimental `"fullscreen"`. Changes from `/settings` apply immediately; `--tui-mode` overrides this setting at startup |
@@ -179,6 +180,28 @@ For VS Code, include `--wait` so senpi resumes after the editor exits:
   "externalEditor": "code --wait"
 }
 ```
+
+### Dense card colors
+
+In `/settings`, open **Tool card colors** to set or clear a global override. You can also set an accent by card type in `settings.json` or `settings.jsonc`:
+
+```json
+{
+  "toolDisplayColorNames": true,
+  "toolDisplayColorOverrides": {
+    "todo": "purple",
+    "task": 141,
+    "peek": 141,
+    "remembered": "lavender",
+    "read": "#5cda8b",
+    "patched": "orange"
+  }
+}
+```
+
+Values can be basic CSS color names (case-insensitive, including `purple`, `magenta`, `pink`, and `lavender`), `#RGB` or `#RRGGBB` hex, or ANSI palette indexes from `0` through `255` (numbers or digit strings). Indexes use the terminal's palette. Invalid values fall back to the built-in accent. Use the names shown in **Tool card colors**, including `remembered`, `compacted`, `peek`, `from`, and `messaged`. The two `bash` variants have separate entries: `bash` for commands and `bash (output)` for reading their output. Cards with dynamic titles, such as eval summaries, use their base entry (`eval`). Rename old override keys such as `memory` and `edit` to `remembered` and `edited`, respectively. Overrides apply on settings reload and do not change file text or diff content colors.
+
+Use `edited` for both `edit` and `edited` cards and for writes before their outcome is known. A successful new-file write uses `added`. An unresolved `apply_patch` uses `patched` until its file operations are known.
 
 ### Telemetry and update checks
 

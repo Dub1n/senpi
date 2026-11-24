@@ -162,7 +162,7 @@ export function createEvalDensityCard(options: EvalDensityCardOptions): DensityC
 		};
 		const shellOnly = toolCalls.every((call) => call.name === "bash");
 		sections.push({
-			heading: { label: shellOnly ? "commands" : "tool calls", bold: true },
+			heading: { label: shellOnly ? "commands" : "tool calls", role: "title" },
 			placement: "grouped",
 			body: [
 				{

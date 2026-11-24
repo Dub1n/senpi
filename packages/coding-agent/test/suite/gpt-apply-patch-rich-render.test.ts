@@ -382,7 +382,7 @@ describe("gpt apply_patch rich TUI rendering", () => {
 		const rendered = renderToolDiff(" 1 before\n-2 alpha old\n+2 alpha new\n 3 after", {
 			filePath: "src/foo.txt",
 			theme: markerTheme as never,
-			contextContentColor: "muted",
+			presentation: "dense",
 		});
 
 		expect(stripAnsi(rendered).split("\n")).toEqual([
@@ -391,6 +391,43 @@ describe("gpt apply_patch rich TUI rendering", () => {
 			"<bg:toolSuccessBg><fg:toolDiffAdded>+</fg:toolDiffAdded><fg:muted>2</fg:muted> <fg:toolDiffAdded>alpha <inverse>new</inverse></fg:toolDiffAdded></bg:toolSuccessBg>",
 			"<fg:toolDiffContext> </fg:toolDiffContext><fg:muted>3</fg:muted> <fg:muted>after</fg:muted>",
 		]);
+	});
+
+	it.each([
+		{
+			inputFormat: "compact",
+			diff: " 1 context prose\n-2 same old\n+2 same new\n 3 another context\n-4 removed only\n 5 after removal\n+5 added only",
+		},
+		{
+			inputFormat: "unified",
+			diff: "@@ -1,5 +1,5 @@\n context prose\n-same old\n+same new\n another context\n-removed only\n after removal\n+added only",
+		},
+	] as const)("colors dense $inputFormat Markdown by change status", ({ inputFormat, diff }) => {
+		initTheme("dark");
+		const rendered = renderToolDiff(diff, {
+			filePath: "src/guide.md",
+			theme,
+			presentation: "dense",
+			inputFormat,
+		});
+
+		expect(rendered).toContain(theme.fg("text", "context prose"));
+		expect(rendered).toContain(theme.fg("toolDiffRemoved", `same ${theme.inverse("old")}`));
+		expect(rendered).toContain(theme.fg("toolDiffAdded", `same ${theme.inverse("new")}`));
+		expect(rendered).toContain(theme.fg("toolDiffRemoved", "removed only"));
+		expect(rendered).toContain(theme.fg("toolDiffAdded", "added only"));
+	});
+
+	it("uses diff foregrounds for standalone TypeScript changes in a dense preview", () => {
+		initTheme("dark");
+		const removed = 'const removed = "old";';
+		const added = 'const added = "new";';
+		const diff = `-1 ${removed}\n 2 const context = true;\n+2 ${added}`;
+		const rendered = renderToolDiff(diff, { filePath: "src/code.ts", theme, presentation: "dense" });
+		const [removedRow, , addedRow] = rendered.split("\n");
+
+		expect(removedRow).toContain(theme.fg("toolDiffRemoved", removed));
+		expect(addedRow).toContain(theme.fg("toolDiffAdded", added));
 	});
 
 	it("renders partial progress previews with realtime pending status", () => {

@@ -1,3 +1,99 @@
+## 2026-11-24 - Keep eval section headings on the eval accent
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/density-card-style.ts` and `packages/coding-agent/src/modes/interactive/components/tool-density-row.ts` give title-role subtitles the card's configured name color even when the main title is a neutral description.
+
+### Why
+
+- The expanded eval output label should match the other accent headings without tinting the prose or the output itself.
+
+### Why an extension could not handle it
+
+- The host paints the semantic section heading using the active card color settings.
+
+### Expected merge conflict zones
+
+- LOW: title-role dense subtitles; Default mode is unchanged.
+
+## 2026-11-24 - Use visible dense card names in color settings
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/density-card-style.ts` and `packages/coding-agent/src/modes/interactive/components/settings-selector.ts` use the same labels for color overrides and dense card names, including `remembered` and `compacted`. The two `bash` card kinds remain separately configurable.
+- `edit` cards and writes without a known outcome use the `edited` color without a separate setting. `packages/coding-agent/src/modes/interactive/components/tool-density-row.ts` uses the `patched` color for unresolved `apply_patch` cards without changing unrelated `tool` cards.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts` saves overrides under the visible settings names.
+
+### Why
+
+- A user should be able to find an accent by the title the card shows rather than by its internal kind.
+
+### Why an extension could not handle it
+
+- The host owns dense card styles and settings persistence.
+
+### Expected merge conflict zones
+
+- LOW: dense color name lookup and submenu.
+
+## 2026-11-24 - Give fallback patch cards an independent accent
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/density-card-style.ts` gives `patched` cards their own default accent with an independent `patched` override.
+
+### Why
+
+- Mixed or unknown patch intent should not look like the more specific `edited` operation.
+
+### Why an extension could not handle it
+
+- The transcript owns dense card colors and the mapping used by the settings submenu.
+
+### Expected merge conflict zones
+
+- LOW: the `patched` entry in the dense card palette.
+
+## 2026-11-24 - Keep failed patch intent out of file projection
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/apply-patch-density.ts` omits a failed semantic patch card from applied-file projection when it has no successful file sections.
+- `packages/coding-agent/src/modes/interactive/components/exploration-transcript-container.ts` sends call input to failure projection and projects legacy errors without structured result details.
+
+### Why
+
+- Failed patch cards can carry an operation kind and path identity from their call input, including when legacy results omit structured details; projecting a sectionless failure again as an applied file would duplicate it.
+
+### Why an extension could not handle it
+
+- The interactive transcript owns the projection of structured tool cards into file-level rows.
+
+### Expected merge conflict zones
+
+- LOW: call input and legacy failure routing in `applyPatchProjectionOf`; failed-view filtering in `patchFileViews`.
+
+## 2026-11-24 - Refine and customize dense card accents
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/density-card-style.ts` uses green for added files, red for deleted files, a distinct rose for todo, and a shared lavender for agent-related cards.
+- `packages/coding-agent/src/modes/interactive/components/exploration-transcript-container.ts` invalidates cached dense rows when per-card color overrides change.
+- `packages/coding-agent/src/modes/interactive/theme/theme.ts` lets dense Markdown reads set a neutral base foreground without replacing explicit highlight styles.
+- `packages/coding-agent/src/modes/interactive/components/settings-selector.ts` and `packages/coding-agent/src/modes/interactive/interactive-mode.ts` expose and apply overrides from a single settings submenu.
+
+### Why
+
+- File operations use familiar diff colors, and task and todo cards are easier to distinguish in a busy transcript.
+
+### Why an extension could not handle it
+
+- The interactive transcript owns the shared palette and cached render state.
+
+### Expected merge conflict zones
+
+- LOW: dense card style and interactive settings integration; Default mode is unchanged.
+
 ## 2026-11-23 - Show OmO worker nicknames in dense task cards
 
 ### What changed

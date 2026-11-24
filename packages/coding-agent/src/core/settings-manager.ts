@@ -14,6 +14,7 @@ import type {
 	RetryTieredHintStrategy,
 } from "@earendil-works/pi-ai/utils/retry-profile/types";
 import type {
+	Color,
 	TuiMode as RendererTuiMode,
 	ScrollViewScrollbar,
 	TerminalCapabilities,
@@ -72,6 +73,7 @@ import {
 import { parseSettingsJson } from "./settings-json.ts";
 import { withoutOverride } from "./settings-overrides.ts";
 import { removeRetiredSettingsKeys, writeRawScopedSettings } from "./settings-retired-keys.ts";
+import { parseToolDisplayColor } from "./tool-display-color.ts";
 import {
 	ASK_USER_DEFAULT_TIMEOUT_MINUTES,
 	ASK_USER_MAX_TIMEOUT_MINUTES,
@@ -147,6 +149,7 @@ export type ToolDisplayColors = {
 	readonly colorFrames: boolean;
 	readonly colorNames: boolean;
 	readonly colorIcons: boolean;
+	readonly overrides?: ReadonlyMap<string, Color>;
 };
 export type FullscreenExitOutput = "transcript" | "resume-hint";
 
@@ -233,6 +236,7 @@ export interface Settings {
 	toolDisplayColorFrames?: boolean;
 	toolDisplayColorNames?: boolean;
 	toolDisplayColorIcons?: boolean;
+	toolDisplayColorOverrides?: Readonly<Record<string, string | number>>;
 	smoothStreaming?: boolean; // default: true
 	smoothStreamingFps?: number; // default: 60, clamped to 30-120 when read
 	showCacheMissNotices?: boolean; // default: false - show prompt-cache miss and compaction cost notices
@@ -2222,11 +2226,40 @@ export class SettingsManager {
 	}
 
 	getToolDisplayColors(): ToolDisplayColors {
+		const overrides = new Map<string, Color>();
+		for (const [kind, value] of Object.entries(this.getToolDisplayColorOverrides())) {
+			const color = parseToolDisplayColor(value);
+			if (color) overrides.set(kind, color);
+		}
 		return {
 			colorFrames: this.settings.toolDisplayColorFrames === true,
 			colorNames: this.settings.toolDisplayColorNames === true,
 			colorIcons: this.settings.toolDisplayColorIcons === true,
+			...(overrides.size ? { overrides } : {}),
 		};
+	}
+
+	getToolDisplayColorOverrides(): Readonly<Record<string, string | number>> {
+		const overrides: unknown = this.settings.toolDisplayColorOverrides;
+		if (!isMergeableObject(overrides)) return {};
+		return Object.fromEntries(
+			Object.entries(overrides).filter(
+				(entry): entry is [string, string | number] =>
+					isToolDisplayColorName(entry[0]) &&
+					(typeof entry[1] === "string" || typeof entry[1] === "number") &&
+					parseToolDisplayColor(entry[1]) !== undefined,
+			),
+		);
+	}
+
+	setToolDisplayColorOverride(name: string, value: string | number | undefined): void {
+		if (!isToolDisplayColorName(name) || (value !== undefined && !parseToolDisplayColor(value))) return;
+		const overrides = { ...this.globalSettings.toolDisplayColorOverrides };
+		if (value === undefined) delete overrides[name];
+		else overrides[name] = value;
+		this.globalSettings.toolDisplayColorOverrides = overrides;
+		this.markModified("toolDisplayColorOverrides", name);
+		this.save();
 	}
 
 	setToolDisplayColorFrames(enabled: boolean): void {
@@ -2849,4 +2882,8 @@ export class SettingsManager {
 		this.markModified("warnings");
 		this.save();
 	}
+}
+
+function isToolDisplayColorName(name: string): boolean {
+	return /^[a-z][a-z0-9-]*(?: [a-z][a-z0-9-]*)*(?: \(output\))?$/i.test(name);
 }

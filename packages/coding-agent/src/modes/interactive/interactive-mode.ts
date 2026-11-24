@@ -8004,6 +8004,7 @@ export class InteractiveMode {
 
 	private async showSettingsSelector(): Promise<void> {
 		const availableThinkingLevels = this.session.getAvailableThinkingLevels();
+		const toolDisplayColors = this.settingsManager.getToolDisplayColors();
 		this.showSelector((done) => {
 			// oxlint-disable-next-line eslint/prefer-const -- a closure reads it; const would throw in the TDZ if that closure ran before the assignment, so the rewrite is reviewed separately
 			let selector: SettingsSelectorComponent | undefined;
@@ -8026,9 +8027,10 @@ export class InteractiveMode {
 					availableThemes: getAvailableThemes(),
 					hideThinkingBlock: this.hideThinkingBlock,
 					toolDisplayDensity: this.settingsManager.getToolDisplayDensity(),
-					toolDisplayColorFrames: this.settingsManager.getToolDisplayColors().colorFrames,
-					toolDisplayColorNames: this.settingsManager.getToolDisplayColors().colorNames,
-					toolDisplayColorIcons: this.settingsManager.getToolDisplayColors().colorIcons,
+					toolDisplayColorOverrides: this.settingsManager.getToolDisplayColorOverrides(),
+					toolDisplayColorFrames: toolDisplayColors.colorFrames,
+					toolDisplayColorNames: toolDisplayColors.colorNames,
+					toolDisplayColorIcons: toolDisplayColors.colorIcons,
 					smoothStreaming: this.settingsManager.getSmoothStreaming(),
 					smoothStreamingFps: this.settingsManager.getSmoothStreamingFps(),
 					mermaidRenderingMode: this.settingsManager.getMermaidRenderingMode(),
@@ -8118,6 +8120,11 @@ export class InteractiveMode {
 					onToolDisplayDensityChange: (density) => {
 						this.settingsManager.setToolDisplayDensity(density);
 						this.chatContainer.setToolDisplayDensity(this.settingsManager.getToolDisplayDensity());
+						this.ui.requestRender();
+					},
+					onToolDisplayColorOverrideChange: (name, value) => {
+						this.settingsManager.setToolDisplayColorOverride(name, value);
+						this.chatContainer.setToolDisplayColors(this.settingsManager.getToolDisplayColors());
 						this.ui.requestRender();
 					},
 					onToolDisplayColorFramesChange: (enabled) => {

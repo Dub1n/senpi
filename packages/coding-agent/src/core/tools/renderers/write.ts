@@ -206,7 +206,11 @@ export const writeRenderers: Pick<ToolDefinition<any, any>, "renderCall" | "rend
 													Number.MAX_SAFE_INTEGER,
 												);
 												return wrapTextWithAnsi(
-													renderToolDiff(diff, { filePath: rawPath ?? undefined, theme }),
+													renderToolDiff(diff, {
+														filePath: rawPath ?? undefined,
+														theme,
+														presentation: "dense",
+													}),
 													width,
 												);
 											},
@@ -285,7 +289,7 @@ export const writeRenderers: Pick<ToolDefinition<any, any>, "renderCall" | "rend
 												renderToolDiff(diff, {
 													filePath: path ?? undefined,
 													theme,
-													contextContentColor: "muted",
+													presentation: "dense",
 													inputFormat: patch === undefined ? "compact" : "unified",
 												}),
 												width,

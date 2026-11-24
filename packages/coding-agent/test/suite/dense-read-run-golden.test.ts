@@ -6,6 +6,7 @@ import { registerReadClassifier } from "../../src/core/tools/read-classifiers.ts
 import { readRenderers } from "../../src/core/tools/renderers/read.ts";
 import { ExplorationTranscriptContainer } from "../../src/modes/interactive/components/exploration-transcript-container.ts";
 import { initTheme, theme } from "../../src/modes/interactive/theme/theme.ts";
+import { loadAllHighlightLanguages } from "../../src/utils/syntax-highlight.ts";
 import { explorationSurface, invoke, runTool } from "./exploration-surface-harness.ts";
 
 const width = 80;
@@ -179,29 +180,35 @@ describe("dense consecutive read projection", () => {
 		}
 	});
 
-	it("uses the muted foreground for plain dense read content", async () => {
-		initTheme("dark");
-		const surface = await fixture("grouped");
-		try {
-			await runTool(surface, {
-				id: "plain",
-				toolName: "read",
-				args: { path: "plain.txt" },
-				output: "unchanged",
-			});
-			invoke(surface.mode, "setToolsExpanded", true);
-			const rows = surface.chat.render(width);
-			expect(await foregroundAt(rows, "unchanged")).toEqual(await foregroundAt([theme.fg("muted", "M")], "M"));
-			surface.chat.setToolDisplayDensity("default");
-			expect(await foregroundAt(surface.chat.render(width), "unchanged")).toEqual(
-				await foregroundAt([theme.fg("toolOutput", "M")], "M"),
-			);
-		} finally {
-			surface.cleanup();
-		}
-	});
+	it.each(["plain.txt", "plain.md"])(
+		"uses the neutral foreground for plain dense read content in %s",
+		async (path) => {
+			initTheme("dark");
+			await loadAllHighlightLanguages();
+			const surface = await fixture("grouped");
+			try {
+				await runTool(surface, {
+					id: "plain",
+					toolName: "read",
+					args: { path },
+					output: "unchanged",
+				});
+				invoke(surface.mode, "setToolsExpanded", true);
+				const rows = surface.chat.render(width);
+				expect(await foregroundAt(rows, "unchanged")).toEqual(await foregroundAt([theme.fg("text", "M")], "M"));
+				if (path === "plain.txt") {
+					surface.chat.setToolDisplayDensity("default");
+					expect(await foregroundAt(surface.chat.render(width), "unchanged")).toEqual(
+						await foregroundAt([theme.fg("toolOutput", "M")], "M"),
+					);
+				}
+			} finally {
+				surface.cleanup();
+			}
+		},
+	);
 
-	it("requests the muted role from the renderer for plain dense read content", () => {
+	it("requests the neutral role from the renderer for plain dense read content", () => {
 		const component = readRenderers.renderResult?.(
 			{ content: [{ type: "text", text: "unchanged" }], details: undefined },
 			{ expanded: true, isPartial: false },
@@ -220,7 +227,7 @@ describe("dense consecutive read projection", () => {
 		const view = component.renderDensityCard();
 		if (!view || view.format !== "structured") throw new TypeError("Expected a structured read card");
 		const body = view.body.flatMap((block) => (block.type === "rich" ? block.render(width) : [])).join("\n");
-		expect(body).toContain("<fg:muted>unchanged</fg:muted>");
+		expect(body).toContain("<fg:text>unchanged</fg:text>");
 	});
 
 	it.each(["compact", "grouped"] as const)(

@@ -2,7 +2,7 @@
 
 ### What changed
 
-- `packages/senpi-codemode/src/tool/render-density-card.ts` requests bold labels for the commands and tool calls sections.
+- `packages/senpi-codemode/src/tool/render-density-card.ts` requests the same bold eval accent for the output, commands, and tool calls sections in the dense frame.
 
 ### Why
 

@@ -13,7 +13,7 @@ export type ToolDiffTheme = {
 export type RenderToolDiffOptions = {
 	filePath?: string;
 	theme: ToolDiffTheme;
-	contextContentColor?: "muted";
+	presentation?: "dense";
 	inputFormat?: "compact" | "unified";
 };
 
@@ -91,12 +91,16 @@ function replaceTabs(text: string): string {
 	return text.replace(/\t/g, "   ");
 }
 
-function highlightDiffContent(content: string, filePath: string | undefined): string {
+function highlightDiffContent(
+	content: string,
+	filePath: string | undefined,
+	language: string | undefined,
+	neutralMarkdown: boolean,
+): string {
 	const plainContent = replaceTabs(content);
 	if (!filePath) return plainContent;
-	const language = getLanguageFromPath(filePath);
 	try {
-		return highlightCode(plainContent, language)[0] ?? plainContent;
+		return highlightCode(plainContent, language, neutralMarkdown ? "text" : undefined)[0] ?? plainContent;
 	} catch {
 		return plainContent;
 	}
@@ -148,25 +152,28 @@ function renderInlineDiff(
 function renderToolDiffLine(
 	line: RenderableContentDiffLine,
 	options: RenderToolDiffOptions,
+	language: string | undefined,
 	contentOverride?: string,
 ): string {
-	const { filePath, theme, contextContentColor } = options;
+	const { filePath, theme, presentation } = options;
+	const dense = presentation === "dense";
+	const neutralMarkdown = dense && language === "markdown";
 	const unified = options.inputFormat === "unified";
 	const lineNumber = unified ? "" : theme.fg("muted", line.lineNumber);
 	const separator = unified ? "" : " ";
 	if (line.kind === "context") {
-		const content = highlightDiffContent(line.content, filePath);
+		const content = highlightDiffContent(line.content, filePath, language, neutralMarkdown);
 		return `${theme.fg("toolDiffContext", line.sign)}${lineNumber}${separator}${
-			contextContentColor === "muted" ? theme.fg("muted", content) : content
+			dense && !neutralMarkdown ? theme.fg("muted", content) : content
 		}`;
 	}
 
 	const diffColor = line.kind === "added" ? "toolDiffAdded" : "toolDiffRemoved";
 	const background = line.kind === "added" ? "toolSuccessBg" : "toolErrorBg";
 	const content =
-		contentOverride === undefined
-			? highlightDiffContent(line.content, filePath)
-			: theme.fg(diffColor, replaceTabs(contentOverride));
+		contentOverride !== undefined || dense
+			? theme.fg(diffColor, replaceTabs(contentOverride ?? line.content))
+			: highlightDiffContent(line.content, filePath, language, false);
 	const rendered = `${theme.fg(diffColor, line.sign)}${lineNumber}${separator}${content}`;
 	return theme.bg(background, rendered);
 }
@@ -183,6 +190,7 @@ export function countDiffChanges(diffText: string): { added: number; removed: nu
 }
 
 export function renderToolDiff(diffText: string, options: RenderToolDiffOptions): string {
+	const language = options.filePath ? getLanguageFromPath(options.filePath) : undefined;
 	const parsedLines =
 		options.inputFormat === "unified"
 			? parseUnifiedDiff(diffText)
@@ -199,7 +207,9 @@ export function renderToolDiff(diffText: string, options: RenderToolDiffOptions)
 
 		if (line.kind !== "removed") {
 			rendered.push(
-				line.kind === "meta" ? options.theme.fg("toolDiffContext", line.text) : renderToolDiffLine(line, options),
+				line.kind === "meta"
+					? options.theme.fg("toolDiffContext", line.text)
+					: renderToolDiffLine(line, options, language),
 			);
 			index++;
 			continue;
@@ -226,13 +236,14 @@ export function renderToolDiff(diffText: string, options: RenderToolDiffOptions)
 			if (!removedLine || !addedLine) continue;
 
 			const inline = renderInlineDiff(removedLine.content, addedLine.content, options.theme);
-			rendered.push(renderToolDiffLine(removedLine, options, inline.removed));
-			rendered.push(renderToolDiffLine(addedLine, options, inline.added));
+			rendered.push(renderToolDiffLine(removedLine, options, language, inline.removed));
+			rendered.push(renderToolDiffLine(addedLine, options, language, inline.added));
 		}
 
 		for (const removedLine of removedLines.slice(pairedCount))
-			rendered.push(renderToolDiffLine(removedLine, options));
-		for (const addedLine of addedLines.slice(pairedCount)) rendered.push(renderToolDiffLine(addedLine, options));
+			rendered.push(renderToolDiffLine(removedLine, options, language));
+		for (const addedLine of addedLines.slice(pairedCount))
+			rendered.push(renderToolDiffLine(addedLine, options, language));
 	}
 
 	return rendered.join("\n");

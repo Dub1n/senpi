@@ -1,11 +1,11 @@
 # core/tools/renderers changes
 
-## 2026-11-23 - Use the Bash output foreground for plain dense file content
+## 2026-11-24 - Match plain dense file text to the neutral icon foreground
 
 ### What changed
 
-- `packages/coding-agent/src/core/tools/renderers/read.ts` uses the muted foreground for successful plain-text dense previews.
-- `packages/coding-agent/src/core/tools/renderers/edit.ts` and `packages/coding-agent/src/core/tools/renderers/write.ts` ask the diff renderer to mute unchanged dense preview rows while keeping change markers distinct.
+- `packages/coding-agent/src/core/tools/renderers/read.ts` uses the neutral `text` foreground for successful dense read content where no syntax color applies, including Markdown prose.
+- `packages/coding-agent/src/core/tools/renderers/edit.ts` and `packages/coding-agent/src/core/tools/renderers/write.ts` select the shared dense diff presentation, including neutral unchanged Markdown and green or red changed Markdown, during execution and after settlement.
 
 ### Why
 

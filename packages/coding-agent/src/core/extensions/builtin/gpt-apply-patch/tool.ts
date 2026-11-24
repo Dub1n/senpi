@@ -210,6 +210,7 @@ export function createApplyPatchTool(variant: "freeform" | "json" = "freeform"):
 							isError: context.isError,
 							isPartial: options.isPartial,
 							executionStarted: context.executionStarted,
+							input: normalizeApplyPatchArguments(context.args).input,
 							cwd: context.cwd,
 							theme,
 						}),

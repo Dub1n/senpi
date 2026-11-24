@@ -872,6 +872,48 @@ describe("SettingsManager", () => {
 			expect(SettingsManager.create(projectDir, agentDir).getToolDisplayDensity()).toBe("default");
 		});
 
+		it("reloads valid card color overrides and persists individual changes and resets", async () => {
+			const path = join(agentDir, "settings.json");
+			const manager = SettingsManager.create(projectDir, agentDir);
+			writeFileSync(
+				path,
+				JSON.stringify({
+					toolDisplayColorOverrides: {
+						todo: "Purple",
+						task: 141,
+						read: "#abc",
+						eval: "0",
+						"Loop guard": "red",
+						added: 256,
+						deleted: {},
+					},
+				}),
+			);
+			await manager.reload();
+
+			expect(manager.getToolDisplayColors().overrides).toEqual(
+				new Map([
+					["todo", { kind: "rgb", r: 128, g: 0, b: 128 }],
+					["task", { kind: "indexed", index: 141 }],
+					["read", { kind: "rgb", r: 170, g: 187, b: 204 }],
+					["eval", { kind: "indexed", index: 0 }],
+					["Loop guard", { kind: "rgb", r: 255, g: 0, b: 0 }],
+				]),
+			);
+
+			manager.setToolDisplayColorOverride("task", undefined);
+			manager.setToolDisplayColorOverride("todo", "orange");
+			manager.setToolDisplayColorOverride("bash (output)", 42);
+			await manager.flush();
+			expect(SettingsManager.create(projectDir, agentDir).getToolDisplayColorOverrides()).toEqual({
+				todo: "orange",
+				read: "#abc",
+				eval: "0",
+				"Loop guard": "red",
+				"bash (output)": 42,
+			});
+		});
+
 		it("defaults dense colors off and persists each switch independently", async () => {
 			const manager = SettingsManager.create(projectDir, agentDir);
 			expect(manager.getToolDisplayColors()).toEqual({ colorFrames: false, colorNames: false, colorIcons: false });

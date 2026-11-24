@@ -1,18 +1,23 @@
 import {
-	extractAnsiCode,
-	getCapabilities,
-	hyperlink,
-	stripTerminalSequences,
+	type Color,
 	type DensityCardHeading,
 	type DensityCardKind,
 	type DensityCardText,
+	extractAnsiCode,
+	getCapabilities,
+	hyperlink,
+	parseColor,
+	stripTerminalSequences,
+	styleText,
 } from "@earendil-works/pi-tui";
 import type { ToolDisplayColors } from "../../../core/settings-manager.ts";
 import { theme, type ThemeColor } from "../theme/theme.ts";
 
+type CardAccent = ThemeColor | Readonly<Record<"dark" | "light", Color>>;
+
 type DensityCardPalette = {
 	readonly name: string;
-	readonly accent: ThemeColor;
+	readonly accent: CardAccent;
 	readonly frame: "accent" | "muted";
 	readonly body: "text" | "muted";
 	readonly section: "title" | "muted";
@@ -21,6 +26,8 @@ type DensityCardPalette = {
 
 const memoryAccent = "customMessageLabel";
 const bashAccent = "syntaxFunction";
+const todoAccent = { dark: parseColor("#f48fb1"), light: parseColor("#a32959") };
+const agentAccent = { dark: parseColor("#c4b5fd"), light: parseColor("#7856b4") };
 
 const cardRegistry = {
 	eval: {
@@ -38,13 +45,13 @@ const cardRegistry = {
 	wait: { name: "wait", accent: "syntaxFunction", frame: "accent", body: "text", section: "muted" },
 	wake: { name: "wake", accent: "syntaxFunction", frame: "accent", body: "text", section: "muted" },
 	read: { name: "read", accent: "syntaxVariable", frame: "accent", body: "muted", section: "muted" },
-	todo: { name: "todo", accent: "syntaxKeyword", frame: "accent", body: "text", section: "muted" },
+	todo: { name: "todo", accent: todoAccent, frame: "accent", body: "text", section: "muted" },
 	goal: { name: "goal", accent: "mdHeading", frame: "accent", body: "text", section: "muted" },
 	edit: { name: "edit", accent: "mdLink", frame: "accent", body: "muted", section: "muted" },
 	write: { name: "write", accent: "mdLink", frame: "accent", body: "muted", section: "muted" },
 	added: {
 		name: "added",
-		accent: "error",
+		accent: "success",
 		frame: "accent",
 		body: "muted",
 		section: "muted",
@@ -60,7 +67,7 @@ const cardRegistry = {
 	},
 	deleted: {
 		name: "deleted",
-		accent: "success",
+		accent: "error",
 		frame: "accent",
 		body: "muted",
 		section: "muted",
@@ -68,7 +75,7 @@ const cardRegistry = {
 	},
 	patched: {
 		name: "patched",
-		accent: "mdLink",
+		accent: "syntaxString",
 		frame: "accent",
 		body: "muted",
 		section: "muted",
@@ -84,18 +91,18 @@ const cardRegistry = {
 		body: "text",
 		section: "muted",
 	},
-	kibitz: { name: "kibitz", accent: "customMessageLabel", frame: "accent", body: "text", section: "muted" },
-	message: { name: "message", accent: "customMessageLabel", frame: "accent", body: "text", section: "muted" },
-	"incoming-message": { name: "from", accent: "customMessageLabel", frame: "accent", body: "text", section: "muted" },
+	kibitz: { name: "kibitz", accent: agentAccent, frame: "accent", body: "text", section: "muted" },
+	message: { name: "message", accent: agentAccent, frame: "accent", body: "text", section: "muted" },
+	"incoming-message": { name: "from", accent: agentAccent, frame: "accent", body: "text", section: "muted" },
 	"outgoing-message": {
 		name: "messaged",
-		accent: "customMessageLabel",
+		accent: agentAccent,
 		frame: "accent",
 		body: "text",
 		section: "muted",
 	},
-	task: { name: "task", accent: "customMessageLabel", frame: "accent", body: "text", section: "muted" },
-	"task-peek": { name: "peek", accent: "customMessageLabel", frame: "accent", body: "text", section: "muted" },
+	task: { name: "task", accent: agentAccent, frame: "accent", body: "text", section: "muted" },
+	"task-peek": { name: "peek", accent: agentAccent, frame: "accent", body: "text", section: "muted" },
 	tool: { name: "tool", accent: "syntaxVariable", frame: "accent", body: "text", section: "muted" },
 	search: { name: "search", accent: "mdLink", frame: "accent", body: "text", section: "muted" },
 	find: { name: "find", accent: "mdLink", frame: "accent", body: "text", section: "muted" },
@@ -105,6 +112,20 @@ const cardRegistry = {
 	system: { name: "system", accent: "muted", frame: "accent", body: "text", section: "muted" },
 } as const satisfies Readonly<Record<DensityCardKind, DensityCardPalette>>;
 
+function cardColorKind(kind: DensityCardKind): DensityCardKind {
+	// A write can create or update a file; use the edit accent until the result establishes which.
+	return kind === "edit" || kind === "write" ? "edited" : kind;
+}
+
+function cardColorName(kind: DensityCardKind): string {
+	// Both variants say "bash"; keep their independently configurable accents.
+	return kind === "bash-output" ? "bash (output)" : cardRegistry[cardColorKind(kind)].name;
+}
+
+export const densityCardColorNames: readonly string[] = [
+	...new Set((Object.keys(cardRegistry) as DensityCardKind[]).map(cardColorName)),
+].sort((a, b) => a.localeCompare(b));
+
 type DensityTitle = {
 	readonly name?: string | undefined;
 	readonly detail: string;
@@ -112,26 +133,30 @@ type DensityTitle = {
 };
 
 /** Paint dense card chrome without inheriting any color from status or body text. */
-export function densityCardStyle(colors: ToolDisplayColors, kind?: DensityCardKind) {
+export function densityCardStyle(colors: ToolDisplayColors, kind?: DensityCardKind, accentKind = kind) {
 	const palette: DensityCardPalette | undefined = kind === undefined ? undefined : cardRegistry[kind];
-	const role = palette?.accent;
-	const nameColor = (colors.colorNames && role) || "toolTitle";
-	const frameColor = (palette?.frame === "accent" && role) || "borderMuted";
+	const chrome = accentKind === undefined ? undefined : cardRegistry[cardColorKind(accentKind)];
+	const configured = accentKind === undefined ? undefined : colors.overrides?.get(cardColorName(accentKind));
+	const accent = chrome?.accent;
+	const defaultColor = typeof accent === "object" ? accent[theme.appearance] : accent;
+	const nameColor = colors.colorNames ? (configured ?? defaultColor ?? "toolTitle") : "toolTitle";
+	const frameColor = configured ?? (chrome?.frame === "accent" ? (defaultColor ?? "borderMuted") : "borderMuted");
+	const paint = (text: string, fg: ThemeColor | Color, bold = false) =>
+		typeof fg === "string" ? theme.style(text, { fg, bold }) : styleText(text, { fg, bold }, theme.getColorMode());
 	// Compatibility producers may still pass ANSI. A renderer cannot override the glyph policy.
-	const icon = (glyph: string) => theme.fg(colors.colorIcons ? frameColor : "text", stripTerminalSequences(glyph));
+	const icon = (glyph: string) => paint(stripTerminalSequences(glyph), colors.colorIcons ? frameColor : "text");
 	return {
-		frame: (gutter: string) => theme.fg(colors.colorFrames ? frameColor : "borderMuted", gutter),
+		frame: (gutter: string) => paint(gutter, colors.colorFrames ? frameColor : "borderMuted"),
 		icon,
-		label: (label: string) => theme.style(label, { fg: nameColor, bold: true }),
+		label: (label: string) => paint(label, nameColor, true),
 		description: (label: string) => theme.fg("toolTitle", label),
-		titleSection: (label: string, heading: DensityCardHeading) =>
-			theme.style(label, { fg: heading.description === undefined ? nameColor : "toolTitle", bold: true }),
+		titleSection: (label: string) => paint(label, nameColor, true),
 		bodyRole: palette?.body ?? "text",
 		sectionRole: palette?.section ?? "muted",
 		title: ({ name, detail, glyph }: DensityTitle) => {
 			const marker = glyph ? `${icon(glyph)} ` : "";
 			if (name === undefined) return marker + detail;
-			const painted = theme.style(name, { fg: nameColor, bold: true });
+			const painted = paint(name, nameColor, true);
 			return marker + painted + neutralDetail(detail);
 		},
 	};
