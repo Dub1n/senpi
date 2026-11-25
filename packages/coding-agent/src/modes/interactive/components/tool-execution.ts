@@ -3,6 +3,7 @@ import {
 	Container,
 	joinLineArrays,
 	Spacer,
+	wrapTextWithAnsi,
 	type DensityCardRenderOptions,
 	type DensityCardView,
 	type TUI,
@@ -195,7 +196,9 @@ export class ToolExecutionComponent extends Container {
 				kind: "eval",
 				heading: summary.name ? { identity: summary.name } : { description: summary.detail },
 				status: "failed",
-				body: output ? [{ type: "text", role: "text", lines: output.split("\n") }] : [],
+				body: output
+					? [{ type: "rich", render: (width) => wrapTextWithAnsi(theme.fg("toolOutput", output), width) }]
+					: [],
 				sections: [],
 			};
 		}

@@ -292,7 +292,7 @@ describe("semantic density card styling", () => {
 		it.each([
 			{ summary: "Validate the request", title: "Validate the request" },
 			{ summary: undefined, title: "eval js" },
-		])("frames eval validation failures as $title without a semantic result renderer", ({ summary, title }) => {
+		])("frames eval validation failures as $title with muted output", async ({ summary, title }) => {
 			const card = new ToolExecutionComponent(
 				"eval",
 				"eval-validation",
@@ -327,10 +327,17 @@ describe("semantic density card styling", () => {
 				row.setLayout(density === "grouped", true, true);
 				expect(row.render(80).map(stripTerminalSequences).join("\n")).toContain(`╶─ ✗ ${title}`);
 				card.setExpanded(true);
-				const expanded = row.render(80).map(stripTerminalSequences).join("\n");
+				const rows = row.render(80);
+				const plain = rows.map(stripTerminalSequences);
+				const expanded = plain.join("\n");
 				expect(expanded).toContain(`╭─ ✗ ${title}`);
 				expect(expanded).toContain('│ Validation failed for tool "eval":');
 				expect(expanded).toContain('│   "language": "js"');
+				using terminal = await terminalRows(rows, 81);
+				using swatch = await terminalRows([theme.fg("toolOutput", "N")]);
+				const firstLine = plain.findIndex((line) => line.startsWith(" │ Validation failed"));
+				expect(cellOf(terminal, firstLine, 3).color).toEqual(cellOf(swatch, 0, 0).color);
+				expect(cellOf(terminal, firstLine + 1, 5).color).toEqual(cellOf(swatch, 0, 0).color);
 			} finally {
 				card.dispose();
 			}

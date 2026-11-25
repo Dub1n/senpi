@@ -1,3 +1,21 @@
+## 2026-11-25 - Match eval validation text to eval output
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/tool-execution.ts` uses the theme's tool output color for eval validation messages in Compact and Grouped cards.
+
+### Why
+
+- Validation details should have the same visual weight as ordinary eval output without changing the failure heading.
+
+### Why an extension could not handle it
+
+- The transcript host supplies this fallback when the eval extension has no semantic result.
+
+### Expected merge conflict zones
+
+- LOW: dense eval validation fallback only; Default rendering is unchanged.
+
 ## 2026-11-25 - Clarify dense question and peek cards
 
 ### What changed
