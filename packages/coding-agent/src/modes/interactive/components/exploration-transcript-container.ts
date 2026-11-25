@@ -18,6 +18,7 @@ import { AssistantMessageComponent } from "./assistant-message.ts";
 import { PatchDensityCard, PatchDensityProjection, type ApplyPatchDensityProjection } from "./apply-patch-density.ts";
 import { CustomEntryComponent } from "./custom-entry.ts";
 import { CompactionSummaryMessageComponent } from "./compaction-summary-message.ts";
+import { type DenseProjectRulesMember, DenseProjectRulesRun } from "./dense-project-rules.ts";
 import { type DenseReadMember, denseReadProjection, DenseReadRun } from "./dense-read-run.ts";
 import { type ExplorationCall, explorationCall } from "./exploration-call.ts";
 import { ExplorationGroup } from "./exploration-group.ts";
@@ -44,6 +45,7 @@ export class ExplorationTranscriptContainer extends Container {
 	private densityColors: ToolDisplayColors = { colorFrames: false, colorNames: false, colorIcons: false };
 	private readonly densityRows = new WeakMap<ToolExecutionComponent | DensityCardSource, ToolDensityRow>();
 	private readonly denseReadRuns = new WeakMap<ToolExecutionComponent, DenseReadRun>();
+	private readonly denseProjectRulesRuns = new WeakMap<CustomEntryComponent, DenseProjectRulesRun>();
 	private patchDensityProjections = new WeakMap<ToolExecutionComponent, PatchDensityProjection>();
 	private patchDensityGroups = new WeakMap<ToolExecutionComponent, PatchDensityCard>();
 	private densityProjection:
@@ -155,7 +157,31 @@ export class ExplorationTranscriptContainer extends Container {
 			}
 			patchRun = [];
 		};
+		let ruleNotices: DenseProjectRulesMember[] = [];
+		const flushRuleNotices = (): void => {
+			const [first, second] = ruleNotices;
+			if (!first) return;
+			if (second) {
+				let run = this.denseProjectRulesRuns.get(first.card);
+				if (!run) {
+					run = new DenseProjectRulesRun();
+					this.denseProjectRulesRuns.set(first.card, run);
+				}
+				run.setMembers(ruleNotices);
+				appendRow(run);
+			} else {
+				appendRow(first.card);
+			}
+			ruleNotices = [];
+		};
 		const append = (child: Component): void => {
+			if (child instanceof CustomEntryComponent && child.projectRulesNotice) {
+				flushReads();
+				flushPatches();
+				ruleNotices.push({ card: child, notice: child.projectRulesNotice });
+				return;
+			}
+			flushRuleNotices();
 			if (child instanceof ToolExecutionComponent && child.summarySnapshot.name === "apply_patch") {
 				flushReads();
 				const patch = this.applyPatchProjectionOf(child);
@@ -200,6 +226,7 @@ export class ExplorationTranscriptContainer extends Container {
 		}
 		flushReads();
 		flushPatches();
+		flushRuleNotices();
 		previous?.setLayout(grouped, previousFirst, true);
 		this.densityProjection = { source: [...this.children], projected, clock: currentRenderRevision() };
 		return projected;

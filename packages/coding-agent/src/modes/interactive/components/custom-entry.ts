@@ -1,8 +1,14 @@
 import type { Component } from "@earendil-works/pi-tui";
 import { Box, Container, isSemanticDensityCardSource, Spacer, Text } from "@earendil-works/pi-tui";
+import { renderRuleActivationEntry } from "../../../core/extensions/builtin/rule-activation/renderer.ts";
+import {
+	parseRuleActivationDetails,
+	type ProjectRulesActivationDetails,
+} from "../../../core/extensions/builtin/rule-activation/types.ts";
 import type { EntryRenderer, EntryRendererOptions } from "../../../core/extensions/types.ts";
 import type { CustomEntry } from "../../../core/session-manager.ts";
 import { theme } from "../theme/theme.ts";
+import { projectRulesDensityCard } from "./dense-project-rules.ts";
 import {
 	entryNoticeCard,
 	isNoticeBox,
@@ -19,6 +25,7 @@ import {
 export class CustomEntryComponent extends Container {
 	private entry: CustomEntry<unknown>;
 	private renderer: EntryRenderer;
+	readonly projectRulesNotice: ProjectRulesActivationDetails | undefined;
 	private customComponent?: Component;
 	private _expanded = false;
 
@@ -26,6 +33,8 @@ export class CustomEntryComponent extends Container {
 		super();
 		this.entry = entry;
 		this.renderer = renderer;
+		const rules = renderer === renderRuleActivationEntry ? parseRuleActivationDetails(entry.data) : undefined;
+		this.projectRulesNotice = rules?.kind === "project-rules" ? rules : undefined;
 		this.rebuild();
 	}
 
@@ -57,6 +66,9 @@ export class CustomEntryComponent extends Container {
 	renderDensityCard(width: number, options: { readonly grouped: boolean; readonly expanded?: boolean }) {
 		if (this.customComponent && isSemanticDensityCardSource(this.customComponent)) {
 			return this.customComponent.renderDensityCard(width, options);
+		}
+		if (this.projectRulesNotice) {
+			return projectRulesDensityCard([this.projectRulesNotice], width, options.expanded ?? false);
 		}
 		const entryCard = entryNoticeCard(this.entry, this.customComponent);
 		if (entryCard) return entryCard;

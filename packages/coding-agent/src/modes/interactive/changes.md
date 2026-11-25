@@ -1,3 +1,23 @@
+## 2026-11-25 - Lead dense project rules cards with matched rules
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/custom-entry.ts` uses the recorded rule labels for stock project-rule notices in dense mode.
+- `packages/coding-agent/src/modes/interactive/components/dense-project-rules.ts` moves the recorded target to the expanded body, under each rule in a merged card, and uses a count when the labels do not fit.
+- `packages/coding-agent/src/modes/interactive/components/exploration-transcript-container.ts` groups adjacent project-rule notices without changing Default mode or stream-rule notices.
+
+### Why
+
+- Long target paths hid the rule that matched and made consecutive activations difficult to scan.
+
+### Why an extension could not handle it
+
+- Individual entry renderers cannot see adjacent transcript entries or project them as one card.
+
+### Expected merge conflict zones
+
+- LOW: custom-entry density adaptation and the dense projection loop.
+
 ## 2026-11-24 - Keep eval section headings on the eval accent
 
 ### What changed
