@@ -1,4 +1,4 @@
-import { Text } from "@earendil-works/pi-tui";
+import { type DensityCardStructuredView, sanitizeTerminalLabel, Text } from "@earendil-works/pi-tui";
 import { toolResultUserWords } from "../../../tool-result-user-words.ts";
 import type { ToolDefinition } from "../../types.ts";
 import { TOOL_NAMES } from "./family.ts";
@@ -38,6 +38,40 @@ export const renderResult: NonNullable<ToolDefinition["renderResult"]> = (result
 		0,
 	);
 };
+
+/** Frame both stock question tools in dense mode without changing their Default renderer. */
+export function questionDensityCard(
+	name: string,
+	result: Parameters<NonNullable<ToolDefinition["renderResult"]>>[0] | undefined,
+	isError: boolean,
+	expanded: boolean,
+): DensityCardStructuredView | undefined {
+	if (name !== TOOL_NAMES.codex && name !== TOOL_NAMES.claude) return undefined;
+	const details: unknown = result?.details;
+	const rawStatus = details && typeof details === "object" && "status" in details ? details.status : undefined;
+	const status = isError
+		? "failed"
+		: typeof rawStatus === "string" && rawStatus
+			? sanitizeTerminalLabel(rawStatus.replace(/[-_]/gu, " "))
+			: result
+				? "done"
+				: "pending";
+	const words = expanded && result ? toolResultUserWords(result) : [];
+	const lines =
+		expanded && result
+			? result.content.flatMap((part) =>
+					part.type === "text" ? resolveUserWordReferences(part.text, words).split("\n") : [],
+				)
+			: [];
+	return {
+		format: "structured",
+		kind: "question",
+		heading: { details: [status] },
+		statusGlyph: isError ? "✗" : status === "cancelled" ? "×" : "?",
+		body: lines.length > 0 ? [{ type: "text", lines }] : [],
+		sections: [],
+	};
+}
 
 /**
  * Renderers for a question card whose tool definition is not resolvable: the tools are registered

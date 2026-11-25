@@ -34,8 +34,8 @@ const colorCases = (
 	{ ...style, colorIcons: true, icon: "customMessageLabel" as const },
 ]);
 
-async function terminalRows(rows: readonly string[]) {
-	const terminal = new xterm.Terminal({ cols: width + 1, rows: 20, allowProposedApi: true });
+async function terminalRows(rows: readonly string[], cols = width + 1) {
+	const terminal = new xterm.Terminal({ cols, rows: 20, allowProposedApi: true });
 	await new Promise<void>((resolve) => terminal.write(rows.join("\x1b[0m\r\n"), resolve));
 	return { terminal, [Symbol.dispose]: () => terminal.dispose() };
 }
@@ -147,6 +147,113 @@ describe("semantic density card styling", () => {
 				card.dispose();
 			}
 		});
+
+		it.each([
+			{ status: "pending", isError: false, glyph: "?" },
+			{ status: "answered", isError: false, glyph: "?" },
+			{ status: "cancelled", isError: false, glyph: "×" },
+			{ status: undefined, isError: true, glyph: "✗" },
+		])("uses a stable question heading in both views ($status)", ({ status, isError, glyph }) => {
+			const card = new ToolExecutionComponent(
+				"request_user_input",
+				"question-state",
+				{},
+				{},
+				undefined,
+				new TUI(new VirtualTerminal()),
+				process.cwd(),
+			);
+			try {
+				const content = "The question service returned this message.";
+				card.updateResult({ content: [{ type: "text", text: content }], details: { status }, isError });
+				const row = new ToolDensityRow(card, () => {});
+				row.setLayout(density === "grouped", true, true);
+				const heading = `${glyph} question • ${status ?? "failed"}`;
+				expect(row.render(76).map(stripTerminalSequences).join("\n")).toContain(`╶─ ${heading}`);
+				card.setExpanded(true);
+				const expanded = row.render(76).map(stripTerminalSequences);
+				expect(expanded.join("\n")).toContain(`╭─ ${heading}`);
+				expect(expanded.filter((line) => line.trim().startsWith("│")).map((line) => line.trim())).toEqual([
+					`│ ${content}`,
+				]);
+			} finally {
+				card.dispose();
+			}
+		});
+
+		it.each([false, true])(
+			"dims task models and italicizes previews without tinting identity (batch=%s)",
+			async (batch) => {
+				const first = {
+					task_id: "st_first",
+					nickname: "Kale",
+					task_summary: "Build a replay",
+					status: "running",
+					resolved_model: { display: "Luna", reasoning: "high" },
+				};
+				const second = { ...first, task_id: "st_second", nickname: "Io", task_summary: "Check the replay" };
+				const card = new ToolExecutionComponent(
+					"task",
+					"preview-style",
+					{},
+					{},
+					undefined,
+					new TUI(new VirtualTerminal()),
+					process.cwd(),
+				);
+				try {
+					card.updateResult({
+						content: [],
+						details: { ...first, mode: "spawn", ...(batch ? { items: [first, second] } : {}) },
+						isError: false,
+					});
+					const row = new ToolDensityRow(card, () => {});
+					row.setLayout(density === "grouped", true, true);
+					using swatch = await terminalRows([
+						theme.fg("text", "T"),
+						theme.style("D", { fg: "dim", italic: true }),
+					]);
+					for (const expanded of [false, true]) {
+						card.setExpanded(expanded);
+						const rendered = row.render(80);
+						using terminal = await terminalRows(rendered, 81);
+						const plain = rendered.map(stripTerminalSequences);
+						for (const preview of batch
+							? expanded
+								? ["Build a replay", "Check the replay"]
+								: []
+							: ["Build a replay"]) {
+							const y = plain.findIndex((line) => line.includes(`"${preview}"`));
+							expect(y).toBeGreaterThanOrEqual(0);
+							const previewColumn = plain[y].indexOf(preview);
+							const modelColumn = plain[y].indexOf("Luna");
+							const terminalLine = terminal.terminal.buffer.active.getLine(y);
+							expect(terminalLine?.getCell(previewColumn)?.isDim()).toBe(
+								swatch.terminal.buffer.active.getLine(1)?.getCell(0)?.isDim(),
+							);
+							expect(cellOf(terminal, y, previewColumn)).toMatchObject({
+								italic: true,
+								color: cellOf(swatch, 1, 0).color,
+							});
+							expect(cellOf(terminal, y, modelColumn)).toMatchObject({
+								italic: false,
+								color: cellOf(swatch, 1, 0).color,
+							});
+							expect(terminalLine?.getCell(modelColumn)?.isDim()).toBe(
+								swatch.terminal.buffer.active.getLine(1)?.getCell(0)?.isDim(),
+							);
+							const identity = preview === "Build a replay" ? "Kale" : "Io";
+							expect(cellOf(terminal, y, plain[y].indexOf(identity))).toMatchObject({
+								italic: false,
+								color: cellOf(swatch, 0, 0).color,
+							});
+						}
+					}
+				} finally {
+					card.dispose();
+				}
+			},
+		);
 
 		it("keeps the failed memory title and the expanded diagnostics", () => {
 			const card = new ToolExecutionComponent(

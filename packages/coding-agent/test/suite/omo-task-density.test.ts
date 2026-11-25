@@ -1,6 +1,7 @@
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
-import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, type JsonObject } from "@earendil-works/pi-ai";
 import { beforeAll, describe, expect, it } from "vitest";
+import { SESSION_CONTROL_DELIVERY_TYPE } from "../../src/core/extensions/session-control-types.ts";
 import { omoTaskDensityCard } from "../../src/modes/interactive/components/omo-task-density.ts";
 import { ExplorationTranscriptContainer } from "../../src/modes/interactive/components/exploration-transcript-container.ts";
 import { ToolDensityRow, type DensityCardSource } from "../../src/modes/interactive/components/tool-density-row.ts";
@@ -28,6 +29,74 @@ function rows(toolName: string, args: unknown, details: unknown, expanded: boole
 }
 
 describe("OmO tool density cards", () => {
+	it("replays model context from earlier task receipts by ID without applying a later run retroactively", async () => {
+		const surface = await explorationSurface(true);
+		try {
+			if (!(surface.chat instanceof ExplorationTranscriptContainer)) throw new TypeError("Expected transcript");
+			const result = (id: string, name: string, args: JsonObject, details: object) => [
+				fauxAssistantMessage(
+					{ type: "toolCall", id, name, arguments: args },
+					{ stopReason: "toolUse", timestamp: 0 },
+				),
+				{ role: "toolResult", toolName: name, toolCallId: id, timestamp: 0, isError: false, content: [], details },
+			];
+			const spawn = (id: string, model: string, effort: string, epoch: number) =>
+				result(
+					id,
+					"task",
+					{},
+					{
+						mode: "spawn",
+						task_id: "st_worker",
+						child_session_id: "session-worker",
+						run_epoch: epoch,
+						nickname: "Kale",
+						status: "running",
+						resolved_model: { display: model, reasoning: effort },
+					},
+				);
+			const send = (id: string, taskId: string, nickname: string, epoch?: number) =>
+				result(
+					id,
+					"task_send",
+					{ to: taskId, message: "Continue" },
+					{ kind: "steered", task_id: taskId, nickname, run_epoch: epoch, delivered: "steer", status: "running" },
+				);
+			invoke(surface.mode, "renderSessionItems", [
+				...spawn("spawn-a", "Luna", "LOW", 1),
+				{
+					role: "custom",
+					customType: SESSION_CONTROL_DELIVERY_TYPE,
+					content: "Here is an update",
+					display: true,
+					timestamp: 0,
+					details: {
+						delivery_id: "test-delivery",
+						source: "session_control",
+						deliverAs: "followUp",
+						sender: { kind: "agent", session_id: "session-worker", name: "Kale" },
+					},
+				},
+				...send("send-a", "st_worker", "Kale"),
+				...send("send-other", "st_other", "Other"),
+				...spawn("spawn-b", "Sol", "HIGH", 2),
+				...send("send-b", "st_worker", "Kale"),
+				...send("send-old", "st_worker", "Kale", 1),
+			]);
+			surface.chat.setToolDisplayDensity("compact");
+			const rendered = surface.chat.render(90).map(stripTerminalSequences);
+			expect(rendered.join("\n")).toContain("from • Kale · Luna low");
+			const messages = rendered.filter((line) => line.includes("messaged •")).map((line) => line.trim());
+			expect(messages.map((line) => line.slice(line.indexOf("messaged")))).toEqual([
+				"messaged • Kale · Luna low",
+				"messaged • Other",
+				"messaged • Kale · Sol high",
+				"messaged • Kale · Luna low",
+			]);
+		} finally {
+			surface.cleanup();
+		}
+	});
 	beforeAll(() => initTheme("dark"));
 
 	describe.each([
@@ -118,13 +187,19 @@ describe("OmO tool density cards", () => {
 			if (view?.format !== "structured") throw new Error("Expected structured task card");
 			expect(view.statusGlyph).toBe("+");
 			expect(view.heading.details).toEqual([
-				[{ text: "Deimos (Luna low)", role: "text" }],
-				[{ text: "Io (Sol high)", role: "text" }],
+				[
+					{ text: "Deimos", role: "text" },
+					{ text: " (Luna low)", role: "dim" },
+				],
+				[
+					{ text: "Io", role: "text" },
+					{ text: " (Sol high)", role: "dim" },
+				],
 			]);
 			expect(view.expandedHeading?.details).toEqual([
 				[{ text: "Deimos", role: "text" }],
-				[{ text: "Luna low", role: "text" }],
-				[{ text: '"Implement"', role: "text" }],
+				[{ text: "Luna low", role: "dim" }],
+				[{ text: '"Implement"', role: "dim", italic: true }],
 			]);
 			expect(view.body).toEqual([
 				{
@@ -145,8 +220,8 @@ describe("OmO tool density cards", () => {
 						heading: {
 							details: [
 								[{ text: "Io", role: "text" }],
-								[{ text: "Sol high", role: "text" }],
-								[{ text: '"Verify"', role: "text" }],
+								[{ text: "Sol high", role: "dim" }],
+								[{ text: '"Verify"', role: "dim", italic: true }],
 							],
 						},
 						statusGlyph: "✗",
@@ -249,9 +324,9 @@ describe("OmO tool density cards", () => {
 				nickname: "Wrong level",
 				snapshot: { task_id: "st_123", nickname: "Selene", status: "running" },
 			};
-			expect(rows("task_output", args, details, false, grouped)).toContain(pad(" ╶─ ◉ peek • status Selene"));
+			expect(rows("task_output", args, details, false, grouped)).toContain(pad(" ╶─ ◉ peek • Selene · running"));
 			const unresolved = { ...details, kind: "not_found", reason: "unavailable" };
-			expect(rows("task_output", args, unresolved, false, grouped)).toContain(pad(" ╶─ ✗ peek • status id: st_123"));
+			expect(rows("task_output", args, unresolved, false, grouped)).toContain(pad(" ╶─ ✗ peek • id: st_123"));
 		});
 	});
 
@@ -271,14 +346,14 @@ describe("OmO tool density cards", () => {
 		]);
 	});
 
-	it("shows the requested tail limit rather than claiming a line count", () => {
+	it("shows tail status in the title and a leading ellipsis in the transcript", () => {
 		const args = { task_id: "st_123", mode: "tail", tail_lines: 9 };
 		const details = {
 			kind: "transcript",
 			mode: "tail",
 			source: "event-log",
 			transcript: "assistant: ready",
-			truncated: false,
+			truncated: true,
 			snapshot: {
 				task_id: "st_123",
 				status: "running",
@@ -293,13 +368,12 @@ describe("OmO tool density cards", () => {
 		expect(rows("task_output", args, details, true)).toEqual([
 			"",
 			pad(""),
-			pad(" ╭─ ◉ peek • tail id: st_123 · provider/model"),
+			expect.stringContaining("peek • id: st_123 · provider/model ·"),
 			pad(" │ id: st_123"),
-			pad(" │ status: running"),
 			pad(" │ model: provider/model"),
-			pad(" │ requested tail: 9 lines"),
-			pad(" │ source: event-log"),
-			pad(" │ transcript: assistant: ready"),
+			pad(" │ transcript:"),
+			pad(" │ …"),
+			pad(" │ assistant: ready"),
 			pad(" ╰─"),
 			pad(""),
 		]);
@@ -414,7 +488,7 @@ describe("OmO tool density cards", () => {
 			},
 			true,
 		);
-		expect(result).toContain(pad(" ╭─ ◉ peek • status Selene"));
+		expect(result).toContain(pad(" ╭─ ◉ peek • Selene · running"));
 		expect(result).toContain(pad(" │ id: st_123"));
 	});
 
@@ -435,7 +509,7 @@ describe("OmO tool density cards", () => {
 		});
 		expect(view?.format).toBe("structured");
 		if (view?.format !== "structured") throw new Error("Expected structured task-send card");
-		expect(view.heading.details).toEqual([[{ text: "Selene", role: "text" }], [{ text: "Sol high", role: "text" }]]);
+		expect(view.heading.details).toEqual([[{ text: "Selene", role: "text" }], [{ text: "Sol high", role: "dim" }]]);
 		expect(view.body).toEqual([
 			{
 				type: "text",
@@ -476,13 +550,12 @@ describe("OmO tool density cards", () => {
 		).toEqual([
 			"",
 			pad(""),
-			pad(" ╭─ ◉ peek • full id: st_123 · provider/model"),
+			expect.stringContaining("peek • id: st_123 · provider/model ·"),
 			pad(" │ id: st_123"),
-			pad(" │ status: completed"),
 			pad(" │ model: provider/model"),
-			pad(" │ source: session-jsonl"),
-			pad(" │ truncated: yes"),
-			pad(" │ transcript: assistant: finished"),
+			pad(" │ transcript:"),
+			pad(" │ assistant: finished"),
+			pad(" │ …"),
 			pad(" ╰─"),
 			pad(""),
 		]);
@@ -496,14 +569,7 @@ describe("OmO tool density cards", () => {
 				{ kind: "not_found", reason: "task missing", known_tasks: [] },
 				true,
 			),
-		).toEqual([
-			"",
-			pad(""),
-			pad(" ╭─ ✗ peek • status id: st_missing"),
-			pad(" │ error: task missing"),
-			pad(" ╰─"),
-			pad(""),
-		]);
+		).toEqual(["", pad(""), pad(" ╭─ ✗ peek • id: st_missing"), pad(" │ error: task missing"), pad(" ╰─"), pad("")]);
 	});
 
 	it("renders producer-shaped status data through the real grouped transcript", async () => {
@@ -542,9 +608,8 @@ describe("OmO tool density cards", () => {
 			expect(surface.chat.render(width).map(stripTerminalSequences)).toEqual([
 				"",
 				pad(""),
-				pad(" ╭─ ◉ peek • status id: st_123 · provider/model"),
+				expect.stringContaining("peek • id: st_123 · provider/model ·"),
 				pad(" │ id: st_123"),
-				pad(" │ status: running"),
 				pad(" │ model: provider/model"),
 				pad(" ╰─"),
 				pad(""),

@@ -8,6 +8,7 @@ import {
 	type TUI,
 } from "@earendil-works/pi-tui";
 import { isModelOnlyText } from "../../../core/tools/model-only-text.ts";
+import { questionDensityCard } from "../../../core/extensions/builtin/ask-user/render.ts";
 import { getTextOutput } from "../../../core/tools/render-utils.ts";
 import { GrokToolRow } from "../grok/tool-row.ts";
 import { theme } from "../theme/theme.ts";
@@ -37,6 +38,13 @@ export interface ToolExecutionOptions {
 export type ToolExecutionPresentation = "classic" | "grok";
 
 export class ToolExecutionComponent extends Container {
+	private denseEarlierModel: string | undefined;
+
+	setDenseEarlierModel(model: string | undefined): void {
+		if (this.denseEarlierModel === model) return;
+		this.denseEarlierModel = model;
+		this.bumpRenderRevision();
+	}
 	private readonly identity: ToolExecutionIdentity;
 	private readonly ui: TUI;
 	private readonly renderer: ToolExecutionRenderer | undefined;
@@ -158,10 +166,18 @@ export class ToolExecutionComponent extends Container {
 				? { grouped: optionsOrGrouped, expanded: legacyExpanded }
 				: { grouped: optionsOrGrouped.grouped, expanded: optionsOrGrouped.expanded ?? false };
 		if (this.showImages && this.result?.content.some((part) => part.type === "image")) return undefined;
+		const questionView = questionDensityCard(
+			this.identity.toolName,
+			this.result ? { ...this.result, details: this.result.details } : undefined,
+			this.result?.isError ?? false,
+			options.expanded,
+		);
+		if (questionView !== undefined) return questionView;
 		const taskView = omoTaskDensityCard({
 			toolName: this.identity.toolName,
 			args: this.args,
 			result: this.result,
+			earlierModel: this.denseEarlierModel,
 		});
 		if (taskView !== undefined) return taskView;
 		let view = this.renderer?.renderDensityCard(width, options);

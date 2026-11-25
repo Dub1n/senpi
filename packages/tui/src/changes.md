@@ -1,3 +1,21 @@
+## 2026-11-25 - Recognize question cards in dense transcripts
+
+### What changed
+
+- `packages/tui/src/density-card.ts` adds a semantic kind for question cards.
+
+### Why
+
+- Both built-in question tools share the same dense title while retaining their existing Default display.
+
+### Why an extension could not handle it
+
+- The shared contract identifies the question palette to the host.
+
+### Expected merge conflict zones
+
+- LOW: the semantic card kind union.
+
 ## 2026-11-25 - Allow semantic foreground roles on dense card spans
 
 ### What changed

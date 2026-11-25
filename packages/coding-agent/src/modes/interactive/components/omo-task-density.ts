@@ -13,13 +13,14 @@ export function omoTaskDensityCard(input: {
 	readonly toolName: string;
 	readonly args: unknown;
 	readonly result: { readonly details?: unknown; readonly isError: boolean } | undefined;
+	readonly earlierModel?: string;
 }): DensityCardView | undefined {
 	if (!input.result || !isRecord(input.args) || !isRecord(input.result.details)) return undefined;
 	switch (input.toolName) {
 		case "task_send":
-			return messageCard(input.args, input.result.details, input.result.isError);
+			return messageCard(input.args, input.result.details, input.result.isError, input.earlierModel);
 		case "task_output":
-			return outputCard(input.args, input.result.details, input.result.isError);
+			return outputCard(input.args, input.result.details, input.result.isError, input.earlierModel);
 		case "task":
 			return taskCard(input.args, input.result.details, input.result.isError);
 		default:
@@ -33,6 +34,53 @@ function isRecord(value: unknown): value is RecordValue {
 
 function text(value: unknown): string | undefined {
 	return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/** Index only recorded worker observations, scoped to one transcript projection. */
+export class DenseWorkerModels {
+	private readonly tasks = new Map<string, string>();
+	private readonly sessions = new Map<string, string>();
+
+	private taskKey(id: string, record: RecordValue): string {
+		const epoch = record.run_epoch;
+		return typeof epoch === "number" || typeof epoch === "string" ? `${id}\0${epoch}` : id;
+	}
+
+	forTask(tool: string, value: unknown): string | undefined {
+		if ((tool !== "task_send" && tool !== "task_output") || !isRecord(value)) return undefined;
+		if (value.kind === "not_found" || value.kind === "scope_denied" || value.kind === "invalid_arguments")
+			return undefined;
+		const record = isRecord(value.snapshot) ? value.snapshot : value;
+		const id = text(record.task_id);
+		return id ? this.tasks.get(this.taskKey(id, record)) : undefined;
+	}
+
+	forSession(id: string): string | undefined {
+		return this.sessions.get(id);
+	}
+
+	observe(tool: string, value: unknown): void {
+		if (!isRecord(value)) return;
+		const records =
+			tool === "task" && value.mode === "spawn"
+				? Array.isArray(value.items)
+					? value.items.filter(isRecord)
+					: [value]
+				: tool === "task_output" &&
+					  (value.kind === "status" || value.kind === "transcript") &&
+					  isRecord(value.snapshot)
+					? [value.snapshot]
+					: [];
+		for (const record of records) {
+			const id = text(record.task_id);
+			const model = modelDisplay(record);
+			if (!id || !model) continue;
+			this.tasks.set(this.taskKey(id, record), model);
+			this.tasks.set(id, model);
+			const session = text(record.child_session_id);
+			if (session) this.sessions.set(session, model);
+		}
+	}
 }
 
 function card(
@@ -101,7 +149,12 @@ function taskStatusGlyph(status: string): string {
 	return "+";
 }
 
-function messageCard(args: RecordValue, details: RecordValue, isError: boolean): OmoCard | undefined {
+function messageCard(
+	args: RecordValue,
+	details: RecordValue,
+	isError: boolean,
+	earlierModel?: string,
+): OmoCard | undefined {
 	const recipient = text(args.to);
 	const kind = text(details.kind);
 	if (!recipient || !kind) return undefined;
@@ -204,12 +257,17 @@ function messageCard(args: RecordValue, details: RecordValue, isError: boolean):
 			? undefined
 			: taskIdentity(details);
 	const identity = worker || label(recipient);
-	const model = modelDisplay(details);
-	const heading = [span(identity), ...(model ? [span(model)] : [])] as const;
+	const model = modelDisplay(details) ?? earlierModel;
+	const heading = [span(identity), ...(model ? [span(model, "dim")] : [])] as const;
 	return card("outgoing-message", heading, failure ? "✗" : "→", lines);
 }
 
-function outputCard(args: RecordValue, details: RecordValue, isError: boolean): OmoCard | undefined {
+function outputCard(
+	args: RecordValue,
+	details: RecordValue,
+	isError: boolean,
+	earlierModel?: string,
+): OmoCard | undefined {
 	const mode = args.mode === undefined ? "status" : args.mode;
 	if (mode !== "status" && mode !== "tail" && mode !== "full") return undefined;
 	const kind = text(details.kind);
@@ -223,15 +281,10 @@ function outputCard(args: RecordValue, details: RecordValue, isError: boolean): 
 		case "transcript": {
 			if (!snapshot || !text(snapshot.status)) return undefined;
 			lines.push(span(`id: ${id}`));
-			lines.push(`status: ${snapshot.status}`);
 			const agent = text(snapshot.agent_type) ?? text(snapshot.category);
 			const model = modelDisplay(snapshot);
 			if (agent) lines.push(span(`agent: ${agent}${model ? ` (${model})` : ""}`));
 			else if (model) lines.push(span(`model: ${model}`));
-			if (mode === "tail") {
-				const limit = args.tail_lines === undefined ? 60 : args.tail_lines;
-				if (typeof limit === "number") lines.push(`requested tail: ${limit} lines`);
-			}
 			if (kind === "transcript") {
 				if (
 					(details.mode !== "tail" && details.mode !== "full") ||
@@ -240,9 +293,13 @@ function outputCard(args: RecordValue, details: RecordValue, isError: boolean): 
 					typeof details.truncated !== "boolean"
 				)
 					return undefined;
-				lines.push(`source: ${details.source}`);
-				if (details.truncated) lines.push("truncated: yes");
-				lines.push(`transcript: ${details.transcript}`);
+				lines.push("transcript:");
+				const transcript = details.transcript.split(/\r?\n/u);
+				const isElision = (line: string) => /^\.\.\.\[elided \d+ chars\]\.\.\.$/u.test(line);
+				const hasElision = transcript.some(isElision);
+				if (details.truncated && details.mode === "tail") lines.push("…");
+				lines.push(...transcript.map((line) => (isElision(line) ? "…" : line)));
+				if (details.truncated && details.mode === "full" && !hasElision) lines.push("…");
 			} else {
 				const response = text(snapshot.final_response);
 				if (response) lines.push(`result: ${response}`);
@@ -252,7 +309,7 @@ function outputCard(args: RecordValue, details: RecordValue, isError: boolean): 
 		case "no_progress":
 			if (!text(details.task_id) || !text(details.status) || !text(details.reason)) return undefined;
 			lines.push(span(`id: ${details.task_id}`));
-			lines.push(`status: ${details.status}`, `detail: ${details.reason}`);
+			lines.push(`detail: ${details.reason}`);
 			break;
 		case "not_found":
 		case "invalid_arguments":
@@ -263,9 +320,15 @@ function outputCard(args: RecordValue, details: RecordValue, isError: boolean): 
 			return undefined;
 	}
 	const worker = kind === "status" || kind === "transcript" ? snapshot : kind === "no_progress" ? details : undefined;
-	const model = worker ? modelDisplay(worker) : undefined;
+	const model = worker ? (modelDisplay(worker) ?? earlierModel) : undefined;
 	const identity = (worker && taskIdentity(worker)) || `id: ${id}`;
-	const heading = [span(`${mode} ${identity}`), ...(model ? [span(model)] : [])];
+	const status = text(worker?.status);
+	const heading = [
+		span(identity),
+		...(model ? [span(model, "dim")] : []),
+		...(status ? [span(status, "dim")] : []),
+		...(mode === "status" ? [] : [span(mode, "dim")]),
+	];
 	return card(
 		"task-peek",
 		heading,
@@ -310,7 +373,11 @@ function taskCard(args: RecordValue, details: RecordValue, isError: boolean): Om
 		const identity = taskIdentity(item);
 		const model = modelDisplay(item);
 		const summary = itemSummary(item, index);
-		return [span(identity), ...(model ? [span(model)] : []), ...(summary ? [span(`"${label(summary)}"`)] : [])];
+		return [
+			span(identity),
+			...(model ? [span(model, "dim")] : []),
+			...(summary ? [span(`"${summary}"`, "dim", true)] : []),
+		];
 	};
 	const workerBody = (item: RecordValue, index: number, hideRunningStatus: boolean): OmoCard["body"] => {
 		const lines: DensityCardText[] = [];
@@ -353,7 +420,10 @@ function taskCard(args: RecordValue, details: RecordValue, isError: boolean): Om
 		if (workers.some((worker) => worker === undefined)) return undefined;
 		const resolvedWorkers = workers.filter((worker) => worker !== undefined);
 		heading = resolvedWorkers.length
-			? resolvedWorkers.map(({ identity, model }) => span(model ? `${identity} (${model})` : identity))
+			? resolvedWorkers.map(({ identity, model }) => [
+					{ text: label(identity), role: "text" as const },
+					...(model ? [{ text: ` (${label(model)})`, role: "dim" as const }] : []),
+				])
 			: [span(taskIdentity(details))];
 		const first = resolvedWorkers[0];
 		expandedHeading = first ? expandedDetails(first.item, first.index) : [span(label(id ?? "task"))];

@@ -10,6 +10,7 @@ import {
 	Text,
 } from "@earendil-works/pi-tui";
 import type { MessageRenderer } from "../../../core/extensions/types.ts";
+import { sessionControlSenderOf } from "../../../core/extensions/session-control-types.ts";
 import type { CustomMessage } from "../../../core/messages.ts";
 import { sharedMarkdownTheme, theme } from "../theme/theme.ts";
 import {
@@ -26,6 +27,19 @@ import { agentDeliveryDensityCard, renderRemoteDelivery } from "./remote-deliver
  * Uses distinct styling to differentiate from user messages.
  */
 export class CustomMessageComponent extends Container {
+	private denseSenderModel: string | undefined;
+
+	get denseSenderSessionId(): string | undefined {
+		if (this.customRenderer !== renderRemoteDelivery) return undefined;
+		const sender = sessionControlSenderOf(this.message.details);
+		return sender?.kind === "agent" ? sender.session_id : undefined;
+	}
+
+	setDenseSenderModel(model: string | undefined): void {
+		if (this.denseSenderModel === model) return;
+		this.denseSenderModel = model;
+		this.bumpRenderRevision();
+	}
 	private message: CustomMessage<unknown>;
 	private customRenderer?: MessageRenderer;
 	private box: Box;
@@ -88,7 +102,8 @@ export class CustomMessageComponent extends Container {
 	}
 
 	renderDensityCard(_width: number, _options: { readonly grouped: boolean }) {
-		if (this.customRenderer === renderRemoteDelivery) return agentDeliveryDensityCard(this.message);
+		if (this.customRenderer === renderRemoteDelivery)
+			return agentDeliveryDensityCard(this.message, this.denseSenderModel);
 		if (this.customComponent && isSemanticDensityCardSource(this.customComponent)) {
 			return this.customComponent.renderDensityCard(_width, _options);
 		}

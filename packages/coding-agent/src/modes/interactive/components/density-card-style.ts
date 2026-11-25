@@ -46,6 +46,7 @@ const cardRegistry = {
 	wake: { name: "wake", accent: "syntaxFunction", frame: "accent", body: "text", section: "muted" },
 	read: { name: "read", accent: "syntaxVariable", frame: "accent", body: "muted", section: "muted" },
 	todo: { name: "todo", accent: todoAccent, frame: "accent", body: "text", section: "muted" },
+	question: { name: "question", accent: "toolTitle", frame: "muted", body: "text", section: "muted" },
 	goal: { name: "goal", accent: "mdHeading", frame: "accent", body: "text", section: "muted" },
 	edit: { name: "edit", accent: "mdLink", frame: "accent", body: "muted", section: "muted" },
 	write: { name: "write", accent: "mdLink", frame: "accent", body: "muted", section: "muted" },

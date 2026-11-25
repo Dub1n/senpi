@@ -14,6 +14,7 @@ export type DensityCardKind =
 	| "loop-guard"
 	| "read"
 	| "todo"
+	| "question"
 	| "goal"
 	| "edit"
 	| "write"

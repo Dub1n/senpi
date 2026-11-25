@@ -1,3 +1,25 @@
+## 2026-11-25 - Clarify dense question and peek cards
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/tool-execution.ts` uses semantic dense question headings for both question tools, including replay.
+- `packages/coding-agent/src/modes/interactive/components/density-card-style.ts` registers the question title palette.
+- `packages/coding-agent/src/modes/interactive/components/omo-task-density.ts` moves peek status and mode into the title, marks transcript gaps with an ellipsis, and renders outbound task previews in dim italics.
+- `packages/coding-agent/src/modes/interactive/components/exploration-transcript-container.ts`, `packages/coding-agent/src/modes/interactive/components/tool-execution.ts`, and `packages/coding-agent/src/modes/interactive/components/custom-message.ts` reuse earlier task model observations by task/run ID or linked sender session ID within the current transcript.
+- `packages/coding-agent/src/modes/interactive/components/omo-task-density.ts` and `packages/coding-agent/src/modes/interactive/components/remote-delivery-message.ts` display model and effort dim, separately from the nickname or ID.
+
+### Why
+
+- Folded and expanded cards should identify the same operation without repeating status or transport details in the body.
+
+### Why an extension could not handle it
+
+- The host projects both stock question results and persisted OmO task receipts into dense cards.
+
+### Expected merge conflict zones
+
+- LOW: dense card projection and palette, with Default rendering unchanged.
+
 ## 2026-11-25 - Dim dense title details and keep memory failure chrome consistent
 
 ### What changed

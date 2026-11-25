@@ -1,3 +1,21 @@
+## 2026-11-25 - Project question outcomes into dense cards
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/ask-user/render.ts` provides a semantic dense heading and keeps question results in the expanded body without repeating the state.
+
+### Why
+
+- A pending question is an accepted request, not a completed answer, and should be identifiable in either view.
+
+### Why an extension could not handle it
+
+- The builtin owns the question outcome and user-word resolution used by the dense transcript.
+
+### Expected merge conflict zones
+
+- LOW: the additive dense question projection; the Default renderers are unchanged.
+
 ## 2026-11-17 - show_html_page runs on a hand (senpi#6920)
 
 ### What changed

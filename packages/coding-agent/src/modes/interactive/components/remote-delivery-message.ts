@@ -73,7 +73,10 @@ export function senderLabel(sender: SessionControlSender): string {
 }
 
 /** Project only a typed agent delivery; other delivery origins keep their original rendering. */
-export function agentDeliveryDensityCard(message: CustomMessage<unknown>): DensityCardView | undefined {
+export function agentDeliveryDensityCard(
+	message: CustomMessage<unknown>,
+	earlierModel?: string,
+): DensityCardView | undefined {
 	if (message.customType !== SESSION_CONTROL_DELIVERY_TYPE) return undefined;
 	const sender = sessionControlSenderOf(message.details);
 	if (sender?.kind !== "agent") return undefined;
@@ -82,6 +85,7 @@ export function agentDeliveryDensityCard(message: CustomMessage<unknown>): Densi
 	const senderName = sanitizeTerminalLabel(sender.name ?? "") || `id: ${sessionId}`;
 	const details: DensityCardText[] = [
 		[{ text: senderName, role: "text" }],
+		...(earlierModel ? [[{ text: sanitizeTerminalLabel(earlierModel), role: "dim" as const }]] : []),
 		...(origin ? [[{ text: sanitizeTerminalLabel(originLabel(origin)), role: "text" as const }]] : []),
 	];
 	const body =

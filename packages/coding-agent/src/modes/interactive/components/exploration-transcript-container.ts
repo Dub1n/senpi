@@ -17,11 +17,13 @@ import { normalizeApplyPatchArguments } from "../../../core/extensions/builtin/g
 import { AssistantMessageComponent } from "./assistant-message.ts";
 import { PatchDensityCard, PatchDensityProjection, type ApplyPatchDensityProjection } from "./apply-patch-density.ts";
 import { CustomEntryComponent } from "./custom-entry.ts";
+import { CustomMessageComponent } from "./custom-message.ts";
 import { CompactionSummaryMessageComponent } from "./compaction-summary-message.ts";
 import { type DenseProjectRulesMember, DenseProjectRulesRun } from "./dense-project-rules.ts";
 import { type DenseReadMember, denseReadProjection, DenseReadRun } from "./dense-read-run.ts";
 import { type ExplorationCall, explorationCall } from "./exploration-call.ts";
 import { ExplorationGroup } from "./exploration-group.ts";
+import { DenseWorkerModels } from "./omo-task-density.ts";
 import { projectRulesOfCall } from "./exploration-rules.ts";
 import {
 	ProgressiveTranscriptContainer,
@@ -174,7 +176,16 @@ export class ExplorationTranscriptContainer extends Container {
 			}
 			ruleNotices = [];
 		};
+		const models = new DenseWorkerModels();
 		const append = (child: Component): void => {
+			if (child instanceof ToolExecutionComponent) {
+				const { name, details, pending, failed } = child.summarySnapshot;
+				child.setDenseEarlierModel(models.forTask(name, details));
+				if (!pending && !failed) models.observe(name, details);
+			} else if (child instanceof CustomMessageComponent) {
+				const sender = child.denseSenderSessionId;
+				if (sender) child.setDenseSenderModel(models.forSession(sender));
+			}
 			if (child instanceof CustomEntryComponent && child.projectRulesNotice) {
 				flushReads();
 				flushPatches();
