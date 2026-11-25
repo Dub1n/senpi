@@ -34,7 +34,7 @@ describe("OmO tool density cards", () => {
 		["compact", false],
 		["grouped", true],
 	] as const)("%s nickname labels", (_density, grouped) => {
-		it("prefers the spawn nickname without replacing the handle or summary", () => {
+		it("uses the spawn nickname as the compact identity", () => {
 			const args = { prompt: "Hidden prompt" };
 			const details = {
 				mode: "spawn",
@@ -44,38 +44,174 @@ describe("OmO tool density cards", () => {
 				nickname: "\x1b[31mSelene\x1b[0m",
 				task_summary: "Review",
 			};
-			expect(rows("task", args, details, false, grouped)).toContain(
-				pad(' ╶─ + task • Selene (review-worker) "Review"'),
+			expect(rows("task", args, details, false, grouped)).toContain(pad(' ╶─ + task • Selene · "Review"'));
+		});
+
+		it("shows each batch worker's identity, model, and lowercase effort in source order", () => {
+			const items = [
+				{
+					task_id: "st_123",
+					name: "review",
+					nickname: "Deimos",
+					task_summary: "Implement",
+					status: "running",
+					subagent_type: "deep-low",
+					resolved_model: { display: "GPT-6 Luna", model_id: "gpt-6-luna", reasoning: "LOW" },
+				},
+				{
+					task_id: "st_456",
+					name: "review",
+					nickname: "Io",
+					task_summary: "Check",
+					status: "running",
+					category: "quick",
+					resolved_model: { model_id: "gpt-6.2-sol-fast", reasoning_effort: "HIGH" },
+				},
+			];
+			const details = { mode: "spawn", task_id: "st_123", status: "running", items };
+			expect(rows("task", { tasks: [] }, details, false, grouped)).toContain(
+				pad(" ╶─ + task • Deimos (Luna low) · Io (Sol high)"),
+			);
+			expect(rows("task", { tasks: [] }, details, true, grouped)).toContain(
+				pad(' ╭─ + task • Deimos · Luna low · "Implement"'),
+			);
+			expect(rows("task", { tasks: [] }, details, true, grouped)).toContain(
+				pad(' ├─ + task • Io · Sol high · "Check"'),
 			);
 		});
 
-		it("keeps repeated nicknames separate and preserves legacy and failed batch entries", () => {
-			const items = [
-				{ task_id: "st_123", name: "review", nickname: "Selene", task_summary: "Check", status: "running" },
-				{ task_id: "st_456", nickname: "Selene", status: "pending" },
-				{ task_id: "st_789", name: "legacy", status: "pending" },
-				{ task_id: "", nickname: "Not spawned", status: "error", error_message: "no capacity" },
-			];
-			const details = { mode: "spawn", task_id: "st_123", status: "running", items };
-			expect(rows("task", { tasks: [] }, details, true, grouped)).toEqual([
-				"",
-				pad(""),
-				pad(" ╭─ + task • st_123"),
-				pad(" │ Selene (review) · Check · running"),
-				pad(" │ Selene (st_456) · pending"),
-				pad(" │ st_789 · legacy · pending"),
-				pad(" │ task · error · no capacity"),
-				pad(" ╰─"),
-				pad(""),
+		it("keeps every batch worker's ID, agent, prompt, and unsuccessful status in its own section", () => {
+			const args = {
+				tasks: [
+					{ prompt: "Implement the route", task_summary: "Implement" },
+					{ prompt: "Verify the route", task_summary: "Verify" },
+				],
+			};
+			const details = {
+				mode: "spawn",
+				task_id: "st_123",
+				status: "running",
+				items: [
+					{
+						task_id: "st_123",
+						name: "review",
+						nickname: "Deimos",
+						task_summary: "Implement",
+						status: "running",
+						subagent_type: "deep-low",
+						resolved_model: { display: "Luna", reasoning: "low" },
+					},
+					{
+						task_id: "st_456",
+						name: "check",
+						nickname: "Io",
+						task_summary: "Verify",
+						status: "error",
+						category: "quick",
+						error_message: "provider unavailable",
+						resolved_model: { display: "Sol", reasoning_effort: "high" },
+					},
+				],
+			};
+			const view = omoTaskDensityCard({ toolName: "task", args, result: { details, isError: false } });
+			expect(view?.format).toBe("structured");
+			if (view?.format !== "structured") throw new Error("Expected structured task card");
+			expect(view.statusGlyph).toBe("+");
+			expect(view.heading.details).toEqual([
+				[{ text: "Deimos (Luna low)", role: "text" }],
+				[{ text: "Io (Sol high)", role: "text" }],
 			]);
+			expect(view.expandedHeading?.details).toEqual([
+				[{ text: "Deimos", role: "text" }],
+				[{ text: "Luna low", role: "text" }],
+				[{ text: '"Implement"', role: "text" }],
+			]);
+			expect(view.body).toEqual([
+				{
+					type: "text",
+					lines: [
+						[{ text: "id: st_123", role: "text" }],
+						"agent: deep-low",
+						"status: running",
+						[{ text: "Implement the route", role: "dim", italic: true }],
+					],
+				},
+			]);
+			expect(view.sections).toEqual([
+				{
+					placement: "frame",
+					heading: {
+						kind: "task",
+						heading: {
+							details: [
+								[{ text: "Io", role: "text" }],
+								[{ text: "Sol high", role: "text" }],
+								[{ text: '"Verify"', role: "text" }],
+							],
+						},
+						statusGlyph: "✗",
+					},
+					body: [
+						{
+							type: "text",
+							lines: [
+								[{ text: "id: st_456", role: "text" }],
+								"agent: quick",
+								"status: error",
+								"detail: provider unavailable",
+								[{ text: "Verify the route", role: "dim", italic: true }],
+							],
+						},
+					],
+				},
+			]);
+			expect(rows("task", args, details, true, grouped)).toContain(pad(" │ detail: provider unavailable"));
+
+			const reversed = { ...details, items: [...details.items].reverse() };
+			const reversedView = omoTaskDensityCard({
+				toolName: "task",
+				args,
+				result: { details: reversed, isError: false },
+			});
+			expect(reversedView?.format).toBe("structured");
+			if (reversedView?.format !== "structured") throw new Error("Expected structured reversed batch card");
+			expect(reversedView.statusGlyph).toBe("✗");
+			expect(reversedView.sections[0]?.heading).toMatchObject({ statusGlyph: "+" });
+		});
+
+		it("uses effective model metadata, keeps Default, and never invents missing effort", () => {
+			const details = {
+				mode: "spawn",
+				task_id: "st_123",
+				status: "running",
+				nickname: "Deimos",
+				task_summary: "Patch",
+				resolved_model: { display: "Old Model", reasoning: "max" },
+				effective_model: { display: "Default", reasoning: "LOW", source: "fallback" },
+				fallback_attempts: [{ display: "Fallback Luna", reasoning: "HIGH" }],
+			};
+			expect(rows("task", {}, details, false, grouped)).toContain(
+				pad(' ╶─ + task • Deimos · Default low · "Patch"'),
+			);
+			const noEffort = {
+				...details,
+				effective_model: { display: "Sol" },
+			};
+			expect(rows("task", {}, noEffort, false, grouped)).toContain(pad(' ╶─ + task • Deimos · Sol · "Patch"'));
+			const view = omoTaskDensityCard({ toolName: "task", args: {}, result: { details, isError: false } });
+			expect(view?.format).toBe("structured");
+			if (view?.format !== "structured") throw new Error("Expected structured task card");
+			expect(view.body[0]?.type).toBe("text");
+			if (view.body[0]?.type !== "text") throw new Error("Expected text body");
+			expect(view.body[0].lines).toContain("fallbacks: Fallback Luna high");
 		});
 
 		it.each([
-			{ nickname: "Selene", expected: "Selene (review-worker)" },
-			{ nickname: "review-worker", expected: "review-worker (st_123)" },
-			{ nickname: " \n\t ", expected: "st_123" },
-			{ nickname: 123, expected: "st_123" },
-			{ nickname: undefined, expected: "st_123" },
+			{ nickname: "Selene", expected: "Selene" },
+			{ nickname: "review-worker", expected: "review-worker" },
+			{ nickname: " \n\t ", expected: "id: st_123" },
+			{ nickname: 123, expected: "id: st_123" },
+			{ nickname: undefined, expected: "id: st_123" },
 		])("uses $expected for a resolved send", ({ nickname, expected }) => {
 			const args = { to: "st_123", message: "Keep the message" };
 			const details = {
@@ -91,6 +227,7 @@ describe("OmO tool density cards", () => {
 				pad(""),
 				pad(` ╭─ → messaged • ${expected}`),
 				pad(" │ steered"),
+				pad(" │ id: st_123"),
 				pad(" │ Keep the message"),
 				pad(" ╰─"),
 				pad(""),
@@ -112,11 +249,9 @@ describe("OmO tool density cards", () => {
 				nickname: "Wrong level",
 				snapshot: { task_id: "st_123", nickname: "Selene", status: "running" },
 			};
-			expect(rows("task_output", args, details, false, grouped)).toContain(
-				pad(" ╶─ ◉ peek • status Selene (st_123)"),
-			);
+			expect(rows("task_output", args, details, false, grouped)).toContain(pad(" ╶─ ◉ peek • status Selene"));
 			const unresolved = { ...details, kind: "not_found", reason: "unavailable" };
-			expect(rows("task_output", args, unresolved, false, grouped)).toContain(pad(" ╶─ ✗ peek • status st_123"));
+			expect(rows("task_output", args, unresolved, false, grouped)).toContain(pad(" ╶─ ✗ peek • status id: st_123"));
 		});
 	});
 
@@ -126,8 +261,9 @@ describe("OmO tool density cards", () => {
 		expect(rows("task_send", args, details, true)).toEqual([
 			"",
 			pad(""),
-			pad(" ╭─ → messaged • st_123"),
+			pad(" ╭─ → messaged • id: st_123"),
 			pad(" │ steered"),
+			pad(" │ id: st_123"),
 			pad(" │ first line"),
 			pad(" │ second line"),
 			pad(" ╰─"),
@@ -157,7 +293,8 @@ describe("OmO tool density cards", () => {
 		expect(rows("task_output", args, details, true)).toEqual([
 			"",
 			pad(""),
-			pad(" ╭─ ◉ peek • tail st_123"),
+			pad(" ╭─ ◉ peek • tail id: st_123 · provider/model"),
+			pad(" │ id: st_123"),
 			pad(" │ status: running"),
 			pad(" │ model: provider/model"),
 			pad(" │ requested tail: 9 lines"),
@@ -185,7 +322,7 @@ describe("OmO tool density cards", () => {
 		expect(rows("task", args, details, false)).toEqual([
 			"",
 			pad(""),
-			pad(' ╶─ + task • st_123 "Inspect it"'),
+			pad(' ╶─ + task • id: st_123 · "Inspect it"'),
 			pad(""),
 		]);
 	});
@@ -224,33 +361,90 @@ describe("OmO tool density cards", () => {
 		]);
 	});
 
-	it("retains every task identifier and failed batch item", () => {
-		expect(
-			rows(
-				"task",
-				{ tasks: [{ prompt: "first" }, { prompt: "second" }] },
-				{
-					mode: "spawn",
-					task_id: "st_123",
-					status: "running",
-					run_in_background: true,
-					items: [
-						{ task_id: "st_123", status: "running", name: "first" },
-						{ task_id: "st_456", status: "pending", name: "second" },
-						{ task_id: "", status: "error", error_message: "no capacity" },
-					],
-				},
-				true,
-			),
-		).toEqual([
-			"",
-			pad(""),
-			pad(" ╭─ + task • st_123"),
-			pad(" │ st_123 · first · running"),
-			pad(" │ st_456 · second · pending"),
-			pad(" │ task · error · no capacity"),
-			pad(" ╰─"),
-			pad(""),
+	it("retains every task identifier and unsuccessful batch item", () => {
+		const result = rows(
+			"task",
+			{ tasks: [{ prompt: "first" }, { prompt: "second" }] },
+			{
+				mode: "spawn",
+				task_id: "st_123",
+				status: "running",
+				run_in_background: true,
+				items: [
+					{ task_id: "st_123", status: "running", name: "first" },
+					{ task_id: "st_456", status: "pending", name: "second" },
+					{ task_id: "", status: "error", error_message: "no capacity" },
+				],
+			},
+			true,
+		);
+		expect(result).toContain(pad(" ╭─ + task • id: st_123"));
+		expect(result).toContain(pad(" ├─ ○ task • id: st_456"));
+		expect(result).toContain(pad(" ├─ ✗ task"));
+		expect(result).toContain(pad(" │ id: st_123"));
+		expect(result).toContain(pad(" │ id: st_456"));
+		expect(result).toContain(pad(" │ status: pending"));
+		expect(result).toContain(pad(" │ status: error"));
+		expect(result).toContain(pad(" │ detail: no capacity"));
+	});
+
+	it("uses the actual effective model and lowercase effort in task status rows", () => {
+		const details = {
+			kind: "status",
+			snapshot: {
+				task_id: "st_123",
+				status: "running",
+				resolved_model: { display: "Old Model", reasoning: "max" },
+				effective_model: { display: "Luna", reasoning: "HIGH" },
+			},
+		};
+		expect(rows("task_output", { task_id: "st_123" }, details, true)).toContain(pad(" │ model: Luna high"));
+	});
+
+	it("uses a no-progress nickname while keeping the task ID in expanded details", () => {
+		const result = rows(
+			"task_output",
+			{ task_id: "st_123" },
+			{
+				kind: "no_progress",
+				task_id: "st_123",
+				nickname: "Selene",
+				status: "running",
+				reason: "unchanged",
+			},
+			true,
+		);
+		expect(result).toContain(pad(" ╭─ ◉ peek • status Selene"));
+		expect(result).toContain(pad(" │ id: st_123"));
+	});
+
+	it("shows supplied task-send model context without inventing missing effort", () => {
+		const details = {
+			kind: "steered",
+			task_id: "st_123",
+			name: "review-worker",
+			nickname: "Selene",
+			status: "running",
+			delivered: "steer",
+			resolved_model: { display: "Sol", reasoning_effort: "HIGH" },
+		};
+		const view = omoTaskDensityCard({
+			toolName: "task_send",
+			args: { to: "st_123", message: "Continue" },
+			result: { details, isError: false },
+		});
+		expect(view?.format).toBe("structured");
+		if (view?.format !== "structured") throw new Error("Expected structured task-send card");
+		expect(view.heading.details).toEqual([[{ text: "Selene", role: "text" }], [{ text: "Sol high", role: "text" }]]);
+		expect(view.body).toEqual([
+			{
+				type: "text",
+				lines: [
+					"steered",
+					[{ text: "id: st_123", role: "text" }],
+					[{ text: "Continue", role: "dim", italic: true }],
+				],
+			},
 		]);
 	});
 
@@ -282,7 +476,8 @@ describe("OmO tool density cards", () => {
 		).toEqual([
 			"",
 			pad(""),
-			pad(" ╭─ ◉ peek • full st_123"),
+			pad(" ╭─ ◉ peek • full id: st_123 · provider/model"),
+			pad(" │ id: st_123"),
 			pad(" │ status: completed"),
 			pad(" │ model: provider/model"),
 			pad(" │ source: session-jsonl"),
@@ -304,7 +499,7 @@ describe("OmO tool density cards", () => {
 		).toEqual([
 			"",
 			pad(""),
-			pad(" ╭─ ✗ peek • status st_missing"),
+			pad(" ╭─ ✗ peek • status id: st_missing"),
 			pad(" │ error: task missing"),
 			pad(" ╰─"),
 			pad(""),
@@ -347,7 +542,8 @@ describe("OmO tool density cards", () => {
 			expect(surface.chat.render(width).map(stripTerminalSequences)).toEqual([
 				"",
 				pad(""),
-				pad(" ╭─ ◉ peek • status st_123"),
+				pad(" ╭─ ◉ peek • status id: st_123 · provider/model"),
+				pad(" │ id: st_123"),
 				pad(" │ status: running"),
 				pad(" │ model: provider/model"),
 				pad(" ╰─"),

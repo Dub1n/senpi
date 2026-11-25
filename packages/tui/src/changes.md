@@ -1,3 +1,21 @@
+## 2026-11-25 - Allow semantic foreground roles on dense card spans
+
+### What changed
+
+- `packages/tui/src/density-card.ts` adds an optional foreground role to semantic text spans.
+
+### Why
+
+- The transcript dims title descriptions by default while agent identities, models, and newly added todo items can retain normal contrast.
+
+### Why an extension could not handle it
+
+- This type is shared by card producers and the host that paints their text.
+
+### Expected merge conflict zones
+
+- LOW: the additive field on `DensityCardSpan`.
+
 ## 2026-11-23 - Extend the semantic dense card presentation contract
 
 ### What changed

@@ -1,5 +1,13 @@
 import type { TextContent } from "@earendil-works/pi-ai";
-import { Box, type DensityCardView, Markdown, sanitizeTerminalLabel, Spacer, Text } from "@earendil-works/pi-tui";
+import {
+	Box,
+	type DensityCardText,
+	type DensityCardView,
+	Markdown,
+	sanitizeTerminalLabel,
+	Spacer,
+	Text,
+} from "@earendil-works/pi-tui";
 import {
 	isSessionControlDeliveryDetails,
 	type MessageRenderer,
@@ -70,8 +78,12 @@ export function agentDeliveryDensityCard(message: CustomMessage<unknown>): Densi
 	const sender = sessionControlSenderOf(message.details);
 	if (sender?.kind !== "agent") return undefined;
 	const origin = sessionControlRemoteOriginOf(message.details);
-	const senderName = sanitizeTerminalLabel(sender.name ?? "") || sanitizeTerminalLabel(sender.session_id);
-	const details = [senderName, ...(origin ? [sanitizeTerminalLabel(originLabel(origin))] : [])];
+	const sessionId = sanitizeTerminalLabel(sender.session_id);
+	const senderName = sanitizeTerminalLabel(sender.name ?? "") || `id: ${sessionId}`;
+	const details: DensityCardText[] = [
+		[{ text: senderName, role: "text" }],
+		...(origin ? [[{ text: sanitizeTerminalLabel(originLabel(origin)), role: "text" as const }]] : []),
+	];
 	const body =
 		displayTextOf(message.details) ??
 		(typeof message.content === "string"
@@ -86,11 +98,12 @@ export function agentDeliveryDensityCard(message: CustomMessage<unknown>): Densi
 		heading: { details },
 		statusGlyph: "←",
 		body: [
+			{ type: "text", lines: [`id: ${sessionId}`] },
 			{
 				type: "rich",
 				render: (width) =>
 					new Markdown(body, 0, 0, sharedMarkdownTheme(), {
-						color: (line) => interactiveTheme.fg("customMessageText", line),
+						color: (line) => interactiveTheme.style(line, { fg: "dim", italic: true }),
 					}).render(width),
 			},
 		],

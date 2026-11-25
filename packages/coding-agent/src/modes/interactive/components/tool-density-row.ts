@@ -276,7 +276,7 @@ export class ToolDensityRow implements Component {
 					"label" in heading
 						? (heading.role ?? style.sectionRole) === "title"
 							? style.titleSection(heading.label)
-							: theme.style(heading.label, { fg: "muted", bold: heading.bold })
+							: style.sectionLabel(heading.label, heading.bold)
 						: renderStructuredHeading(heading, sectionStyle);
 				frame.push(...renderLabel(` ${style.frame("├─")} `, label));
 				appendContent(bodyPrefix, renderBlocks(section.body, contentWidth, sectionStyle.bodyRole));
@@ -383,7 +383,7 @@ function renderToolSummary(
 				: "warning";
 	const line = summary.attention
 		? `${theme.fg("error", summary.attention)} · ${title}`
-		: `${title}${label ? ` · ${theme.fg(color, label)}` : ""}`;
+		: `${title}${label ? `${theme.fg("dim", " · ")}${theme.fg(color, label)}` : ""}`;
 	return truncateToWidth(marker, width, "") + truncateToWidth(line, width - visibleWidth(marker), "…");
 }
 
@@ -404,7 +404,7 @@ function renderDensityCardSummary(
 		glyph: view.statusGlyph ?? rawDensityStatusGlyph(view.status),
 	});
 	const status = densityStatusLabel(view.status);
-	return title + (status ? ` · ${theme.fg("muted", status)}` : "");
+	return title + (status ? `${theme.fg("dim", " · ")}${theme.fg("muted", status)}` : "");
 }
 
 function renderStructuredHeading(
@@ -418,7 +418,11 @@ function renderStructuredHeading(
 		typeof detail === "string" ? detail.length > 0 : detail.some((span) => span.text.length > 0),
 	);
 	const separator = view.heading.description !== undefined || hasDetails ? " · " : " • ";
-	return (glyph ? `${style.icon(glyph)} ` : "") + title + (label ? `${separator}${theme.fg("muted", label)}` : "");
+	return (
+		(glyph ? `${style.icon(glyph)} ` : "") +
+		title +
+		(label ? `${theme.fg("dim", separator)}${theme.fg("muted", label)}` : "")
+	);
 }
 
 function rawDensityStatusGlyph(status: DensityCardStatus | undefined): string {

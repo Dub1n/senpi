@@ -143,9 +143,11 @@ class TodoCard extends Text implements DensityCardSource {
 				: undefined;
 		const target = sanitizeTodoText(task?.content ?? args.task ?? args.phase ?? "");
 		const name: DensityCardText =
-			task?.status === "completed" || task?.status === "abandoned"
-				? [{ text: target, strikethrough: true, italic: task.status === "completed" }]
-				: target;
+			task?.status === "completed"
+				? [{ text: target, role: "dim", strikethrough: true }]
+				: task?.status === "abandoned"
+					? [{ text: target, role: "dim" }]
+					: target;
 		let label: DensityCardText | undefined;
 		let statusGlyph: string | undefined;
 		switch (operation) {
@@ -156,7 +158,16 @@ class TodoCard extends Text implements DensityCardSource {
 				break;
 			}
 			case "append":
-				label = `append: ${sanitizeTodoText(args.phase ?? "") || "(missing phase)"} (${countLabel(args.items?.length ?? 0, "item")})`;
+				if (settled && !context.isError && args.items?.length === 1) {
+					const item = args.items[0];
+					const phase = result?.details?.phases.find((phase) => phase.tasks.some((task) => task.content === item));
+					const phaseName = sanitizeTodoText(phase?.name ?? args.phase ?? "");
+					label = [{ text: `${phaseName ? `${phaseName}: ` : ""}${sanitizeTodoText(item ?? "")}`, role: "text" }];
+				} else if (settled && !context.isError) {
+					label = `${sanitizeTodoText(args.phase ?? "") || "(missing phase)"} (${countLabel(args.items?.length ?? 0, "item")})`;
+				} else {
+					label = `append: ${sanitizeTodoText(args.phase ?? "") || "(missing phase)"} (${countLabel(args.items?.length ?? 0, "item")})`;
+				}
 				statusGlyph = "+";
 				break;
 			case "done":
@@ -168,7 +179,8 @@ class TodoCard extends Text implements DensityCardSource {
 				statusGlyph = "×";
 				break;
 			case "start":
-				label = target ? `start: ${target}` : "start";
+				label = target || "start";
+				statusGlyph = "▶";
 				break;
 			case "rm":
 				label = `rm: ${target || "all"}`;

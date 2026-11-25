@@ -71,6 +71,7 @@ export interface DensityCardLegacyView {
 
 export interface DensityCardSpan {
 	readonly text: string;
+	readonly role?: "dim" | "muted" | "text";
 	readonly italic?: boolean;
 	readonly strikethrough?: boolean;
 	readonly link?: string;

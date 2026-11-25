@@ -1,4 +1,5 @@
 import {
+	Box,
 	type DensityCardStructuredView,
 	nextRenderRevision,
 	parseColor,
@@ -91,14 +92,19 @@ describe("semantic density card styling", () => {
 			]);
 			expect(cellOf(rendered, 2, 4).color).toEqual(cellOf(expected, 0, 0).color);
 			expect(cellOf(rendered, 2, 6).color).toEqual(cellOf(rendered, 2, 1).color);
+			using dim = await terminalRows([theme.fg("dim", "x")]);
+			const line = stripTerminalSequences(row.render(width)[2]);
+			for (const column of [line.indexOf("·"), line.indexOf("recovered")]) {
+				expect(cellOf(rendered, 2, column).color).toEqual(cellOf(dim, 0, 0).color);
+			}
 		},
 	);
 
 	describe.each(["compact", "grouped"] as const)("%s", (density) => {
 		it.each([
-			{ op: "drop", status: "abandoned", glyph: "×", italic: false },
-			{ op: "done", status: "completed", glyph: "✓", italic: true },
-		] as const)("strikes a $status todo description with italic=$italic", async ({ op, status, glyph, italic }) => {
+			{ op: "drop", status: "abandoned", glyph: "×", strike: false },
+			{ op: "done", status: "completed", glyph: "✓", strike: true },
+		] as const)("renders $status todo descriptions upright and dim", async ({ op, status, glyph, strike }) => {
 			const task = "Review changes";
 			const card = new ToolExecutionComponent(
 				"todo",
@@ -125,13 +131,99 @@ describe("semantic density card styling", () => {
 					const rows = row.render(width);
 					expect(stripTerminalSequences(rows[2]).trimEnd()).toBe(` ${frame} ${glyph} todo • ${task}`);
 					using rendered = await terminalRows(rows);
+					using dim = await terminalRows([theme.fg("dim", "x")]);
 					for (const column of [6, 11]) {
 						expect(cellOf(rendered, 2, column)).toMatchObject({ italic: false, strike: false });
 					}
 					for (const column of [13, 13 + task.length - 1]) {
-						expect(cellOf(rendered, 2, column)).toMatchObject({ italic, strike: true });
+						expect(cellOf(rendered, 2, column)).toMatchObject({
+							italic: false,
+							strike,
+							color: cellOf(dim, 0, 0).color,
+						});
 					}
 				}
+			} finally {
+				card.dispose();
+			}
+		});
+
+		it("keeps the failed memory title and the expanded diagnostics", () => {
+			const card = new ToolExecutionComponent(
+				"memory",
+				"memory-failure",
+				{},
+				{},
+				{
+					renderShell: "self",
+					renderResult: (_result, options) => {
+						const notice = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
+						notice.addChild(new Text("○ Not remembered", 0, 0));
+						notice.addChild(new Text("The request had no new string.", 0, 0));
+						if (options.expanded) notice.addChild(new Text("memory: missing new_string", 0, 0));
+						return notice;
+					},
+				},
+				new TUI(new VirtualTerminal()),
+				process.cwd(),
+			);
+			try {
+				card.updateResult({ content: [{ type: "text", text: "memory: missing new_string" }], isError: true });
+				const row = new ToolDensityRow(card, () => {});
+				row.setLayout(density === "grouped", true, true);
+				expect(row.render(76).map(stripTerminalSequences).join("\n")).toContain("╶─ ✗ memory · not remembered");
+				card.setExpanded(true);
+				const expanded = row.render(76).map(stripTerminalSequences).join("\n");
+				expect(expanded).toContain("╭─ ✗ memory · not remembered");
+				expect(expanded).toContain("│ The request had no new string.");
+				expect(expanded).toContain("│ memory: missing new_string");
+			} finally {
+				card.dispose();
+			}
+		});
+
+		it.each([
+			{ summary: "Validate the request", title: "Validate the request" },
+			{ summary: undefined, title: "eval js" },
+		])("frames eval validation failures as $title without a semantic result renderer", ({ summary, title }) => {
+			const card = new ToolExecutionComponent(
+				"eval",
+				"eval-validation",
+				{ language: "js", summary },
+				{},
+				{
+					renderShell: "self",
+					renderResult: (result) =>
+						new Text(
+							result.content
+								.filter((part) => part.type === "text")
+								.map((part) => part.text)
+								.join("\n"),
+							0,
+							0,
+						),
+				},
+				new TUI(new VirtualTerminal()),
+				process.cwd(),
+			);
+			try {
+				card.updateResult({
+					content: [
+						{
+							type: "text",
+							text: 'Validation failed for tool "eval":\n  - code: required\n\nReceived arguments:\n{\n  "language": "js"\n}',
+						},
+					],
+					isError: true,
+				});
+				const row = new ToolDensityRow(card, () => {});
+				row.setLayout(density === "grouped", true, true);
+				expect(row.render(80).map(stripTerminalSequences).join("\n")).toContain(`╶─ ✗ ${title}`);
+				card.setExpanded(true);
+				const expanded = row.render(80).map(stripTerminalSequences).join("\n");
+				expect(expanded).toContain(`╭─ ✗ ${title}`);
+				expect(expanded).toContain('│ Validation failed for tool "eval":');
+				expect(expanded).toContain('│   "language": "js"');
 			} finally {
 				card.dispose();
 			}
@@ -286,8 +378,8 @@ describe("semantic density card styling", () => {
 					renderDensityCard: (): DensityCardStructuredView => ({
 						format: "structured",
 						kind: "incoming-message",
-						heading: { details: [[{ text: "agent", strikethrough: true }]] },
-						expandedHeading: { details: [[{ text: "agent worker", italic: true }]] },
+						heading: { details: [[{ text: "agent", role: "text", strikethrough: true }]] },
+						expandedHeading: { details: [[{ text: "agent worker", role: "text", italic: true }]] },
 						status: "failed",
 						body: [
 							{ type: "text", lines: ["metadata"], role: "muted" },
@@ -339,6 +431,7 @@ describe("semantic density card styling", () => {
 						theme.bg(background, theme.fg("text", "\x1b[9mD\x1b[29m")),
 						theme.bg(background, theme.fg("text", "\x1b[3mD\x1b[23m")),
 						theme.bg(background, theme.fg("muted", "M")),
+						theme.bg(background, theme.fg("dim", "D")),
 					]);
 					using closedTerminal = await terminalRows(folded);
 					using openTerminal = await terminalRows(open);
@@ -359,6 +452,8 @@ describe("semantic density card styling", () => {
 					expect(cellOf(closedTerminal, 2, 13)).toEqual(cellOf(swatches, 3, 0));
 					expect(cellOf(openTerminal, 2, 13)).toEqual(cellOf(swatches, 4, 0));
 					expect(cellOf(openTerminal, 3, 3)).toEqual(cellOf(swatches, 5, 0));
+					expect(cellOf(openTerminal, 5, 11)).toEqual(cellOf(swatches, 6, 0));
+					expect(cellOf(openTerminal, 5, 13)).toEqual(cellOf(swatches, 6, 0));
 					expect(resolveSourceSelection(open, [{ row: 4, start: 4, end: 8 }])).toEqual({ text: "onte" });
 
 					chat.setToolDisplayDensity("default");

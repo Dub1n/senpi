@@ -33,7 +33,12 @@ import {
 	rememberDensityCardSummary,
 	rememberedDensityCardSummary,
 } from "./tool-density-card-cache.ts";
-import { isRememberedNoticeBox, renderNamedNoticeCard, renderNoticeBoxTitle } from "./notice-density-source.ts";
+import {
+	failedMemoryDensityCard,
+	isRememberedNoticeBox,
+	renderNamedNoticeCard,
+	renderNoticeBoxTitle,
+} from "./notice-density-source.ts";
 
 type RenderContainer = Box | Container;
 
@@ -142,6 +147,12 @@ export class ToolExecutionRenderer extends Container implements DensityCardSourc
 
 	renderDensityCard(width: number, options: DensityCardRenderOptions): DensityCardView | undefined {
 		const component = this.state.result === undefined ? this.callRendererComponent : this.resultRendererComponent;
+		if (this.identity.toolName === "memory" && this.state.result?.isError) {
+			return failedMemoryDensityCard(
+				component,
+				this.state.result.content.filter((part) => part.type === "text").map((part) => part.text),
+			);
+		}
 		const view =
 			component && isSemanticDensityCardSource(component)
 				? component.renderDensityCard(width, options)

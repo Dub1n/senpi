@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall, type JsonObject } from "@earendil-works/pi-ai";
+import { isSemanticDensityCardSource } from "@earendil-works/pi-tui";
 import type { Static } from "typebox";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -622,6 +623,122 @@ describe("todo extension", () => {
 		expect(rendered).toContain("II. Auth - 1/1 done");
 		expect(rendered).toContain("III. Verification");
 		expect(rendered).toContain("[ ] Run checks");
+	});
+
+	it.each([
+		{
+			name: "completed tasks",
+			args: { op: "done", task: "Task A" },
+			details: {
+				op: "done",
+				storage: "memory",
+				phases: [{ name: "Tasks", tasks: [{ content: "Task A", status: "completed" }] }],
+			},
+			expectedDetails: [[{ text: "Task A", role: "dim", strikethrough: true }]],
+		},
+		{
+			name: "cancelled tasks",
+			args: { op: "drop", task: "Task A" },
+			details: {
+				op: "drop",
+				storage: "memory",
+				phases: [{ name: "Tasks", tasks: [{ content: "Task A", status: "abandoned" }] }],
+			},
+			expectedDetails: [[{ text: "Task A", role: "dim" }]],
+		},
+		{
+			name: "one appended item",
+			args: { op: "append", items: ["New task"] },
+			details: {
+				op: "append",
+				storage: "memory",
+				phases: [{ name: "Follow-up", tasks: [{ content: "New task", status: "in_progress" }] }],
+			},
+			expectedDetails: [[{ text: "Follow-up: New task", role: "text" }]],
+		},
+		{
+			name: "multiple appended items",
+			args: { op: "append", phase: "Follow-up", items: ["First", "Second"] },
+			details: {
+				op: "append",
+				storage: "memory",
+				phases: [
+					{
+						name: "Follow-up",
+						tasks: [
+							{ content: "First", status: "in_progress" },
+							{ content: "Second", status: "pending" },
+						],
+					},
+				],
+			},
+			expectedDetails: ["Follow-up (2 items)"],
+		},
+		{
+			name: "started tasks",
+			args: { op: "start", task: "Task A" },
+			details: {
+				op: "start",
+				storage: "memory",
+				phases: [{ name: "Tasks", tasks: [{ content: "Task A", status: "in_progress" }] }],
+			},
+			expectedDetails: ["Task A"],
+			expectedStatusGlyph: "▶",
+		},
+		{
+			name: "failed append",
+			args: { op: "append", phase: "Follow-up", items: ["New task", "New task"] },
+			details: {
+				op: "append",
+				storage: "memory",
+				phases: [{ name: "Follow-up", tasks: [] }],
+			},
+			isError: true,
+			expectedDetails: ["append: Follow-up (2 items)"],
+			expectedStatus: "failed",
+		},
+	] satisfies {
+		name: string;
+		args: TodoParams;
+		details: TodoToolDetails;
+		isError?: boolean;
+		expectedDetails: unknown;
+		expectedStatus?: string;
+		expectedStatusGlyph?: string;
+	}[])("renders $name in the dense title", async (testCase) => {
+		const tool = await captureTodoTool();
+		if (!tool.renderResult) throw new Error("Expected todo result renderer");
+		const context: ToolRenderContext<unknown, TodoParams> = {
+			args: testCase.args,
+			toolCallId: `todo-dense-${testCase.name}`,
+			invalidate: () => {},
+			lastComponent: undefined,
+			state: undefined,
+			cwd: REPO_ROOT,
+			executionStarted: true,
+			argsComplete: true,
+			isPartial: false,
+			expanded: false,
+			showImages: false,
+			isError: testCase.isError ?? false,
+			hasResult: true,
+		};
+		const component = tool.renderResult(
+			{
+				content: [{ type: "text", text: "summary" }],
+				details: testCase.details,
+			},
+			{ expanded: false, isPartial: false },
+			markerTheme as never,
+			context,
+		);
+		if (!isSemanticDensityCardSource(component)) throw new Error("Expected a dense todo renderer");
+		const view = component.renderDensityCard(100, { grouped: false });
+		if (view?.format !== "structured") throw new Error("Expected a structured todo card");
+
+		expect(view.heading.details).toEqual(testCase.expectedDetails);
+		if (testCase.expectedStatus) expect(view.status).toBe(testCase.expectedStatus);
+		if (testCase.expectedStatusGlyph) expect(view.statusGlyph).toBe(testCase.expectedStatusGlyph);
 	});
 
 	it("preserves the settled todo renderer output", async () => {

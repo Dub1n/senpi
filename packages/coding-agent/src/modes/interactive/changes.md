@@ -1,3 +1,25 @@
+## 2026-11-25 - Dim dense title details and keep memory failure chrome consistent
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/density-card-style.ts` and `packages/coding-agent/src/modes/interactive/components/tool-density-row.ts` use the dim foreground for dense titles' separators and ordinary details while retaining the eval title and explicit foreground roles.
+- `packages/coding-agent/src/modes/interactive/components/tool-execution-renderer.ts` and `packages/coding-agent/src/modes/interactive/components/notice-density-source.ts` use identical failed-memory chrome whether folded or expanded, preserving the expanded diagnostic.
+- `packages/coding-agent/src/modes/interactive/components/tool-execution.ts` gives failed evals without a semantic result renderer a dense heading and keeps their validation output in the body.
+- `packages/coding-agent/src/modes/interactive/components/omo-task-density.ts` promotes recorded models and lowercase effort into agent titles, gives batched spawns a worker roster and individual expanded sections, and dims and italicizes sent messages and prompts.
+- `packages/coding-agent/src/modes/interactive/components/remote-delivery-message.ts` keeps the sender's session ID in the expanded body and renders received agent text in dim italics.
+
+### Why
+
+- A dense title should make the tool name easy to scan without obscuring the meaning of a failure.
+
+### Why an extension could not handle it
+
+- The shared transcript host owns dense title painting and the compatibility adapter for pre-rendered memory notices.
+
+### Expected merge conflict zones
+
+- LOW: semantic title and notice rendering. Default mode is unchanged.
+
 ## 2026-11-25 - Lead dense project rules cards with matched rules
 
 ### What changed

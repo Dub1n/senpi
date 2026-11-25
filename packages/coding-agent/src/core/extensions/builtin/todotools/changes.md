@@ -1,5 +1,23 @@
 # todotools Fork Tracker
 
+## 2026-11-25 - Refine dense todo operation titles
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/todotools/tools/todo-card.ts` shows the phase and item for a single append, removes successful append prefixes, and gives start its own glyph. Completed titles are dim and struck; cancelled titles are dim and unstruck. Both are upright.
+
+### Why
+
+- Dense titles should show the item that changed and distinguish completion from cancellation.
+
+### Why an extension could not handle it
+
+- The builtin owns the checklist result and the semantic todo title.
+
+### Expected merge conflict zones
+
+- LOW: the dense todo title builder; Default rendering is unchanged.
+
 ## 2026-11-23 - Distinguish cancelled and completed dense Todo descriptions
 
 ### What changed

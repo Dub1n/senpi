@@ -8,9 +8,11 @@ import {
 	type TUI,
 } from "@earendil-works/pi-tui";
 import { isModelOnlyText } from "../../../core/tools/model-only-text.ts";
+import { getTextOutput } from "../../../core/tools/render-utils.ts";
 import { GrokToolRow } from "../grok/tool-row.ts";
 import { theme } from "../theme/theme.ts";
 import { omoTaskDensityCard } from "./omo-task-density.ts";
+import { toolDensitySummary } from "./tool-density-summary.ts";
 import { createBoundedRenderSignature } from "./render-signature.ts";
 import { ToolExecutionAnimation, toolCardSpins, toolCardStrikes } from "./tool-execution-animation.ts";
 import { serializedToolResultBytes, ToolExecutionRenderCache } from "./tool-execution-cache.ts";
@@ -167,6 +169,19 @@ export class ToolExecutionComponent extends Container {
 			this.restoreReleasedContent();
 			view = this.renderer?.renderDensityCard(width, options);
 			if (view !== undefined && !options.expanded) this.invalidate();
+		}
+		if (view === undefined && this.identity.toolName === "eval" && this.result?.isError && !this.isPartial) {
+			// Validation can fail before the eval extension has a semantic result to render.
+			const summary = toolDensitySummary(this.summarySnapshot);
+			const output = options.expanded ? getTextOutput(this.result, this.showImages) : "";
+			return {
+				format: "structured",
+				kind: "eval",
+				heading: summary.name ? { identity: summary.name } : { description: summary.detail },
+				status: "failed",
+				body: output ? [{ type: "text", role: "text", lines: output.split("\n") }] : [],
+				sections: [],
+			};
 		}
 		return view;
 	}

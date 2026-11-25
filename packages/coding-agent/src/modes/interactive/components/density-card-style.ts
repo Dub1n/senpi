@@ -143,31 +143,59 @@ export function densityCardStyle(colors: ToolDisplayColors, kind?: DensityCardKi
 	const frameColor = configured ?? (chrome?.frame === "accent" ? (defaultColor ?? "borderMuted") : "borderMuted");
 	const paint = (text: string, fg: ThemeColor | Color, bold = false) =>
 		typeof fg === "string" ? theme.style(text, { fg, bold }) : styleText(text, { fg, bold }, theme.getColorMode());
+	const paintName = (label: string) =>
+		label
+			.split(/([•·])/u)
+			.map((part) => paint(part, part === "•" || part === "·" ? "dim" : nameColor, true))
+			.join("");
 	// Compatibility producers may still pass ANSI. A renderer cannot override the glyph policy.
 	const icon = (glyph: string) => paint(stripTerminalSequences(glyph), colors.colorIcons ? frameColor : "text");
 	return {
 		frame: (gutter: string) => paint(gutter, colors.colorFrames ? frameColor : "borderMuted"),
 		icon,
-		label: (label: string) => paint(label, nameColor, true),
-		description: (label: string) => theme.fg("toolTitle", label),
-		titleSection: (label: string) => paint(label, nameColor, true),
+		label: paintName,
+		description: (label: string) => titleText(label, kind === "eval" ? "toolTitle" : "dim"),
+		titleSection: paintName,
+		sectionLabel: (label: string, bold?: boolean) => titleText(label, "muted", undefined, undefined, bold),
 		bodyRole: palette?.body ?? "text",
 		sectionRole: palette?.section ?? "muted",
 		title: ({ name, detail, glyph }: DensityTitle) => {
 			const marker = glyph ? `${icon(glyph)} ` : "";
-			if (name === undefined) return marker + detail;
-			const painted = paint(name, nameColor, true);
-			return marker + painted + neutralDetail(detail);
+			if (name === undefined)
+				return marker + (kind === undefined || kind === "eval" ? detail : neutralDetail(detail));
+			const painted = paintName(name);
+			return marker + painted + neutralDetail(detail, kind === "eval" ? "text" : "dim");
 		},
 	};
 }
 
 /** Render plain semantic text while retaining the explicitly requested inline attributes. */
-export function densityCardText(text: DensityCardText, role: "muted" | "text" = "text"): string {
+export function densityCardText(text: DensityCardText, role: "dim" | "muted" | "text" = "text"): string {
 	if (typeof text === "string") return theme.fg(role, text);
 	return text
 		.map((span) => {
-			const value = theme.style(span.text, { fg: role, italic: span.italic, strikethrough: span.strikethrough });
+			const value = theme.style(span.text, {
+				fg: span.role ?? role,
+				italic: span.italic,
+				strikethrough: span.strikethrough,
+			});
+			return span.link && getCapabilities().hyperlinks ? hyperlink(value, span.link) : value;
+		})
+		.join("");
+}
+
+function titleText(text: string, fg: ThemeColor, italic?: boolean, strikethrough?: boolean, bold?: boolean): string {
+	return text
+		.split(/([•·])/u)
+		.map((part) => theme.style(part, { fg: part === "•" || part === "·" ? "dim" : fg, italic, strikethrough, bold }))
+		.join("");
+}
+
+function headingText(text: DensityCardText, role: "dim" | "text"): string {
+	if (typeof text === "string") return titleText(text, role);
+	return text
+		.map((span) => {
+			const value = titleText(span.text, span.role ?? role, span.italic, span.strikethrough);
 			return span.link && getCapabilities().hyperlinks ? hyperlink(value, span.link) : value;
 		})
 		.join("");
@@ -182,29 +210,30 @@ export function densityCardHeading(
 	if (heading.description !== undefined) return style.description(heading.description);
 	const palette: DensityCardPalette = cardRegistry[kind];
 	const name = palette.identityPlacement === "name" && heading.identity ? heading.identity : palette.name;
-	const identitySuffix = heading.identitySuffix === undefined ? "" : densityCardText(heading.identitySuffix);
-	const identity = heading.identity ? densityCardText(heading.identity) + identitySuffix : "";
+	const detailRole = kind === "eval" ? "text" : "dim";
+	const identitySuffix = heading.identitySuffix === undefined ? "" : headingText(heading.identitySuffix, detailRole);
+	const identity = heading.identity ? headingText(heading.identity, detailRole) + identitySuffix : "";
 	const details =
 		heading.details
 			?.filter((detail) =>
 				typeof detail === "string" ? detail.length > 0 : detail.some((span) => span.text.length > 0),
 			)
-			.map((detail) => densityCardText(detail)) ?? [];
+			.map((detail) => headingText(detail, detailRole)) ?? [];
 	if (palette.identityPlacement === "detail" && identity) details.unshift(identity);
 	const nameSuffix = palette.identityPlacement === "name" && heading.identity ? identitySuffix : "";
 	const inlineIdentity = palette.identityPlacement === undefined && identity ? ` ${identity}` : "";
-	const separatedDetails = details.length > 0 ? theme.fg("text", " • ") + details.join(theme.fg("text", " · ")) : "";
+	const separatedDetails = details.length > 0 ? theme.fg("dim", " • ") + details.join(theme.fg("dim", " · ")) : "";
 	return style.label(name) + nameSuffix + inlineIdentity + separatedDetails;
 }
 
 /** Retain only italic and strike from a semantic suffix, not its original color or weight. */
-function neutralDetail(detail: string): string {
+function neutralDetail(detail: string, role: "dim" | "text" = "dim"): string {
 	let italic = false;
 	let strikethrough = false;
 	let text = "";
 	let start = 0;
 	for (let escape = detail.indexOf("\x1b"); escape !== -1; escape = detail.indexOf("\x1b", start)) {
-		if (escape > start) text += theme.style(detail.slice(start, escape), { fg: "text", italic, strikethrough });
+		if (escape > start) text += titleText(detail.slice(start, escape), role, italic, strikethrough);
 		const ansi = extractAnsiCode(detail, escape);
 		start = escape + (ansi?.length ?? 1);
 		const sgr = /^\x1b\[([0-9;:]*)m$/.exec(ansi?.code ?? "");
@@ -226,5 +255,5 @@ function neutralDetail(detail: string): string {
 			}
 		}
 	}
-	return start < detail.length ? text + theme.style(detail.slice(start), { fg: "text", italic, strikethrough }) : text;
+	return start < detail.length ? text + titleText(detail.slice(start), role, italic, strikethrough) : text;
 }

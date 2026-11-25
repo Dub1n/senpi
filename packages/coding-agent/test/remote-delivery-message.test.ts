@@ -55,11 +55,13 @@ describe("a delivered message in the terminal", () => {
 		expect(view?.format).toBe("structured");
 		if (view?.format !== "structured") throw new Error("Expected structured delivery");
 		expect(view.kind).toBe("incoming-message");
-		expect(view.heading).toEqual({ details: ["planner"] });
+		expect(view.heading).toEqual({ details: [[{ text: "planner", role: "text" }]] });
 		expect(view.statusGlyph).toBe("←");
-		expect(view.body[0]?.type).toBe("rich");
-		if (view.body[0]?.type !== "rich") throw new Error("Expected rich body");
-		expect(view.body[0].render(80).map(stripAnsi).join("\n")).toContain("review the diff");
+		expect(view.body[0]).toEqual({ type: "text", lines: ["id: 01a1"] });
+		if (view.body[1]?.type !== "rich") throw new Error("Expected rich body");
+		const rendered = view.body[1].render(80).join("\n");
+		expect(stripAnsi(rendered)).toContain("review the diff");
+		expect(rendered).toContain("\x1b[3m");
 	});
 
 	it("labels another session's message with its name and shows the text as written, not the provenance header", () => {
@@ -73,6 +75,27 @@ describe("a delivered message in the terminal", () => {
 	it("labels an unnamed session's message without a name", () => {
 		const lines = delivered({ sender: { kind: "agent", session_id: "01a1" }, display_text: "review the diff" });
 		expect(lines[0]).toBe("Sent by another agent");
+	});
+
+	it("keeps agent sender identity role-text in the density heading", () => {
+		const message: CustomMessage = {
+			role: "custom",
+			customType: SESSION_CONTROL_DELIVERY_TYPE,
+			content: "fallback",
+			display: true,
+			details: {
+				delivery_id: "d-1",
+				source: "session_control",
+				deliverAs: "followUp",
+				sender: { kind: "agent", session_id: "01a1", name: "planner" },
+				display_text: "review the diff",
+			},
+			timestamp: 0,
+		};
+		const view = agentDeliveryDensityCard(message);
+		expect(view?.format).toBe("structured");
+		if (view?.format !== "structured") throw new Error("Expected structured delivery");
+		expect(view.heading.details).toEqual([[{ text: "planner", role: "text" }]]);
 	});
 
 	it("labels a command-line send", () => {

@@ -6,6 +6,7 @@ import {
 	stripTerminalSequences,
 	truncateToWidth,
 	visibleWidth,
+	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import { parseRuleActivationDetails } from "../../../core/extensions/builtin/rule-activation/types.ts";
 import type { CustomEntry } from "../../../core/session-manager.ts";
@@ -95,6 +96,25 @@ export function isNoticeBox(component: Component | undefined): boolean {
 export function isRememberedNoticeBox(component: Component | undefined): boolean {
 	const box = purpleBox(component);
 	return box !== undefined && hasTitle(box, (title) => /^(?:●\s*)?Remembered(?:$|\s|·)/u.test(title));
+}
+
+/** Keep the installed memory renderer's explanatory rows, but let dense chrome show the failure. */
+export function failedMemoryDensityCard(
+	component: Component | undefined,
+	diagnostics: readonly string[],
+): DensityCardView {
+	const box = purpleBox(component);
+	return {
+		kind: "memory",
+		name: "memory",
+		status: "failed",
+		title: " · not remembered",
+		renderContent: (width) =>
+			box && hasTitle(box, (title) => /^○\s+(?:Not remembered|Couldn't let go)(?:$|\s)/u.test(title))
+				? joinLineArrays(box.children.slice(1).map((child) => child.render(width)))
+				: diagnostics.flatMap((line) => wrapTextWithAnsi(theme.fg("text", line), width)),
+		sections: [],
+	};
 }
 
 /** Adapt the title slot of a known local or pinned OmO notice; keep its child rows intact. */
