@@ -27,12 +27,14 @@ import {
 import type { ToolDisplayColors } from "../../../core/settings-manager.ts";
 import { theme } from "../theme/theme.ts";
 import { densityCardHeading, densityCardStyle, densityCardText } from "./density-card-style.ts";
+import type { DensityFold } from "./density-fold.ts";
 import { toolDensityKind, toolDensitySummary } from "./tool-density-summary.ts";
 import type { ToolExecutionComponent } from "./tool-execution.ts";
 
 const paintGroup = (text: string) => theme.bg("toolSuccessBg", text);
 const noBackground = (text: string) => text;
 const defaultColors: ToolDisplayColors = { colorFrames: false, colorNames: false, colorIcons: false };
+const livePreviewLines = 10;
 
 /** A notice or assistant detail that participates in the tool-card layout. */
 export interface DensityCardSource extends Component {
@@ -45,6 +47,14 @@ export interface DensityCardSource extends Component {
 	setExpanded(expanded: boolean): void;
 	toggleDensityMember?(index: number): void;
 }
+
+type ToolDensityRowOptions = {
+	readonly fold?: DensityFold;
+	readonly onToolOpen?: (card: ToolExecutionComponent) => void;
+	readonly needsHandledPress?: () => boolean;
+	readonly onPress?: (row: ToolDensityRow) => void;
+	readonly isClickTarget?: (row: ToolDensityRow) => boolean;
+};
 
 export function isDensityCardSource(component: Component): component is DensityCardSource {
 	return (
@@ -74,6 +84,7 @@ export class ToolDensityRow implements Component {
 	private readonly card: ToolExecutionComponent | DensityCardSource;
 	private readonly requestRender: () => void;
 	private readonly getColors: () => ToolDisplayColors;
+	private readonly options: ToolDensityRowOptions;
 	private grouped = false;
 	private first = true;
 	private last = true;
@@ -94,9 +105,11 @@ export class ToolDensityRow implements Component {
 		card: ToolExecutionComponent | DensityCardSource,
 		requestRender: () => void,
 		getColors: () => ToolDisplayColors = () => defaultColors,
+		options: ToolDensityRowOptions = {},
 	) {
 		this.card = card;
 		this.requestRender = requestRender;
+		this.options = options;
 		this.getColors = getColors;
 	}
 
@@ -111,6 +124,7 @@ export class ToolDensityRow implements Component {
 
 	render(width: number): string[] {
 		const frameRow = claimFrameRow(this);
+		if ("summarySnapshot" in this.card) this.card.setDensityDetail(this.expanded);
 		if (this.expanded) return this.renderExpanded(width, frameRow);
 		this.detailLayout = undefined;
 		const left = width >= 3 ? " " : "";
@@ -146,7 +160,9 @@ export class ToolDensityRow implements Component {
 
 	private get expanded(): boolean {
 		if ("densityExpandable" in this.card && this.card.densityExpandable === false) return false;
-		return "densityExpanded" in this.card ? this.card.densityExpanded : this.card.summarySnapshot.expanded;
+		return "densityExpanded" in this.card
+			? this.card.densityExpanded
+			: (this.options.fold?.choice ?? this.card.summarySnapshot.expanded);
 	}
 
 	private densityCard(width: number): DensityCardView | undefined {
@@ -228,14 +244,26 @@ export class ToolDensityRow implements Component {
 		const title = truncateToWidth(renderDensityCardSummary(view, style, true), Math.max(0, width - 4), "…");
 		const frame = renderLabel(` ${style.frame("╭─")} `, title);
 		const sectionHeaders: { start: number; end: number }[] = [];
+		const livePreview = "summarySnapshot" in this.card && this.card.summarySnapshot.pending;
 		const appendContent = (prefix: string, content: readonly string[]): void => {
-			const rowOffset = frame.length;
+			const skipped = livePreview && !content.some(isImageLine) ? Math.max(0, content.length - livePreviewLines) : 0;
+			if (skipped) frame.push(...renderLabel(prefix, theme.fg("muted", `… ${skipped} earlier lines`)));
+			const offset = frame.length;
 			frame.push(
-				...content.map((line) =>
-					applyBackgroundToLine(prefix + line, width, paint, this.grouped ? "replace" : "fill"),
-				),
+				...content
+					.slice(skipped)
+					.map((line) =>
+						isImageLine(line)
+							? line
+							: applyBackgroundToLine(prefix + line, width, paint, this.grouped ? "replace" : "fill"),
+					),
 			);
-			copyLineSources(content, frame, rowOffset, visibleWidth(prefix));
+			const sources = getLineSources(content);
+			if (sources) {
+				const rows = content.slice(skipped);
+				setLineSources(rows, sources.slice(skipped));
+				copyLineSources(rows, frame, offset, visibleWidth(prefix));
+			}
 		};
 		const contentWidth = Math.max(1, width - visibleWidth(bodyPrefix));
 		const renderBlocks = (
@@ -263,6 +291,10 @@ export class ToolDensityRow implements Component {
 			if (view.renderMetadata !== undefined) appendContent(bodyPrefix, view.renderMetadata(contentWidth));
 			else if (view.metadata !== undefined) frame.push(...renderLabel(bodyPrefix, view.metadata));
 			appendContent(bodyPrefix, view.renderContent(contentWidth));
+		}
+		if (livePreview && "summarySnapshot" in this.card) {
+			const progress = this.card.renderDensityProgress();
+			if (progress) frame.push(...renderLabel(bodyPrefix, progress));
 		}
 		const after: string[] = [];
 		if (view.format === "structured") {
@@ -339,6 +371,16 @@ export class ToolDensityRow implements Component {
 	}
 
 	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | TuiMouseDispatchResult | undefined {
+		if (event.type === "press" && event.button === "left") this.options.onPress?.(this);
+		// Fullscreen dispatches a stationary release at its current layout. A
+		// streamed update may have put a different invocation under that cell.
+		if (
+			event.type === "click" &&
+			event.button === "left" &&
+			event.clickCount !== undefined &&
+			this.options.isClickTarget?.(this) === false
+		)
+			return undefined;
 		const expanded = this.expanded;
 		const detail = this.detailLayout;
 		let row: number;
@@ -365,9 +407,16 @@ export class ToolDensityRow implements Component {
 		}
 		// The alternate screen derives a click after a stationary release. Leaving
 		// the initial press to it lets a drag select text from the same row.
-		if (event.type !== "click" || event.button !== "left") return undefined;
+		if (event.button !== "left") return undefined;
 		if ("densityExpandable" in this.card && this.card.densityExpandable === false) return undefined;
-		if (!("densityExpanded" in this.card) && this.card.summarySnapshot.pending) return undefined;
+		if (
+			event.type === "press" &&
+			"summarySnapshot" in this.card &&
+			this.card.summarySnapshot.pending &&
+			this.options.needsHandledPress?.()
+		)
+			return { handled: true, render: false };
+		if (event.type !== "click") return undefined;
 		if (
 			"densityGroup" in this.card &&
 			this.card.densityGroup === true &&
@@ -389,14 +438,19 @@ export class ToolDensityRow implements Component {
 			this.requestRender();
 			return { handled: true };
 		}
-		this.card.setExpanded(!expanded);
+		if ("summarySnapshot" in this.card && this.options.fold) {
+			this.options.fold.setToolChoice(!expanded, this.card.summarySnapshot.pending);
+			if (!expanded) this.options.onToolOpen?.(this.card);
+		} else {
+			this.card.setExpanded(!expanded);
+		}
 		this.requestRender();
 		return { handled: true };
 	}
 
 	getRenderRevision(): number | undefined {
 		const card = this.card.getRenderRevision?.();
-		return card === undefined ? undefined : Math.max(card, this.revision);
+		return card === undefined ? undefined : Math.max(card, this.revision, this.options.fold?.revision ?? 0);
 	}
 
 	invalidate(): void {

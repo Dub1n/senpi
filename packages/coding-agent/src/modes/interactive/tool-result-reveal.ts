@@ -17,6 +17,7 @@ export type ToolResultRevealControllerOptions = {
 	readonly getSmoothStreaming: () => boolean;
 	readonly getSmoothStreamingFps: () => number;
 	readonly requestRender: () => void;
+	readonly refreshCaughtUpPreview?: () => boolean;
 };
 
 function firstText(result: ToolExecutionResult): string | undefined {
@@ -38,6 +39,7 @@ export class ToolResultRevealController {
 	readonly #getSmoothStreaming: () => boolean;
 	readonly #getSmoothStreamingFps: () => number;
 	readonly #requestRender: () => void;
+	readonly #refreshCaughtUpPreview: (() => boolean) | undefined;
 	readonly #states = new Map<string, ToolResultRevealState>();
 	#timer: NodeJS.Timeout | undefined;
 	#timerFps: number | undefined;
@@ -46,6 +48,7 @@ export class ToolResultRevealController {
 		this.#getSmoothStreaming = options.getSmoothStreaming;
 		this.#getSmoothStreamingFps = options.getSmoothStreamingFps;
 		this.#requestRender = options.requestRender;
+		this.#refreshCaughtUpPreview = options.refreshCaughtUpPreview;
 	}
 
 	update(id: string, component: ToolResultRevealComponent, partialResult: ToolExecutionResult): boolean {
@@ -77,6 +80,9 @@ export class ToolResultRevealController {
 		existing.text = text;
 		const total = existing.unitCounter.count(0, text);
 		if (wasCaughtUp && existing.revealed < total) existing.lastTickAt = performance.now();
+		// Progress and non-text blocks can be updated without appending any text.
+		if (wasCaughtUp && existing.revealed === total && this.#refreshCaughtUpPreview?.())
+			component.updateResult(displayResult(existing), true);
 		this.#syncTimer();
 		return true;
 	}
@@ -84,9 +90,22 @@ export class ToolResultRevealController {
 	finish(id: string): void {
 		const state = this.#states.get(id);
 		if (state === undefined) return;
-		state.component.updateResult(displayResult(state, state.unitCounter.count(0, state.text)), true);
+		this.#catchUp(state);
 		this.#states.delete(id);
 		this.#syncTimer();
+	}
+
+	/** A manual reveal uses the current target, not a stale paced prefix. */
+	catchUp(id: string, component: ToolResultRevealComponent): void {
+		const state = this.#states.get(id);
+		if (state?.component !== component) return;
+		this.#catchUp(state);
+		this.#syncTimer();
+	}
+
+	#catchUp(state: ToolResultRevealState): void {
+		state.revealed = state.unitCounter.count(0, state.text);
+		state.component.updateResult(displayResult(state), true);
 	}
 
 	refresh(): void {

@@ -7,6 +7,7 @@ import {
 } from "@earendil-works/pi-tui";
 import type { ToolExecutionComponent } from "./tool-execution.ts";
 import type { DensityCardSource } from "./tool-density-row.ts";
+import type { DensityFold } from "./density-fold.ts";
 import { denseReadPathLabels } from "./dense-read-paths.ts";
 import { densityCardHeading, densityCardStyle } from "./density-card-style.ts";
 import type { ToolDisplayColors } from "../../../core/settings-manager.ts";
@@ -27,13 +28,25 @@ export class PatchDensityCard implements DensityCardSource {
 	private singleView: DensityCardStructuredView | undefined;
 	private mode: "file" | "failure" | "group" = "file";
 	private groupMembers: readonly PatchDensityCard[] = [];
-	private readonly localExpansionRevisions = new Map<ToolExecutionComponent, number>();
-	private localExpanded: boolean | undefined;
 	private localRevision = nextRenderRevision();
+	private readonly fold: DensityFold;
+	private readonly toolFold: DensityFold | undefined;
+
+	constructor(fold: DensityFold, toolFold?: DensityFold) {
+		this.fold = fold;
+		this.toolFold = toolFold;
+	}
 
 	get densityExpanded(): boolean {
-		this.syncGlobalExpansion();
-		return this.localExpanded ?? this.ownerViews.every(({ owner }) => owner.summarySnapshot.expanded);
+		return this.fold.choice ?? this.toolFold?.choice ?? this.defaultExpanded;
+	}
+
+	private get memberExpanded(): boolean {
+		return this.fold.choice ?? this.toolFold?.patchChoice ?? this.defaultExpanded;
+	}
+
+	private get defaultExpanded(): boolean {
+		return this.ownerViews.every(({ owner }) => owner.summarySnapshot.expanded);
 	}
 
 	get densityGroup(): boolean {
@@ -41,56 +54,50 @@ export class PatchDensityCard implements DensityCardSource {
 	}
 
 	setFile(file: PatchFileView): void {
-		this.syncGlobalExpansion();
 		this.ownerViews = [file];
 		this.singleView = file.view;
 		this.mode = "file";
 		this.groupMembers = [];
-		this.syncExpansionOwners();
 	}
 
 	setFailure(owner: ToolExecutionComponent, view: DensityCardStructuredView): void {
-		this.syncGlobalExpansion();
-		if (this.ownerViews[0]?.owner !== owner) {
-			this.localExpansionRevisions.clear();
-			this.localExpanded = undefined;
-		}
 		this.ownerViews = [{ owner, view, path: "", label: "", suffix: undefined }];
 		this.singleView = view;
 		this.mode = "failure";
 		this.groupMembers = [];
-		this.syncExpansionOwners();
 	}
 
 	setGroup(cards: readonly PatchDensityCard[]): void {
-		this.syncGlobalExpansion();
 		const membersChanged =
 			cards.length !== this.groupMembers.length || cards.some((card, index) => this.groupMembers[index] !== card);
+		if (membersChanged) {
+			const previous = new Set(this.groupMembers);
+			const joining = new Map<DensityFold, boolean>();
+			for (const card of cards) {
+				if (previous.has(card) || !card.toolFold) continue;
+				joining.set(card.toolFold, card.memberExpanded || joining.get(card.toolFold) === true);
+			}
+			let reveal = false;
+			for (const [fold, openMember] of joining) {
+				if (fold.takeReveal() && openMember) reveal = true;
+			}
+			if (reveal) this.fold.set(true);
+			this.localRevision = nextRenderRevision();
+		}
 		this.groupMembers = cards;
 		this.ownerViews = cards.flatMap((card) => card.ownerViews);
 		this.singleView = undefined;
 		this.mode = "group";
-		if (membersChanged) this.localRevision = nextRenderRevision();
-		this.syncExpansionOwners();
 	}
 
 	setExpanded(expanded: boolean): void {
-		this.syncGlobalExpansion();
-		const globallyExpanded = this.ownerViews.every(({ owner }) => owner.summarySnapshot.expanded);
-		this.localExpanded = expanded === globallyExpanded ? undefined : expanded;
-		this.localExpansionRevisions.clear();
-		if (this.localExpanded !== undefined) {
-			for (const { owner } of this.ownerViews) {
-				this.localExpansionRevisions.set(owner, owner.getExpansionRevision());
-			}
-		}
-		this.localRevision = nextRenderRevision();
+		this.fold.set(expanded);
 	}
 
 	toggleDensityMember(index: number): void {
 		const member = this.groupMembers[index];
 		if (!member) return;
-		member.setExpanded(!member.densityExpanded);
+		member.setExpanded(!member.memberExpanded);
 		this.localRevision = nextRenderRevision();
 	}
 
@@ -119,11 +126,11 @@ export class PatchDensityCard implements DensityCardSource {
 			return {
 				format: "structured",
 				kind: firstFile.view.kind,
-				heading: firstMember.densityExpanded
+				heading: firstMember.memberExpanded
 					? (firstFile.view.expandedHeading ?? firstFile.view.heading)
 					: firstFile.view.heading,
 				status: "done",
-				body: firstMember.densityExpanded ? firstFile.view.body : [],
+				body: firstMember.memberExpanded ? firstFile.view.body : [],
 				sections: this.groupMembers.slice(1).flatMap((member) => {
 					const file = member.ownerViews[0];
 					if (!file) return [];
@@ -132,11 +139,11 @@ export class PatchDensityCard implements DensityCardSource {
 							placement: "frame",
 							heading: {
 								kind: file.view.kind,
-								heading: member.densityExpanded
+								heading: member.memberExpanded
 									? (file.view.expandedHeading ?? file.view.heading)
 									: file.view.heading,
 							},
-							body: member.densityExpanded ? file.view.body : [],
+							body: member.memberExpanded ? file.view.body : [],
 						},
 					];
 				}),
@@ -161,8 +168,7 @@ export class PatchDensityCard implements DensityCardSource {
 	}
 
 	getRenderRevision(): number | undefined {
-		this.syncGlobalExpansion();
-		let revision = this.localRevision;
+		let revision = Math.max(this.localRevision, this.fold.revision, this.toolFold?.revision ?? 0);
 		for (const { owner } of this.ownerViews) {
 			const current = owner.getRenderRevision();
 			if (current === undefined) return undefined;
@@ -173,31 +179,5 @@ export class PatchDensityCard implements DensityCardSource {
 
 	invalidate(): void {
 		this.localRevision = nextRenderRevision();
-	}
-
-	private syncExpansionOwners(): void {
-		if (this.localExpanded === undefined) {
-			this.localExpansionRevisions.clear();
-			return;
-		}
-		const owners = new Set(this.ownerViews.map(({ owner }) => owner));
-		for (const owner of this.localExpansionRevisions.keys()) {
-			if (!owners.has(owner)) this.localExpansionRevisions.delete(owner);
-		}
-		for (const owner of owners) {
-			if (!this.localExpansionRevisions.has(owner)) {
-				this.localExpansionRevisions.set(owner, owner.getExpansionRevision());
-			}
-		}
-	}
-
-	private syncGlobalExpansion(): void {
-		if (
-			this.localExpanded !== undefined &&
-			[...this.localExpansionRevisions].some(([owner, revision]) => owner.getExpansionRevision() !== revision)
-		) {
-			this.localExpanded = undefined;
-			this.localExpansionRevisions.clear();
-		}
 	}
 }

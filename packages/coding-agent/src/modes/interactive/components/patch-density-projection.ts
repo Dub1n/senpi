@@ -2,6 +2,7 @@ import path from "node:path";
 import type { DensityCardStructuredView } from "@earendil-works/pi-tui";
 import type { ToolExecutionComponent } from "./tool-execution.ts";
 import { PatchDensityCard, type PatchFileView } from "./apply-patch-density.ts";
+import type { DensityFolds } from "./density-fold.ts";
 
 export { PatchDensityCard };
 
@@ -16,7 +17,13 @@ export type ApplyPatchDensityProjection =
 /** Retain the original tool result while projecting applied patch files as independent cards. */
 export class PatchDensityProjection {
 	private readonly fileCards = new Map<string, PatchDensityCard>();
-	private readonly failureCard = new PatchDensityCard();
+	private readonly failureCard: PatchDensityCard;
+	private readonly folds: DensityFolds;
+
+	constructor(folds: DensityFolds, toolCallId: string) {
+		this.folds = folds;
+		this.failureCard = new PatchDensityCard(folds.forPatch(toolCallId, "failure"), folds.forTool(toolCallId));
+	}
 
 	update(owner: ToolExecutionComponent, view: DensityCardStructuredView): ApplyPatchDensityProjection | undefined {
 		const files = patchFileViews(owner, view);
@@ -30,7 +37,8 @@ export class PatchDensityProjection {
 			active.add(key);
 			let card = this.fileCards.get(key);
 			if (!card) {
-				card = new PatchDensityCard();
+				const id = owner.toolCallId;
+				card = new PatchDensityCard(this.folds.forPatch(id, "file", key), this.folds.forTool(id));
 				this.fileCards.set(key, card);
 			}
 			card.setFile(file);

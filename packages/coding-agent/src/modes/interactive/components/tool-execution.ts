@@ -2,7 +2,6 @@
 import {
 	Container,
 	joinLineArrays,
-	nextRenderRevision,
 	Spacer,
 	wrapTextWithAnsi,
 	type DensityCardRenderOptions,
@@ -15,12 +14,14 @@ import { formatTestSummary, readTestSummary } from "../../../core/extensions/bui
 import { getTextOutput } from "../../../core/tools/render-utils.ts";
 import { GrokToolRow } from "../grok/tool-row.ts";
 import { theme } from "../theme/theme.ts";
+import { formatToolProgressLine, readToolProgress } from "../tool-progress.ts";
 import { omoTaskDensityCard } from "./omo-task-density.ts";
 import { toolDensitySummary } from "./tool-density-summary.ts";
 import { createBoundedRenderSignature } from "./render-signature.ts";
 import { ToolExecutionAnimation, toolCardSpins, toolCardStrikes } from "./tool-execution-animation.ts";
 import { serializedToolResultBytes, ToolExecutionRenderCache } from "./tool-execution-cache.ts";
 import { collapseFallbackResult } from "./tool-execution-fallback-preview.ts";
+import { createToolResultFallback } from "./tool-execution-fallback.ts";
 import { ToolExecutionImages } from "./tool-execution-images.ts";
 import { ToolExecutionRenderer } from "./tool-execution-renderer.ts";
 import type {
@@ -56,8 +57,7 @@ export class ToolExecutionComponent extends Container {
 	private readonly presentation: ToolExecutionPresentation;
 	private args: unknown;
 	private expanded = false;
-	/** Distinguishes explicit expansion from ordinary result-render revisions. */
-	private expansionRevision = nextRenderRevision();
+	private densityDetail: boolean | undefined;
 	private showImages: boolean;
 	private imageWidthCells: number;
 	private isPartial = true;
@@ -115,8 +115,10 @@ export class ToolExecutionComponent extends Container {
 				},
 				// Left-clicking a finished tool card toggles it like the expand keybinding does.
 				() => {
+					if (this.densityDetail !== undefined) return false;
 					this.setExpanded(!this.expanded);
 					this.ui.requestRender();
+					return true;
 				},
 			);
 			this.images = new ToolExecutionImages(() => {
@@ -129,6 +131,22 @@ export class ToolExecutionComponent extends Container {
 		}
 		this.updateSpinnerAnimation();
 		this.updateDisplay();
+	}
+
+	get toolCallId(): string {
+		return this.identity.toolCallId;
+	}
+
+	/** A dense open row can show the collapsed renderer's preview while it is running. */
+	setDensityDetail(detail: boolean | undefined): void {
+		if (this.densityDetail === detail) return;
+		this.densityDetail = detail;
+		this.updateDisplay();
+	}
+
+	renderDensityProgress(): string | undefined {
+		const progress = readToolProgress(this.result?.details);
+		return progress ? formatToolProgressLine(progress, Date.now(), this.animation.frame) : undefined;
 	}
 
 	updateArgs(args: unknown): void {
@@ -208,6 +226,19 @@ export class ToolExecutionComponent extends Container {
 			view = this.renderer?.renderDensityCard(width, options);
 			if (view !== undefined && !options.expanded) this.invalidate();
 		}
+		if (view === undefined && this.isPartial && options.expanded && this.renderer?.hasRendererDefinition === false) {
+			const state = this.createRenderState();
+			const output = createToolResultFallback(state.result, state.showImages);
+			const { name, detail } = toolDensitySummary(this.summarySnapshot);
+			return {
+				format: "structured",
+				kind: "tool",
+				heading: { description: name === undefined ? detail : `${name}${detail}` },
+				status: this.executionStarted ? "running" : "pending",
+				body: output ? [{ type: "rich", render: (available) => output.render(available) }] : [],
+				sections: [],
+			};
+		}
 		if (view === undefined && this.identity.toolName === "eval" && this.result?.isError && !this.isPartial) {
 			// Validation can fail before the eval extension has a semantic result to render.
 			const summary = toolDensitySummary(this.summarySnapshot);
@@ -273,13 +304,12 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	setExpanded(expanded: boolean): void {
-		this.expansionRevision = nextRenderRevision();
+		if (this.expanded === expanded) return;
 		this.expanded = expanded;
+		// Dense row defaults also read this flag, even when its current override
+		// leaves the underlying renderer's expansion unchanged.
+		if (this.densityDetail !== undefined) this.invalidateRenderCache();
 		this.updateDisplay();
-	}
-
-	getExpansionRevision(): number {
-		return this.expansionRevision;
 	}
 
 	setShowImages(show: boolean): void {
@@ -416,7 +446,7 @@ export class ToolExecutionComponent extends Container {
 			executionStarted: this.executionStarted,
 			argsComplete: this.argsComplete,
 			isPartial: this.isPartial,
-			expanded: this.expanded,
+			expanded: this.densityDetail === undefined ? this.expanded : this.densityDetail && !this.isPartial,
 			showImages: this.showImages,
 			spinnerFrame: this.animation.frame,
 			result: this.result

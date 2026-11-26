@@ -1,3 +1,23 @@
+## 2026-11-26 - Fold running cards and retain their choices on settlement
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/tool-density-row.ts`, `packages/coding-agent/src/modes/interactive/components/tool-execution.ts`, and `packages/coding-agent/src/modes/interactive/components/tool-execution-renderer.ts` let Compact and Grouped cards open before their first partial, showing a framed preview without changing Default's renderer expansion.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts` and `packages/coding-agent/src/modes/interactive/tool-result-reveal.ts` use the existing per-invocation reveal target to catch up immediately on open, then settle through the existing final-result path.
+- `packages/coding-agent/src/modes/interactive/components/exploration-transcript-container.ts`, `packages/coding-agent/src/modes/interactive/components/density-fold.ts`, `packages/coding-agent/src/modes/interactive/components/patch-density-projection.ts`, and `packages/coding-agent/src/modes/interactive/components/apply-patch-density.ts` retain session-local fold intent by invocation and patch section, and consume a joining invocation's reveal once.
+
+### Why
+
+- Readers can inspect real output while work is running without having it take over the transcript, lose a manual fold, or overwrite the final result.
+
+### Why an extension could not handle it
+
+- The interactive host owns partial-result pacing, transcript mouse routing, layout, and patch projection.
+
+### Expected merge conflict zones
+
+- Interactive tool event wiring, renderer expansion, density mouse targets, and patch fold ownership.
+
 ## 2026-11-26 - Fold patch nest members independently
 
 ### What changed

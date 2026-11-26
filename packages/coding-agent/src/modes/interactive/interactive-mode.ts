@@ -1280,6 +1280,7 @@ export class InteractiveMode {
 			getSmoothStreaming: () => this.settingsManager.getSmoothStreaming(),
 			getSmoothStreamingFps: () => this.settingsManager.getSmoothStreamingFps(),
 			requestRender: () => this.ui.requestRender(),
+			refreshCaughtUpPreview: () => this.chatContainer.toolDisplayDensity !== "default",
 		});
 		this.applySmoothStreamingRenderFps();
 		this.ui.setClearOnShrink(this.settingsManager.getClearOnShrink());
@@ -1293,7 +1294,13 @@ export class InteractiveMode {
 			warmChunkSize: DEFAULT_WARM_CHUNK_SIZE,
 			requestRender: () => this.ui.requestRender(),
 			historyMarker: (hidden) => theme.fg("muted", ` ${defaultHistoryMarker(hidden)}`),
+			onDenseToolOpen: (card) => {
+				const id = card.toolCallId;
+				if (this.pendingTools.get(id) === card) this.toolResultReveal.catchUp(id, card);
+			},
+			needsDenseHandledPress: () => this.ui.mode === "regular",
 		});
+		this.chatContainer.setDensitySession(this.sessionManager.getSessionId());
 		this.chatContainer.setToolDisplayDensity(this.settingsManager.getToolDisplayDensity());
 		this.chatContainer.setToolDisplayColors(this.settingsManager.getToolDisplayColors());
 		this.documentContainer = new Container();
@@ -3058,6 +3065,7 @@ export class InteractiveMode {
 	private renderCurrentSessionState(): void {
 		this.loadedResourcesContainer.clear();
 		this.chatContainer.clear();
+		this.chatContainer.setDensitySession?.(this.sessionManager.getSessionId());
 		this.pendingMessagesContainer.clear();
 		for (const controller of this.compactionTransferAbortControllers.values()) controller.abort();
 		this.compactionQueueGeneration += 1;
@@ -7421,6 +7429,7 @@ export class InteractiveMode {
 		if (expanded === this.toolOutputExpanded) return;
 
 		this.toolOutputExpanded = expanded;
+		this.chatContainer.resetDensityFolds?.();
 		const activeHeader = this.customHeader ?? this.builtInHeader;
 		if (isExpandable(activeHeader)) {
 			activeHeader.setExpanded(expanded);

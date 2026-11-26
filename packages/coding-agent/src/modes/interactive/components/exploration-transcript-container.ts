@@ -21,6 +21,7 @@ import { CustomEntryComponent } from "./custom-entry.ts";
 import { CustomMessageComponent } from "./custom-message.ts";
 import { CompactionSummaryMessageComponent } from "./compaction-summary-message.ts";
 import { type DenseProjectRulesMember, DenseProjectRulesRun } from "./dense-project-rules.ts";
+import { DensityFolds } from "./density-fold.ts";
 import { denseBashProjection, DenseBashRun, type DenseBashMember } from "./dense-bash-run.ts";
 import { type DenseReadMember, denseReadProjection, DenseReadRun } from "./dense-read-run.ts";
 import { type ExplorationCall, explorationCall } from "./exploration-call.ts";
@@ -48,6 +49,11 @@ function isDefaultStatusRow(child: Component | undefined): boolean {
 	);
 }
 
+type ExplorationTranscriptOptions = ProgressiveTranscriptOptions & {
+	readonly onDenseToolOpen?: (card: ToolExecutionComponent) => void;
+	readonly needsDenseHandledPress?: () => boolean;
+};
+
 /**
  * Original children remain the lifecycle/ID/anchor model. A non-owning projection groups their
  * presentation before progressive hydration, so compact frames never render hidden tool results.
@@ -56,14 +62,18 @@ function isDefaultStatusRow(child: Component | undefined): boolean {
 export class ExplorationTranscriptContainer extends Container {
 	private readonly display: ProgressiveTranscriptContainer;
 	private readonly requestRender: () => void;
+	private readonly options: ExplorationTranscriptOptions;
 	private density: ToolDisplayDensity = "default";
+	private densitySessionId: string | undefined;
+	private densityFolds = new DensityFolds();
+	private pressedDensityRow: ToolDensityRow | undefined;
 	private densityColors: ToolDisplayColors = { colorFrames: false, colorNames: false, colorIcons: false };
 	private readonly densityRows = new WeakMap<ToolExecutionComponent | DensityCardSource, ToolDensityRow>();
 	private readonly denseBashRuns = new WeakMap<ToolExecutionComponent | TerminalBackgroundNotice, DenseBashRun>();
 	private readonly denseReadRuns = new WeakMap<ToolExecutionComponent, DenseReadRun>();
 	private readonly denseProjectRulesRuns = new WeakMap<CustomEntryComponent, DenseProjectRulesRun>();
-	private patchDensityProjections = new WeakMap<ToolExecutionComponent, PatchDensityProjection>();
-	private patchDensityGroups = new WeakMap<ToolExecutionComponent, PatchDensityCard>();
+	private readonly patchDensityProjections = new WeakMap<ToolExecutionComponent, PatchDensityProjection>();
+	private readonly patchDensityGroups = new WeakMap<ToolExecutionComponent, PatchDensityCard>();
 	private densityProjection:
 		| {
 				readonly source: readonly Component[];
@@ -83,10 +93,11 @@ export class ExplorationTranscriptContainer extends Container {
 		| { readonly source: readonly Component[]; readonly clock: number; readonly projected: Component[] }
 		| undefined;
 
-	constructor(options: ProgressiveTranscriptOptions) {
+	constructor(options: ExplorationTranscriptOptions) {
 		super();
 		this.display = new ProgressiveTranscriptContainer(options);
 		this.requestRender = options.requestRender;
+		this.options = options;
 	}
 
 	get toolDisplayDensity(): ToolDisplayDensity {
@@ -97,8 +108,24 @@ export class ExplorationTranscriptContainer extends Container {
 	setToolDisplayDensity(density: ToolDisplayDensity): void {
 		if (this.density === density) return;
 		this.density = density;
+		if (density === "default") {
+			for (const child of this.children) {
+				if (child instanceof ToolExecutionComponent) child.setDensityDetail(undefined);
+			}
+		}
+		this.pressedDensityRow = undefined;
 		this.densityProjection = undefined;
 		this.display.invalidateCache();
+	}
+
+	setDensitySession(sessionId: string): void {
+		if (this.densitySessionId === sessionId) return;
+		this.densitySessionId = sessionId;
+		this.densityFolds = new DensityFolds();
+	}
+
+	resetDensityFolds(): void {
+		this.densityFolds.reset();
 	}
 
 	setToolDisplayColors(colors: ToolDisplayColors): void {
@@ -171,7 +198,7 @@ export class ExplorationTranscriptContainer extends Container {
 				const first = patchRun[0].owner;
 				let group = this.patchDensityGroups.get(first);
 				if (!group) {
-					group = new PatchDensityCard();
+					group = new PatchDensityCard(this.densityFolds.forPatch(first.toolCallId, "group"));
 					this.patchDensityGroups.set(first, group);
 				}
 				group.setGroup(files);
@@ -365,7 +392,7 @@ export class ExplorationTranscriptContainer extends Container {
 		});
 		let projection = this.patchDensityProjections.get(card);
 		if (!projection) {
-			projection = new PatchDensityProjection();
+			projection = new PatchDensityProjection(this.densityFolds, card.toolCallId);
 			this.patchDensityProjections.set(card, projection);
 		}
 		return projection.update(card, view);
@@ -374,7 +401,15 @@ export class ExplorationTranscriptContainer extends Container {
 	private densityRowOf(card: ToolExecutionComponent | DensityCardSource): ToolDensityRow {
 		const cached = this.densityRows.get(card);
 		if (cached !== undefined) return cached;
-		const row = new ToolDensityRow(card, this.requestRender, () => this.densityColors);
+		const row = new ToolDensityRow(card, this.requestRender, () => this.densityColors, {
+			...(card instanceof ToolExecutionComponent ? { fold: this.densityFolds.forTool(card.toolCallId) } : {}),
+			onToolOpen: this.options.onDenseToolOpen,
+			needsHandledPress: this.options.needsDenseHandledPress,
+			onPress: (target) => {
+				this.pressedDensityRow = target;
+			},
+			isClickTarget: (target) => target === this.pressedDensityRow,
+		});
 		this.densityRows.set(card, row);
 		return row;
 	}
@@ -449,6 +484,7 @@ export class ExplorationTranscriptContainer extends Container {
 	}
 
 	override handleMouse(event: TuiMouseEvent) {
+		if (event.type === "press") this.pressedDensityRow = undefined;
 		return this.display.handleMouse(event);
 	}
 
@@ -466,14 +502,13 @@ export class ExplorationTranscriptContainer extends Container {
 	override invalidate(): void {
 		this.display.invalidateCache();
 		this.calls = new WeakMap();
-		this.patchDensityProjections = new WeakMap();
-		this.patchDensityGroups = new WeakMap();
 		this.densityProjection = undefined;
 		super.invalidate();
 	}
 
 	override clear(): void {
 		this.display.detachAll();
+		this.pressedDensityRow = undefined;
 		this.groups = new WeakMap();
 		this.projection = undefined;
 		this.densityProjection = undefined;
@@ -482,6 +517,7 @@ export class ExplorationTranscriptContainer extends Container {
 
 	override detachAll(): void {
 		this.display.detachAll();
+		this.pressedDensityRow = undefined;
 		this.groups = new WeakMap();
 		this.projection = undefined;
 		this.densityProjection = undefined;

@@ -79,7 +79,7 @@ export class ToolExecutionRenderer extends Container implements DensityCardSourc
 	private readonly selfRenderContainer = new Container();
 	private readonly rendererState: Record<string, unknown> = {};
 	private readonly onInvalidate: () => void;
-	private readonly onToggleExpanded: (() => void) | undefined;
+	private readonly onToggleExpanded: (() => boolean) | undefined;
 	private state: ToolExecutionRenderState;
 	private callRendererComponent?: Component;
 	private resultRendererComponent?: Component;
@@ -88,7 +88,7 @@ export class ToolExecutionRenderer extends Container implements DensityCardSourc
 		identity: ToolExecutionIdentity,
 		state: ToolExecutionRenderState,
 		onInvalidate: () => void,
-		onToggleExpanded?: () => void,
+		onToggleExpanded?: () => boolean,
 	) {
 		super();
 		this.identity = identity;
@@ -113,8 +113,7 @@ export class ToolExecutionRenderer extends Container implements DensityCardSourc
 		if (!onToggleExpanded) return component;
 		return new MouseRegion(component, (event) => {
 			if (!this.state.result || event.type !== "click" || event.button !== "left") return undefined;
-			onToggleExpanded();
-			return { handled: true };
+			return onToggleExpanded() ? { handled: true } : undefined;
 		});
 	}
 

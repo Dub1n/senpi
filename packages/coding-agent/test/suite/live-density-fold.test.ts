@@ -1,0 +1,219 @@
+import { stripTerminalSequences, TuiAltScreen, type TuiMouseEvent, visibleWidth } from "@earendil-works/pi-tui";
+import { describe, expect, it, vi } from "vitest";
+import { VirtualTerminal } from "../../../tui/test/virtual-terminal.ts";
+import type { AgentSessionEvent } from "../../src/core/agent-session.ts";
+import { ExplorationTranscriptContainer } from "../../src/modes/interactive/components/exploration-transcript-container.ts";
+import { explorationSurface, invoke } from "./exploration-surface-harness.ts";
+
+type Surface = Awaited<ReturnType<typeof explorationSurface>>;
+const cases = [
+	{ density: "compact", width: 64, colorFrames: false },
+	{ density: "grouped", width: 120, colorFrames: true },
+] as const;
+
+function denseChat(surface: Surface, { density, colorFrames }: (typeof cases)[number]) {
+	if (!(surface.chat instanceof ExplorationTranscriptContainer))
+		throw new TypeError("Expected exploration transcript");
+	surface.chat.setToolDisplayDensity(density);
+	surface.chat.setToolDisplayColors({ colorFrames, colorNames: false, colorIcons: false });
+	return surface.chat;
+}
+
+function shell(id: string) {
+	return { toolCallId: id, toolName: "bash", args: { command: `echo ${id}` } };
+}
+
+function textResult(text: string, details?: unknown) {
+	return { content: [{ type: "text" as const, text }], details };
+}
+
+function mouse(
+	surface: Surface,
+	target: { readonly tool: string; readonly width: number; readonly type?: TuiMouseEvent["type"] },
+) {
+	const lines = surface.chat.render(target.width).map(stripTerminalSequences);
+	const row = lines.findIndex((line) => /^[ ]+╶─|^[ ]+╭─/u.test(line) && line.includes(target.tool));
+	expect(lines[row]).toContain(target.tool);
+	return surface.chat.handleMouse({
+		type: target.type ?? "click",
+		button: "left",
+		x: 6,
+		y: row,
+		screenX: 6,
+		screenY: row,
+		width: target.width,
+		height: lines.length,
+		shift: false,
+		alt: false,
+		ctrl: false,
+	});
+}
+
+describe.each(cases)("$density live tool folds at $width columns", (config) => {
+	const { width } = config;
+	it("opens a silent running card without opening a simultaneous invocation", async () => {
+		const surface = await explorationSurface();
+		const terminal = new VirtualTerminal(width, 40);
+		const tui = new TuiAltScreen(terminal);
+		try {
+			tui.addChild(denseChat(surface, config));
+			Reflect.set(surface.mode, "ui", tui);
+			for (const toolCallId of ["live-a", "live-b"]) {
+				await surface.event({ type: "tool_execution_start", ...shell(toolCallId) });
+			}
+			tui.start();
+			tui.renderNow();
+			const before = await terminal.flushAndGetViewport();
+			const row = before.findIndex((line) => line.includes("╶─") && line.includes("live-a")) + 1;
+			expect(before[row - 1]).toContain("live-a");
+
+			terminal.sendInput(`\x1b[<0;6;${row}M`);
+			terminal.sendInput(`\x1b[<32;15;${row}M`);
+			terminal.sendInput(`\x1b[<0;15;${row}m`);
+			tui.renderNow();
+			expect((await terminal.flushAndGetViewport()).join("\n")).toMatch(/╶─[^\n]*live-a/);
+
+			terminal.sendInput(`\x1b[<0;6;${row}M`);
+			terminal.sendInput(`\x1b[<0;6;${row}m`);
+			tui.renderNow();
+			const after = (await terminal.flushAndGetViewport()).join("\n");
+			expect(after).toMatch(/╭─[^\n]*live-a/u);
+			expect(after).toMatch(/╶─[^\n]*live-b/u);
+			expect(after.match(/^ ╰─\s*$/gmu)).toHaveLength(1);
+		} finally {
+			tui.detachAll();
+			tui.stop();
+			surface.cleanup();
+		}
+	});
+
+	it("does not toggle a replacement invocation under a fullscreen release", async () => {
+		const surface = await explorationSurface();
+		const terminal = new VirtualTerminal(width, 40);
+		const tui = new TuiAltScreen(terminal);
+		try {
+			const chat = denseChat(surface, config);
+			tui.addChild(chat);
+			Reflect.set(surface.mode, "ui", tui);
+			const call = shell("going-away");
+			await surface.event({ type: "tool_execution_start", ...call });
+			await surface.event({ type: "tool_execution_start", ...shell("replacement") });
+			tui.start();
+			tui.renderNow();
+			const before = await terminal.flushAndGetViewport();
+			const row = before.findIndex((line) => line.includes("going-away")) + 1;
+			expect(before[row - 1]).toMatch(/╶─.*going-away/u);
+			terminal.sendInput(`\x1b[<0;6;${row}M`);
+
+			await surface.event({
+				type: "tool_execution_end",
+				...call,
+				result: textResult("finished"),
+				isError: false,
+			});
+			const outgoing = chat.children[0];
+			if (!outgoing) throw new TypeError("Expected a tool invocation to remove");
+			chat.removeChild(outgoing);
+			tui.renderNow();
+			expect((await terminal.flushAndGetViewport())[row - 1]).toMatch(/╶─.*replacement/u);
+			terminal.sendInput(`\x1b[<0;6;${row}m`);
+			tui.renderNow();
+			expect((await terminal.flushAndGetViewport())[row - 1]).toMatch(/╶─.*replacement/u);
+		} finally {
+			tui.detachAll();
+			tui.stop();
+			surface.cleanup();
+		}
+	});
+
+	it("reveals the latest partial immediately, trims the preview, and never replaces the final with late output", async () => {
+		const surface = await explorationSurface();
+		vi.useFakeTimers();
+		try {
+			const chat = denseChat(surface, config);
+			surface.harness.session.settingsManager.setSmoothStreaming(true);
+			const call = shell("streaming-preview");
+			await surface.event({ type: "tool_execution_start", ...call });
+			const update = (text: string, activity = "compiling modules") =>
+				surface.event({
+					type: "tool_execution_update",
+					...call,
+					partialResult: textResult(text, { progress: { activity, startedAt: Date.now() } }),
+				});
+			const lines = Array.from({ length: 16 }, (_, i) => `partial-${i} ${"word ".repeat(28).trimEnd()}`);
+			const target = lines.join("\n") + "\n  latest";
+			await update("partial");
+			await update(target);
+			expect(surface.text(width)).not.toContain("latest");
+
+			expect(mouse(surface, { tool: call.toolCallId, width })?.handled).toBe(true);
+			const preview = chat.render(width).map(stripTerminalSequences);
+			expect(preview.filter((line) => line.startsWith(" ╭─"))).toHaveLength(1);
+			expect(preview.filter((line) => line.startsWith(" ╰─"))).toHaveLength(1);
+			expect(preview.filter((line) => line.includes("latest"))).toEqual([
+				expect.stringMatching(/^ │ {3}latest\s*$/u),
+			]);
+			expect(preview.some((line) => line.includes("compiling modules"))).toBe(true);
+			expect(preview.every((line) => visibleWidth(line) <= width)).toBe(true);
+			expect(preview.join("\n")).not.toContain("partial-0");
+
+			await update(target, "linking modules");
+			expect(surface.text(width)).toContain("linking modules");
+			await update(`${target}\nqueued-while-open`);
+			await surface.event({
+				type: "tool_execution_end",
+				...call,
+				result: textResult("final-output"),
+				isError: false,
+			});
+			await update("late-partial");
+			await vi.advanceTimersByTimeAsync(1000);
+			chat.setToolDisplayDensity(config.density === "compact" ? "grouped" : "compact");
+			chat.invalidate();
+			const final = surface.text(width === 64 ? 120 : 64);
+			expect(final).toMatch(/╭─[^\n]*streaming-preview/u);
+			expect(final.match(/final-output/gu)).toHaveLength(1);
+			expect(final).not.toMatch(/latest|queued-while-open|late-partial/u);
+		} finally {
+			await surface.event({ type: "agent_end", messages: [], willRetry: false });
+			vi.useRealTimers();
+			surface.cleanup();
+		}
+	});
+
+	it.each([
+		{ name: "error", result: "command failed", refold: false },
+		{ name: "cancellation", result: "Operation aborted", refold: true },
+	])("retains the explicit live choice on $name", async ({ name, result, refold }) => {
+		const surface = await explorationSurface();
+		const tool = `unregistered-${name}`;
+		const call = { toolCallId: `custom-${name}`, toolName: tool, args: {} };
+		try {
+			denseChat(surface, config);
+			await surface.event({ type: "tool_execution_start", ...call });
+			const partial: AgentSessionEvent = {
+				type: "tool_execution_update",
+				...call,
+				partialResult: textResult("plain fallback\n  indented preview"),
+			};
+			await surface.event(partial);
+			expect(mouse(surface, { tool, width })?.handled).toBe(true);
+			expect(surface.text(width)).toMatch(/^ │ {3}indented preview\s*$/mu);
+			if (refold) expect(mouse(surface, { tool, width })?.handled).toBe(true);
+			await surface.event({ type: "tool_execution_end", ...call, result: textResult(result), isError: true });
+			const settled = surface.text(width);
+			expect(settled).toMatch(new RegExp(`${refold ? "╶─" : "╭─"}[^\\n]*${tool}`, "u"));
+			expect(settled.includes(result)).toBe(!refold);
+			expect(settled).not.toContain("indented preview");
+			if (refold) {
+				expect(mouse(surface, { tool, width })?.handled).toBe(true);
+				expect(surface.text(width)).toContain(result);
+			}
+			invoke(surface.mode, "setToolsExpanded", true);
+			invoke(surface.mode, "setToolsExpanded", false);
+			expect(surface.text(width)).toMatch(new RegExp(`╶─[^\\n]*${tool}`, "u"));
+		} finally {
+			surface.cleanup();
+		}
+	});
+});
