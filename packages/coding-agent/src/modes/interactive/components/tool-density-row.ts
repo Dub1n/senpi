@@ -37,11 +37,13 @@ const defaultColors: ToolDisplayColors = { colorFrames: false, colorNames: false
 /** A notice or assistant detail that participates in the tool-card layout. */
 export interface DensityCardSource extends Component {
 	readonly densityExpanded: boolean;
+	readonly densityGroup?: boolean;
 	readonly densityExpandable?: false;
 	renderDensityCard?(width: number, options: DensityCardRenderOptions): DensityCardView | undefined;
 	renderDensitySummary(width: number, grouped: boolean): string[];
 	getBackgroundPainter(): ((text: string) => string) | undefined;
 	setExpanded(expanded: boolean): void;
+	toggleDensityMember?(index: number): void;
 }
 
 export function isDensityCardSource(component: Component): component is DensityCardSource {
@@ -84,6 +86,7 @@ export class ToolDensityRow implements Component {
 				readonly height: number;
 				readonly inset: number;
 				readonly renderInset: number;
+				readonly sectionHeaders?: readonly { readonly start: number; readonly end: number }[];
 		  }
 		| undefined;
 
@@ -224,6 +227,7 @@ export class ToolDensityRow implements Component {
 		};
 		const title = truncateToWidth(renderDensityCardSummary(view, style, true), Math.max(0, width - 4), "…");
 		const frame = renderLabel(` ${style.frame("╭─")} `, title);
+		const sectionHeaders: { start: number; end: number }[] = [];
 		const appendContent = (prefix: string, content: readonly string[]): void => {
 			const rowOffset = frame.length;
 			frame.push(
@@ -278,7 +282,16 @@ export class ToolDensityRow implements Component {
 							? style.titleSection(heading.label)
 							: style.sectionLabel(heading.label, heading.bold)
 						: renderStructuredHeading(heading, sectionStyle);
+				const headerStart = frame.length;
 				frame.push(...renderLabel(` ${style.frame("├─")} `, label));
+				if (
+					"densityGroup" in this.card &&
+					this.card.densityGroup === true &&
+					"toggleDensityMember" in this.card &&
+					this.card.toggleDensityMember
+				) {
+					sectionHeaders.push({ start: headerStart, end: frame.length });
+				}
 				appendContent(bodyPrefix, renderBlocks(section.body, contentWidth, sectionStyle.bodyRole));
 			}
 		} else {
@@ -303,7 +316,14 @@ export class ToolDensityRow implements Component {
 		];
 		copyLineSources(frame, rows);
 		copyLineSources(after, rows, frame.length);
-		this.detailLayout = { original: rows, start: 0, height: rows.length, inset: 0, renderInset: 0 };
+		this.detailLayout = {
+			original: rows,
+			start: 0,
+			height: rows.length,
+			inset: 0,
+			renderInset: 0,
+			...(sectionHeaders.length > 0 ? { sectionHeaders } : {}),
+		};
 		const lines = [...(this.first ? ["", blank] : []), ...rows, ...(this.last ? [blank] : [])];
 		copyLineSources(rows, lines, this.first ? 2 : 0);
 		if (this.first || this.last) {
@@ -321,8 +341,9 @@ export class ToolDensityRow implements Component {
 	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | TuiMouseDispatchResult | undefined {
 		const expanded = this.expanded;
 		const detail = this.detailLayout;
+		let row: number;
 		if (expanded && detail) {
-			const row = event.y - (this.first ? 2 : 0);
+			row = event.y - (this.first ? 2 : 0);
 			if (row < 0 || row >= detail.height) return undefined;
 			const y = detail.start + row;
 			const x = event.x - detail.inset;
@@ -339,7 +360,7 @@ export class ToolDensityRow implements Component {
 			if (result) return result;
 			if (detail.original[y] === "" || getLineSources(detail.original)?.[y] === null) return undefined;
 		} else {
-			const row = event.y - (this.first ? 2 : 0);
+			row = event.y - (this.first ? 2 : 0);
 			if (row < 0 || row >= this.foldedHeight) return undefined;
 		}
 		// The alternate screen derives a click after a stationary release. Leaving
@@ -347,6 +368,27 @@ export class ToolDensityRow implements Component {
 		if (event.type !== "click" || event.button !== "left") return undefined;
 		if ("densityExpandable" in this.card && this.card.densityExpandable === false) return undefined;
 		if (!("densityExpanded" in this.card) && this.card.summarySnapshot.pending) return undefined;
+		if (
+			"densityGroup" in this.card &&
+			this.card.densityGroup === true &&
+			"toggleDensityMember" in this.card &&
+			this.card.toggleDensityMember
+		) {
+			if (row === 0 && (!expanded || event.x < 3)) {
+				this.card.setExpanded(!expanded);
+			} else if (expanded && detail && row === 0 && event.x >= 4) {
+				this.card.toggleDensityMember(0);
+			} else if (expanded && detail) {
+				const member = detail.sectionHeaders?.findIndex(({ start, end }) => row >= start && row < end) ?? -1;
+				if (member < 0) return undefined;
+				// The frame title represents member zero; section headers start at member one.
+				this.card.toggleDensityMember(member + 1);
+			} else {
+				return undefined;
+			}
+			this.requestRender();
+			return { handled: true };
+		}
 		this.card.setExpanded(!expanded);
 		this.requestRender();
 		return { handled: true };

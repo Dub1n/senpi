@@ -1,3 +1,25 @@
+## 2026-11-26 - Fold patch nest members independently
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/apply-patch-density.ts` keeps parent and member fold choices separate and renders a shared patch frame.
+- `packages/coding-agent/src/modes/interactive/components/patch-density-projection.ts` retains projected file cards across redraws, including separate occurrences of repeated edits.
+- `packages/coding-agent/src/modes/interactive/components/exploration-transcript-container.ts` uses the extracted patch projection without changing grouping boundaries.
+- `packages/coding-agent/src/modes/interactive/components/tool-density-row.ts` distinguishes the nest gutter from its member headers and opens a folded nest from its summary.
+- `packages/coding-agent/src/modes/interactive/components/tool-execution.ts` distinguishes an explicit expansion command from ordinary render invalidation.
+
+### Why
+
+- Readers can compare selected diffs without reopening every body or losing individual choices when a patch run grows.
+
+### Why an extension could not handle it
+
+- The transcript host owns patch grouping, stable row identity, expansion commands, and mouse dispatch.
+
+### Expected merge conflict zones
+
+- Interactive transcript projection, density row mouse handling, and tool expansion state.
+
 ## 2026-11-26 - Render attributed test counts in dense transcripts
 
 ### What changed

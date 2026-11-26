@@ -16,7 +16,7 @@ import type {
 } from "../../../core/extensions/builtin/gpt-apply-patch/types.ts";
 import { normalizeApplyPatchArguments } from "../../../core/extensions/builtin/gpt-apply-patch/params.ts";
 import { AssistantMessageComponent } from "./assistant-message.ts";
-import { PatchDensityCard, PatchDensityProjection, type ApplyPatchDensityProjection } from "./apply-patch-density.ts";
+import { PatchDensityCard, PatchDensityProjection } from "./patch-density-projection.ts";
 import { CustomEntryComponent } from "./custom-entry.ts";
 import { CustomMessageComponent } from "./custom-message.ts";
 import { CompactionSummaryMessageComponent } from "./compaction-summary-message.ts";
@@ -347,7 +347,7 @@ export class ExplorationTranscriptContainer extends Container {
 		return projected;
 	}
 
-	private applyPatchProjectionOf(card: ToolExecutionComponent): ApplyPatchDensityProjection | undefined {
+	private applyPatchProjectionOf(card: ToolExecutionComponent): ReturnType<PatchDensityProjection["update"]> {
 		const snapshot = card.summarySnapshot;
 		if (snapshot.pending) return undefined;
 		const { identity, state } = card.presentationSnapshot;

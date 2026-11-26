@@ -176,10 +176,10 @@ describe.each(["compact", "grouped"] as const)("%s apply patch density", (densit
 		expect(folded.filter((line) => line.includes("patched • old.txt gone.txt new.txt"))).toHaveLength(1);
 		const expanded = await rows(density, true, [plainEdit, second, third]);
 		expect(expanded.filter((line) => line.includes("╭─"))).toHaveLength(1);
-		expect(expanded).toContain(" ╭─ ✓ patched • old.txt gone.txt new.txt".padEnd(48));
-		expect(expanded).toContain(" ├─ edited • /p/old.txt:(+1 -1)".padEnd(48));
+		expect(expanded).toContain(" ╭─ ✓ edited • /p/old.txt:(+1 -1)".padEnd(48));
 		expect(expanded).toContain(" ├─ deleted • /p/gone.txt:(+0 -1)".padEnd(48));
 		expect(expanded).toContain(" ├─ added • /p/new.txt:(+1 -0)".padEnd(48));
+		expect(expanded).toContain(" │ -1 before".padEnd(48));
 		expect(expanded).toContain(" │ -1 removed".padEnd(48));
 		expect(expanded).toContain(" │ +1 created".padEnd(48));
 	});
@@ -224,9 +224,8 @@ describe.each(["compact", "grouped"] as const)("%s apply patch density", (densit
 		expect(grouped.filter((line) => line.includes(folded))).toHaveLength(1);
 		const expanded = await rows(density, true, files, false, width);
 		expect(expanded.filter((line) => line.includes("╭─"))).toHaveLength(1);
-		expect(expanded).toContain(` ╭─ ✓ ${folded}`.padEnd(width));
-		for (const subtitle of subtitles) {
-			expect(expanded).toContain(` ├─ ${subtitle}`.padEnd(width));
+		for (const [index, subtitle] of subtitles.entries()) {
+			expect(expanded).toContain(`${index === 0 ? " ╭─ ✓ " : " ├─ "}${subtitle}`.padEnd(width));
 		}
 	});
 
@@ -372,9 +371,10 @@ describe.each(["compact", "grouped"] as const)("%s apply patch density", (densit
 			{ files: [third] },
 		]);
 		expect(expanded.filter((line) => line.includes("╭─"))).toHaveLength(1);
-		expect(expanded).toContain(" ├─ edited • /p/old.txt:(+1 -1)".padEnd(48));
+		expect(expanded).toContain(" ╭─ ✓ edited • /p/old.txt:(+1 -1)".padEnd(48));
 		expect(expanded).toContain(" ├─ deleted • /p/gone.txt:(+0 -1)".padEnd(48));
 		expect(expanded).toContain(" ├─ added • /p/new.txt:(+1 -0)".padEnd(48));
+		expect(expanded).toContain(" │ -1 before".padEnd(48));
 	});
 
 	it("ends consecutive successful runs at failed and non-patch results", async () => {

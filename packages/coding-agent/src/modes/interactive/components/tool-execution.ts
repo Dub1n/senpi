@@ -2,6 +2,7 @@
 import {
 	Container,
 	joinLineArrays,
+	nextRenderRevision,
 	Spacer,
 	wrapTextWithAnsi,
 	type DensityCardRenderOptions,
@@ -55,6 +56,8 @@ export class ToolExecutionComponent extends Container {
 	private readonly presentation: ToolExecutionPresentation;
 	private args: unknown;
 	private expanded = false;
+	/** Distinguishes explicit expansion from ordinary result-render revisions. */
+	private expansionRevision = nextRenderRevision();
 	private showImages: boolean;
 	private imageWidthCells: number;
 	private isPartial = true;
@@ -270,8 +273,13 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	setExpanded(expanded: boolean): void {
+		this.expansionRevision = nextRenderRevision();
 		this.expanded = expanded;
 		this.updateDisplay();
+	}
+
+	getExpansionRevision(): number {
+		return this.expansionRevision;
 	}
 
 	setShowImages(show: boolean): void {
