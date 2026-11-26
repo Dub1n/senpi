@@ -285,6 +285,15 @@ export interface EvalToolCallSummary {
 	readonly durationMs?: number;
 	readonly resultPreview?: string;
 	readonly details?: unknown;
+	readonly testSummary?: EvalTestSummary;
+}
+
+export interface EvalTestSummary {
+	readonly version: 1;
+	readonly runner: string;
+	readonly passed: number;
+	readonly failed: number;
+	readonly skipped: number;
 }
 
 export type EvalStatusEvent = { readonly op: string } & Readonly<Record<string, unknown>>;

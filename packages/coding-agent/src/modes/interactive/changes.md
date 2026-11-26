@@ -1,3 +1,22 @@
+## 2026-11-26 - Render attributed test counts in dense transcripts
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/tool-execution.ts` renders stored test counts on completed opt-in bash cards, retaining output in the expanded body.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts`, `packages/coding-agent/src/modes/interactive/components/terminal-test-completion.ts`, and `packages/coding-agent/src/modes/interactive/components/exploration-transcript-container.ts` project attributed background completion notices live and on replay, only in dense modes.
+
+### Why
+
+- Test counts should not disappear on restart or change the Default transcript or model-visible output.
+
+### Why an extension could not handle it
+
+- The transcript host owns density selection, replay, and the visibility of hidden notification entries.
+
+### Expected merge conflict zones
+
+- Tool card density rendering and interactive custom-message replay.
+
 ## 2026-11-25 - Frame background bash notices in dense transcripts
 
 ### What changed

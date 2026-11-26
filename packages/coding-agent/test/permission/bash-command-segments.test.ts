@@ -25,7 +25,7 @@ type Outcome = "allow" | "ask" | "deny";
 
 async function decide(
 	preset: PermissionPresetName,
-	command: string,
+	command: string | { test_runner: { runner: string; args: string[] } },
 	{ config = {}, approved = [] }: { config?: PermissionConfig; approved?: Rule[] } = {},
 ): Promise<Outcome> {
 	const service = new PermissionService(
@@ -34,7 +34,7 @@ async function decide(
 		undefined,
 		preset,
 	);
-	for (const request of registry.parse("bash", { command }, cwd)) {
+	for (const request of registry.parse("bash", typeof command === "string" ? { command } : command, cwd)) {
 		const answer = service
 			.ask(
 				{
@@ -60,6 +60,12 @@ async function decide(
 	}
 	return "allow";
 }
+
+it("honors an explicit Vitest deny on a direct test launch", async () => {
+	const input = { test_runner: { runner: "vitest", args: ["--testNamePattern", "pass; fail"] } };
+	expect(await decide("full-access", input)).toBe("allow");
+	expect(await decide("full-access", input, { config: { bash: { vitest: "deny" } } })).toBe("deny");
+});
 
 const always = (...prefixes: string[]): Rule[] =>
 	prefixes.flatMap((prefix) => [

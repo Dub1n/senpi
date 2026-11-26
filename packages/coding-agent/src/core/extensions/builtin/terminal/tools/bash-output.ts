@@ -12,7 +12,7 @@ import {
 	textResult,
 } from "./context.ts";
 import { renderBashOutputCall, renderBashOutputResult } from "./render.ts";
-import { describeExit } from "./spawn.ts";
+import { describeExit, testSummaryFor } from "./spawn.ts";
 
 export const bashOutputSchema = Type.Object({
 	bash_id: Type.String({ description: "Session id returned by a run_in_background bash call." }),
@@ -108,6 +108,8 @@ export function createBashOutputTool(ctx: TerminalToolContext) {
 			if (input.view === "screen") {
 				return textResult(`${header}\n${screenView(runtime)}`, { details });
 			}
+			const testSummary = testSummaryFor(runtime);
+			if (testSummary !== undefined) details.testSummary = testSummary;
 
 			const delta = runtime.readDelta();
 			const filteredText = applyFilter(delta.text, input.filter);

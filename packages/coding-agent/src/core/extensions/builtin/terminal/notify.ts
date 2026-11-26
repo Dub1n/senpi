@@ -5,7 +5,7 @@ import { withTerminalContext } from "./context-lifetime.ts";
 import { sanitizeTerminalOutput } from "./output-format.ts";
 import type { NotifyMode } from "./settings.ts";
 import type { TerminalExitView } from "./tools/context.ts";
-import { describeExit } from "./tools/spawn.ts";
+import { describeExit, testSummaryFor } from "./tools/spawn.ts";
 
 /** Modes that never wake the agent: one-shot, non-interactive runs. */
 export const NON_INTERACTIVE_MODES = new Set(["print", "json"]);
@@ -170,9 +170,17 @@ export class TerminalNotifier {
 			exitCode: runtime.exitResult?.exitCode ?? null,
 			output: runtime.fullOutput(),
 		});
+		const testSummary = testSummaryFor(runtime);
 		delivery.send(buildNotice(id, runtime, annotation?.text), {
 			...(runtime.stoppedByInterrupt === undefined ? {} : { nextTurn: true }),
-			...(annotation === undefined ? {} : { details: { trust: annotation.trust } }),
+			...(annotation === undefined && testSummary === undefined
+				? {}
+				: {
+						details: {
+							...(annotation === undefined ? {} : { trust: annotation.trust }),
+							...(testSummary === undefined ? {} : { terminalTestCompletion: { id, testSummary } }),
+						},
+					}),
 		});
 	}
 }

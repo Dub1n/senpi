@@ -127,6 +127,7 @@ const details: EvalToolDetails = {
 						args: { command: "exit 1" },
 						durationMs: 300,
 						error: "exit code 1",
+						testSummary: { version: 1, runner: "vitest", passed: 0, failed: 1, skipped: 0 },
 					},
 					{ name: "completion", ok: true },
 				]

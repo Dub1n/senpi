@@ -1,3 +1,24 @@
+## 2026-11-26 - Preserve host test summaries on nested eval calls
+
+### What changed
+
+- `packages/senpi-codemode/src/tool/call-capture.ts`, `src/tool/nested-tool-call.ts`, `src/tool/cell-handler.ts`, and `src/tool/types.ts` validate and retain the bounded `testSummary` from each host tool result on its exact nested-call summary, independently of renderer-owned result details. Capture and history rendering share the validator.
+- `packages/senpi-codemode/src/tool/render-nested-tool-calls.ts` passes a dense-only presentation marker to nested widgets; `src/tool/tool-widgets.ts` renders the runner and counts beside that invocation only for dense cards while retaining its raw result preview and Default rows.
+- `packages/senpi-codemode/src/tool/render-density-card.ts` puts compact, per-invocation counts in folded details while preserving the eval summary heading.
+- `packages/senpi-codemode/scripts/qa-render-dump.ts` includes a test result in its nested bash fixture for the Default-render QA replay.
+
+### Why
+
+- Test-runner counts attached to host results were dropped for core `bash` calls because those calls do not retain nested renderer details. Compact and Grouped cards need attributed counts while Default keeps its existing output unchanged.
+
+### Why an extension could not handle it
+
+- Codemode owns nested host-result capture and the eval result's folded density-card data.
+
+### Expected merge conflict zones
+
+- LOW: `EvalToolCallSummary` and nested result capture; nested widget and density-card rendering.
+
 ## 2026-11-23 - Emphasize nested eval section headings in Grouped
 
 ### What changed

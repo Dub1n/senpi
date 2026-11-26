@@ -13,6 +13,7 @@ import type { AgentToolResult, ToolDefinition } from "../../../types.ts";
 import type { BashOutputInput, bashOutputSchema } from "./bash-output.ts";
 import type { KillBashInput, killBashSchema } from "./kill-bash.ts";
 import type { MonitorInput, monitorSchema } from "./monitor.ts";
+import { testSummaryLabel } from "./test-summary.ts";
 
 type BashOutputDetails = Record<string, unknown> | undefined;
 type BashOutputViewDetails = {
@@ -42,6 +43,7 @@ export type DenseBashPollView = {
 	readonly bodyFingerprint: string;
 	readonly emptyPlaceholder?: "synthetic" | "filtered" | "literal";
 	readonly notices: readonly string[];
+	readonly testLabel?: string;
 };
 type BashOutputToolDefinition = ToolDefinition<typeof bashOutputSchema, BashOutputDetails>;
 type MonitorToolDefinition = ToolDefinition<typeof monitorSchema, BashOutputDetails>;
@@ -206,6 +208,10 @@ export function denseBashPoll(result: unknown, args: DenseBashPollArgs): DenseBa
 				: processStatus === "completed" && (exitCode === null || exitCode === 0)
 					? "done"
 					: "failed";
+	const testLabel =
+		processStatus === "completed" || processStatus === "exited_1"
+			? testSummaryLabel(details?.testSummary)
+			: undefined;
 	return {
 		sessionId: metadata.sessionId,
 		processStatus,
@@ -218,6 +224,7 @@ export function denseBashPoll(result: unknown, args: DenseBashPollArgs): DenseBa
 			? {}
 			: { emptyPlaceholder: emptyPlaceholder as DenseBashPollView["emptyPlaceholder"] }),
 		notices: pollNoticeLabels(pollFacts.notices),
+		...(testLabel === undefined ? {} : { testLabel }),
 	};
 }
 
@@ -415,7 +422,11 @@ class BashOutputResultComponent implements DensityCardSource {
 			return {
 				format: "structured",
 				kind: "bash-output",
-				heading: bashHeading(densePoll.sessionId, [status.detail, ...densePoll.notices]),
+				heading: bashHeading(densePoll.sessionId, [
+					status.detail,
+					...(densePoll.testLabel === undefined ? [] : [densePoll.testLabel]),
+					...densePoll.notices,
+				]),
 				...(this.#isPartial ? { status: "running" as const } : { statusGlyph: status.statusGlyph }),
 				body: [
 					...(this.#jobWidget && this.#style

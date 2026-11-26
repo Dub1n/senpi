@@ -16,6 +16,7 @@ export type NestedToolCallRenderOptions = {
 	readonly cwd: string;
 	readonly expanded: boolean;
 	readonly indent?: number;
+	readonly density?: "dense";
 	readonly renderers?: (toolName: string) => NestedToolRenderers | undefined;
 };
 
@@ -57,6 +58,7 @@ export function renderNestedToolCallLines(
 				theme: options.theme,
 				expanded: options.expanded,
 				width: width + (removeWrapperIndent ? 2 : 0),
+				...(options.density === undefined ? {} : { density: options.density }),
 				...(options.renderers ? { renderers: options.renderers } : {}),
 			});
 			appendLines(lines, removeWrapperIndent ? widgetLines.map((line) => line.slice(2)) : widgetLines);

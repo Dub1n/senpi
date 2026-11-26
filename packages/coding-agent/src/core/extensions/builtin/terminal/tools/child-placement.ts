@@ -9,6 +9,7 @@ import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { ExtensionToolContext, ToolChildJob } from "../../../types.ts";
 import { sessionEnvOverrides } from "./bash.ts";
 import type { TerminalExitView, TerminalToolContext } from "./context.ts";
+import { readTestSummary, type TestSummary } from "./test-summary.ts";
 
 export const TERMINAL_CHILD_JOB_KINDS = {
 	bash: "terminal.bash",
@@ -57,6 +58,7 @@ export type TerminalBackgroundWake =
 			readonly exit: TerminalExitView["exitResult"];
 			readonly output: string;
 			readonly autoReapedAfterMinutes?: number;
+			readonly testSummary?: TestSummary;
 	  }
 	| {
 			readonly event: "background_reap_failed";
@@ -100,12 +102,23 @@ function parseBackgroundWake(value: unknown): TerminalBackgroundWake | undefined
 		const exit: unknown = Reflect.get(value, "exit");
 		if (typeof output !== "string" || (exit !== null && typeof exit !== "object")) return undefined;
 		const autoReapedAfterMinutes = optionalMinutes(Reflect.get(value, "autoReapedAfterMinutes"));
+		const summary = readTestSummary(Reflect.get(value, "testSummary"));
+		const outcome = exit as TerminalExitView["exitResult"];
+		const testSummary =
+			summary !== undefined &&
+			outcome?.signal === null &&
+			outcome.cancelled === false &&
+			outcome.timedOut === false &&
+			outcome.exitCode === (summary.failed > 0 ? 1 : 0)
+				? summary
+				: undefined;
 		return {
 			event,
 			id,
-			exit: exit as TerminalExitView["exitResult"],
+			exit: outcome,
 			output,
 			...(autoReapedAfterMinutes === undefined ? {} : { autoReapedAfterMinutes }),
+			...(testSummary === undefined ? {} : { testSummary }),
 		};
 	}
 	return undefined;
@@ -115,11 +128,13 @@ function exitView(
 	exit: TerminalExitView["exitResult"],
 	output: string,
 	autoReapedAfterMinutes?: number,
+	testSummary?: TestSummary,
 ): TerminalExitView {
 	return {
 		exitResult: exit,
 		fullOutput: () => output,
 		...(autoReapedAfterMinutes === undefined ? {} : { autoReapedAfterMinutes }),
+		...(testSummary === undefined ? {} : { testSummary }),
 	};
 }
 
@@ -206,7 +221,10 @@ function backgroundRelay(ctx: TerminalToolContext): Pick<ToolChildJob, "wake" | 
 				return;
 			}
 			running.delete(wake.id);
-			ctx.onBackgroundExit?.(wake.id, exitView(wake.exit, wake.output, wake.autoReapedAfterMinutes));
+			ctx.onBackgroundExit?.(
+				wake.id,
+				exitView(wake.exit, wake.output, wake.autoReapedAfterMinutes, wake.testSummary),
+			);
 		},
 		childExited: (generation) => {
 			for (const [id, startedOn] of running) {

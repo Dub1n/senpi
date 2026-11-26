@@ -326,7 +326,26 @@ export function createBuiltinParserRegistry(): ParserRegistry {
 			return bashPermissionRequests(command, cwd);
 		};
 
-	registry.register("bash", parseBashLikePermission("command"));
+	registry.register("bash", (toolName, input, cwd) => {
+		const test = input.test_runner;
+		if (
+			input.command === undefined &&
+			test !== null &&
+			typeof test === "object" &&
+			"runner" in test &&
+			test.runner === "vitest" &&
+			"args" in test &&
+			Array.isArray(test.args) &&
+			test.args.every((arg): arg is string => typeof arg === "string")
+		) {
+			// This tool path takes argv, so a test filter containing shell operators is still just one argument.
+			const paths = test.args
+				.map((arg) => /^--[^=]+=(.*)$/s.exec(arg)?.[1] ?? arg)
+				.filter((arg) => arg.includes("/") || arg.includes("\\") || arg.startsWith("~"));
+			return withExternalDirectoryRequests(bashCommandRequests("vitest run"), paths, cwd, "file", rawTarget);
+		}
+		return parseBashLikePermission("command")(toolName, input, cwd);
+	});
 	registry.register("bash_input", parseBashLikePermission("input"));
 	registry.register("monitor", (toolName, input, cwd) => {
 		const path = getString(input, "path");

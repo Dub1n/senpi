@@ -276,6 +276,7 @@ import {
 } from "./components/status-indicator.ts";
 import { ThemedText, TranscriptStatusText } from "./components/themed-text.ts";
 import { TerminalBackgroundNotice } from "./components/terminal-background-notice.ts";
+import { TerminalTestCompletion } from "./components/terminal-test-completion.ts";
 import { ThinkingSelectorComponent } from "./components/thinking-selector.ts";
 import { ToolExecutionComponent } from "./components/tool-execution.ts";
 import { TreeSelectorComponent } from "./components/tree-selector.ts";
@@ -6413,6 +6414,8 @@ export class InteractiveMode {
 				break;
 			}
 			case "custom": {
+				const testCompletion = TerminalTestCompletion.from(message, this.toolOutputExpanded);
+				if (testCompletion) this.chatContainer.addChild(testCompletion);
 				if (message.display) {
 					const renderer =
 						this.session.extensionRunner.getMessageRenderer(message.customType) ??

@@ -5,6 +5,7 @@ import type { MonitorEvent, MonitorRegistry } from "../monitor-registry.ts";
 import { splitModelOnlyNotices } from "../output-format.ts";
 import type { SessionLogger } from "../../../../session-log.ts";
 import type { TimeoutAction } from "../settings.ts";
+import type { TestSummary } from "./test-summary.ts";
 
 /** Shared dependencies handed to every terminal tool factory. */
 export interface TerminalToolContext {
@@ -71,6 +72,7 @@ export interface TerminalToolContext {
 /** What a background exit notice reads: on the tool child it is a summary the child sent, not the live session. */
 export interface TerminalExitView {
 	readonly exitResult: Pick<TerminalSessionExit, "exitCode" | "signal" | "cancelled" | "timedOut"> | null;
+	readonly testSummary?: TestSummary | undefined;
 	/** Set when the opt-in auto-reap stopped the session at this age (senpi#6201). */
 	readonly autoReapedAfterMinutes?: number;
 	/** Set when `interrupt { background: "stop" }` on turn `turnId` stopped the session: its notice does not wake. */

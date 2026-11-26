@@ -1,6 +1,13 @@
 import type { DensityCardStatus, DensityCardStructuredView, Theme } from "@code-yeongyu/senpi";
+import { parseEvalTestSummary } from "./call-capture.ts";
 import { renderAgentProgressEvents } from "./render-agent.ts";
-import { type RenderEnvironment, renderAllVisualLines, renderNow, style } from "./render-blocks.ts";
+import {
+	type RenderEnvironment,
+	renderAllVisualLines,
+	renderNow,
+	style,
+	TOOL_CALL_PREVIEW_COUNT,
+} from "./render-blocks.ts";
 import { renderDensityCellCode } from "./render-cell.ts";
 import { renderJsonOutputs } from "./render-detail.ts";
 import { renderNestedToolCallLines, type NestedToolCallRenderOptions } from "./render-nested-tool-calls.ts";
@@ -25,6 +32,15 @@ export function createEvalDensityCard(options: EvalDensityCardOptions): DensityC
 	const { details, theme, context } = options;
 	// Older persisted host errors can carry an empty details object rather than the current schema.
 	const toolCalls = details?.toolCalls ?? [];
+	const testSummaryCalls = toolCalls.flatMap((call, index) => {
+		const testSummary = parseEvalTestSummary(call.testSummary);
+		return testSummary === undefined
+			? []
+			: [
+					`#${index + 1}: ${testSummary.passed} passed, ${testSummary.failed} failed, ${testSummary.skipped} skipped`,
+				];
+	});
+	const foldedTestSummaries = testSummaryCalls.slice(-TOOL_CALL_PREVIEW_COUNT);
 	const language =
 		details?.language ??
 		(context.args.action === "run" || context.args.action === undefined ? context.args.language : undefined);
@@ -158,6 +174,7 @@ export function createEvalDensityCard(options: EvalDensityCardOptions): DensityC
 			theme,
 			cwd: context.cwd,
 			expanded: true,
+			density: "dense",
 			...(options.renderers === undefined ? {} : { renderers: options.renderers }),
 		};
 		const shellOnly = toolCalls.every((call) => call.name === "bash");
@@ -203,6 +220,16 @@ export function createEvalDensityCard(options: EvalDensityCardOptions): DensityC
 			},
 		],
 		sections,
+		...(foldedTestSummaries.length === 0
+			? {}
+			: {
+					foldedDetails: [
+						...(testSummaryCalls.length > foldedTestSummaries.length
+							? [`${testSummaryCalls.length - foldedTestSummaries.length} earlier test summaries`]
+							: []),
+						...foldedTestSummaries,
+					],
+				}),
 	};
 }
 

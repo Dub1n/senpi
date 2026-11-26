@@ -2,9 +2,18 @@ import { getShellConfig } from "../../../../../utils/shell.ts";
 import { attestSessionSpawn } from "../../../../session-spawn-attestation.ts";
 import type { CreatedTerminalSession } from "../manager.ts";
 import type { TerminalExitView, TerminalToolContext } from "./context.ts";
+import type { TestSummary } from "./test-summary.ts";
+
+export interface PreparedTestRun {
+	readonly command: string;
+	readonly args: readonly string[];
+	finish(exit: TerminalExitView["exitResult"]): TestSummary | undefined;
+	dispose(): void;
+}
 
 export interface SpawnRequest {
 	readonly command: string;
+	readonly testRun?: PreparedTestRun;
 	readonly cols: number;
 	readonly rows: number;
 	/** Kill deadline in ms for foreground runs; omit for background sessions. */
@@ -26,12 +35,15 @@ export async function spawnCommandSession(
 	ctx: TerminalToolContext,
 	request: SpawnRequest,
 ): Promise<CreatedTerminalSession> {
-	const shell = getShellConfig(ctx.shellPath);
-	const useStdin = shell.commandTransport === "stdin";
-	const args = useStdin ? [...shell.args] : [...shell.args, request.command];
+	const shell = request.testRun === undefined ? getShellConfig(ctx.shellPath) : undefined;
+	const useStdin = shell?.commandTransport === "stdin";
+	const executable =
+		request.testRun ??
+		(shell && { command: shell.shell, args: useStdin ? shell.args : [...shell.args, request.command] });
+	if (executable === undefined) throw new Error("Terminal executable could not be resolved.");
 
-	const launch = ctx.launchBarrier?.wrap(shell.shell, args) ?? { command: shell.shell, args };
-	const created = await ctx.manager.create(shell.shell, {
+	const launch = ctx.launchBarrier?.wrap(executable.command, executable.args) ?? executable;
+	const created = await ctx.manager.create(executable.command, {
 		command: launch.command,
 		args: [...launch.args],
 		cwd: request.cwd ?? ctx.cwd,
@@ -65,7 +77,28 @@ export async function spawnCommandSession(
 	if (useStdin) {
 		created.runtime.session.write(`${request.command}\n`);
 	}
+	if (request.testRun !== undefined) trackTestRun(created.runtime, request.testRun);
 	return created;
+}
+
+function trackTestRun(runtime: CreatedTerminalSession["runtime"], run: PreparedTestRun): void {
+	const finish = () => {
+		unsubscribeDispose();
+		try {
+			runtime.testSummary = run.finish(runtime.exitResult);
+		} finally {
+			run.dispose();
+		}
+	};
+	const unsubscribeExit = runtime.session.onExit(finish);
+	const unsubscribeDispose = runtime.onDispose(() => {
+		unsubscribeExit();
+		run.dispose();
+	});
+}
+
+export function testSummaryFor(runtime: TerminalExitView): TestSummary | undefined {
+	return runtime.testSummary;
 }
 
 /** Snapshot the human-facing exit status of a finished session. */

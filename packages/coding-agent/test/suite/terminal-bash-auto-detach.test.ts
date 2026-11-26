@@ -17,6 +17,7 @@ const spawned = vi.hoisted(() => ({
 }));
 
 vi.mock("../../src/core/extensions/builtin/terminal/tools/spawn.ts", () => ({
+	testSummaryFor: () => undefined,
 	describeExit: (runtime: {
 		exitResult: { exitCode: number | null; timedOut: boolean; cancelled: boolean } | null;
 	}) => {

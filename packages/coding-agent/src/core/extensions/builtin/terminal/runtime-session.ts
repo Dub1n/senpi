@@ -9,6 +9,7 @@ import { SecretOutputRedactor } from "../../../tools/secret-output-redactor.ts";
 import { type ChildProcessIdentity, processBootAtMs } from "./process-identity.ts";
 import { loadPty } from "./pty.lazy.ts";
 import { DEFAULT_SCROLLBACK, MAX_SESSION_OUTPUT_CHARS } from "./shared.ts";
+import type { TestSummary } from "./tools/test-summary.ts";
 
 const pty = await loadPty();
 
@@ -56,6 +57,7 @@ export class TerminalRuntimeSession {
 	private readonly outputListeners = new Set<(chunk: string) => void>();
 	private readonly disposeListeners = new Set<() => void>();
 	private unsubscribeData: (() => void) | null = null;
+	testSummary: TestSummary | undefined;
 
 	constructor(command: string, options: TerminalRuntimeOptions) {
 		this.redactor = options.redactSecretsInOutput === true ? new SecretOutputRedactor() : undefined;

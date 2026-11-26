@@ -25,10 +25,22 @@ import { backgroundStart, trackBackgroundSession } from "./background-auto-reap.
 import { createForegroundDetachGate } from "./foreground-detach.ts";
 import { resolveForegroundWindowSeconds, SLEEP_WAIT_WINDOW_SECONDS } from "./foreground-window.ts";
 import { classifySleepWait, type SleepWaitClassification } from "./sleep-wait.ts";
-import { describeExit, type SpawnRequest, spawnCommandSession } from "./spawn.ts";
+import { describeExit, type PreparedTestRun, type SpawnRequest, spawnCommandSession, testSummaryFor } from "./spawn.ts";
+import { prepareTestRun } from "./test-runner.ts";
 
 export const ptyBashSchema = Type.Object({
-	command: Type.String({ description: "Shell command to execute in a PTY-backed session." }),
+	command: Type.Optional(
+		Type.String({ description: "Shell command to execute. Mutually exclusive with test_runner." }),
+	),
+	test_runner: Type.Optional(
+		Type.Object(
+			{
+				runner: Type.Literal("vitest"),
+				args: Type.Array(Type.String(), { description: "Vitest run arguments (argv, not shell syntax)." }),
+			},
+			{ description: "Run the local test runner directly and collect attributed test counts. Omit command." },
+		),
+	),
 	timeout: Type.Optional(
 		Type.Number({
 			description:
@@ -53,6 +65,7 @@ export const ptyBashSchema = Type.Object({
 });
 
 export type PtyBashInput = Static<typeof ptyBashSchema>;
+type ResolvedBashInput = PtyBashInput & { command: string; testRun?: PreparedTestRun };
 
 function resolveDimension(value: number | undefined, fallback: number): number {
 	if (value === undefined || !Number.isFinite(value) || value < 1) return fallback;
@@ -153,6 +166,9 @@ async function spawnReportingStall(
 			sessionSpawnContext(ctx),
 			sessionId === undefined ? request : { ...request, sessionId },
 		);
+	} catch (error) {
+		request.testRun?.dispose();
+		throw error;
 	} finally {
 		watch.stop();
 	}
@@ -297,7 +313,7 @@ function scheduleDetachedSweep(
 
 async function runForeground(
 	ctx: TerminalToolContext,
-	input: PtyBashInput,
+	input: ResolvedBashInput,
 	cols: number,
 	rows: number,
 	signal: AbortSignal | undefined,
@@ -306,12 +322,16 @@ async function runForeground(
 	toolCallId: string,
 	execCtx?: SessionEnvSource,
 ): Promise<TerminalToolResult> {
-	if (signal?.aborted) return errorResult("Command aborted");
+	if (signal?.aborted) {
+		input.testRun?.dispose();
+		return errorResult("Command aborted");
+	}
 	const timeoutMs = input.timeout !== undefined ? Math.trunc(input.timeout * 1000) : undefined;
 	const { id, runtime } = await spawnReportingStall(
 		ctx,
 		{
 			command: input.command,
+			...(input.testRun === undefined ? {} : { testRun: input.testRun }),
 			cols,
 			rows,
 			timeoutMs,
@@ -331,7 +351,7 @@ async function runForeground(
 	onUpdate?.({ content: [], details: undefined });
 	const unsubscribeOutput = onUpdate ? runtime.onOutput(() => updateEmitter?.schedule()) : undefined;
 
-	const sleepWait = classifySleepWait(input.command);
+	const sleepWait = input.testRun === undefined ? classifySleepWait(input.command) : undefined;
 	const detachDelayMs = resolveAutoDetachDelayMs(ctx, input, sleepWait);
 	let outcome: ForegroundWaitOutcome | "detached";
 	if (detachDelayMs === undefined) {
@@ -426,17 +446,20 @@ async function runForeground(
 		return errorResult(`${output ? `${output}\n\n` : ""}Command timed out after ${input.timeout} seconds`);
 	}
 	const status = describeExit(runtime);
+	const testSummary = testSummaryFor(runtime);
+	const testDetails = testSummary === undefined ? undefined : { testSummary };
 	if (exit && exit.exitCode !== 0 && exit.exitCode !== null) {
 		const text = `${output ? `${output}\n\n` : ""}Command exited with code ${exit.exitCode}`;
 		const annotation = annotateShellTrust({ exitCode: exit.exitCode, output: runtime.fullOutput() });
-		if (annotation === undefined) return errorResult(text);
+		if (annotation === undefined) return textResult(text, { details: testDetails, isError: true });
 		return textResult(annotation.text === undefined ? text : `${text}\n\n${annotation.text}`, {
-			details: { trust: annotation.trust },
+			details: { ...testDetails, trust: annotation.trust },
 			isError: true,
 		});
 	}
 	return noticedResult(output || "(no output)", [formatted.marker], {
 		details: {
+			...testDetails,
 			status,
 			...(formatted.truncated ? { truncation: formatted.truncation } : {}),
 		},
@@ -445,7 +468,7 @@ async function runForeground(
 
 async function runBackground(
 	ctx: TerminalToolContext,
-	input: PtyBashInput,
+	input: ResolvedBashInput,
 	cols: number,
 	rows: number,
 	cwd: string | undefined,
@@ -458,6 +481,7 @@ async function runBackground(
 		ctx,
 		{
 			command: input.command,
+			...(input.testRun === undefined ? {} : { testRun: input.testRun }),
 			cols,
 			rows,
 			cwd,
@@ -477,7 +501,10 @@ async function runBackground(
 			? "\n(native PTY unavailable: running via pipe fallback; bash_input/bash_resize are limited.)"
 			: "";
 	const earlyBlock = early ? `\n\n${early}` : "";
-	return textResult(`${header}${backendNote}${earlyBlock}`, { details: { bash_id: id, background: true } });
+	const testSummary = testSummaryFor(runtime);
+	return textResult(`${header}${backendNote}${earlyBlock}`, {
+		details: { bash_id: id, background: true, ...(testSummary === undefined ? {} : { testSummary }) },
+	});
 }
 
 /** Build the PTY-backed `bash` tool definition. */
@@ -499,11 +526,33 @@ export function createPtyBashTool(ctx: TerminalToolContext) {
 			onUpdate?: AgentToolUpdateCallback,
 			execCtx?: SessionEnvSource,
 		): Promise<TerminalToolResult> {
+			if ((input.command === undefined) === (input.test_runner === undefined)) {
+				return errorResult("Specify exactly one of command or test_runner.");
+			}
 			const cols = resolveDimension(input.cols, ctx.defaultCols || DEFAULT_COLS);
 			const rows = resolveDimension(input.rows, ctx.defaultRows || DEFAULT_ROWS);
 			const cwd = execCtx?.cwd;
-			if (input.run_in_background) return runBackground(ctx, input, cols, rows, cwd, toolCallId, execCtx);
-			return runForeground(ctx, input, cols, rows, signal, cwd, onUpdate, toolCallId, execCtx);
+			if (input.command !== undefined) {
+				const resolved = { ...input, command: input.command };
+				if (input.run_in_background) return runBackground(ctx, resolved, cols, rows, cwd, toolCallId, execCtx);
+				return runForeground(ctx, resolved, cols, rows, signal, cwd, onUpdate, toolCallId, execCtx);
+			}
+			if (signal?.aborted) return errorResult("Command aborted");
+			const test = input.test_runner;
+			if (test === undefined) return errorResult("Specify exactly one of command or test_runner.");
+			let testRun: PreparedTestRun;
+			try {
+				testRun = await prepareTestRun(test.runner, test.args, cwd ?? ctx.cwd);
+			} catch (error) {
+				return errorResult(error instanceof Error ? error.message : String(error));
+			}
+			if (signal?.aborted) {
+				testRun.dispose();
+				return errorResult("Command aborted");
+			}
+			const resolved = { ...input, command: `${test.runner} run`, testRun };
+			if (input.run_in_background) return runBackground(ctx, resolved, cols, rows, cwd, toolCallId, execCtx);
+			return runForeground(ctx, resolved, cols, rows, signal, cwd, onUpdate, toolCallId, execCtx);
 		},
 	};
 }

@@ -1,3 +1,21 @@
+## 2026-11-26 - Relay attributed background test outcomes from the tool child
+
+### What changed
+
+- `packages/coding-agent/src/modes/rpc/tool-child/terminal-jobs.ts` includes the terminal's optional normalized test result in the existing background-exit wake.
+
+### Why
+
+- The child owns the test process and its report; the host owns the durable completion notice.
+
+### Why an extension could not handle it
+
+- The cross-process terminal wake is built inside the tool child.
+
+### Expected merge conflict zones
+
+- Terminal background-exit wake payload.
+
 ## 2026-11-18 - unload_session can refuse to drop a busy session's unwritten deliveries (senpi#7004)
 
 ### What changed

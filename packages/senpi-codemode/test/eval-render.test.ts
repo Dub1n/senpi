@@ -1,8 +1,8 @@
 import type { AgentToolResult } from "@code-yeongyu/senpi";
 import { describe, expect, it } from "vitest";
 import { renderEvalCall, renderEvalResult } from "../src/tool/render.ts";
-import type { EvalToolDetails } from "../src/tool/types.ts";
-import { callContext, evalResult, renderLines, resultContext } from "./eval-render-fixtures.ts";
+import type { EvalToolCallSummary, EvalToolDetails } from "../src/tool/types.ts";
+import { callContext, evalResult, plainTheme, renderLines, resultContext, stripAnsi } from "./eval-render-fixtures.ts";
 
 describe("eval renderer", () => {
 	it("renders call header metadata and code preview when present", () => {
@@ -163,6 +163,157 @@ describe("eval renderer", () => {
 		// Then
 		expect(renderLines(component)[0]).toBe("eval py running");
 		expect(renderLines(component)[1]).toBe("stream");
+	});
+
+	it("keeps per-invocation test counts in folded details beside the unchanged eval summary", () => {
+		const givenResult = evalResult(
+			{
+				language: "js",
+				summary: "run the focused suites",
+				durationMs: 5,
+				toolCalls: [
+					{
+						name: "bash",
+						ok: true,
+						args: { command: "bun test first.test.ts" },
+						testSummary: { version: 1, runner: "vitest", passed: 4, failed: 2, skipped: 1 },
+					},
+					{
+						name: "bash",
+						ok: true,
+						args: { command: "bun test second.test.ts" },
+						testSummary: { version: 1, runner: "vitest", passed: 9, failed: 0, skipped: 3 },
+					},
+					{ name: "bash", ok: true, args: { command: "echo later" } },
+					{ name: "read", ok: true, args: { path: "README.md" } },
+				],
+				truncated: false,
+			},
+			"raw output stays intact",
+		);
+
+		const component = renderEvalResult(
+			givenResult,
+			{ expanded: false, isPartial: false },
+			undefined,
+			resultContext(),
+		);
+		const folded = component.renderDensityCard(64, { grouped: false, expanded: false });
+
+		expect(folded).toMatchObject({
+			format: "structured",
+			heading: { description: "run the focused suites" },
+			status: "done",
+			foldedDetails: ["#1: 4 passed, 2 failed, 1 skipped", "#2: 9 passed, 0 failed, 3 skipped"],
+		});
+		if (folded?.format !== "structured") throw new Error("expected the structured eval density card");
+		const calls = folded.sections.find(
+			(section) => "label" in section.heading && section.heading.label === "tool calls",
+		)?.body[0];
+		if (calls?.type !== "rich") throw new Error("expected the grouped nested-call renderer");
+		const expandedCalls = calls.render(64, true).join("\n");
+		expect(expandedCalls).toContain("vitest: 4 passed, 2 failed, 1 skipped");
+		expect(expandedCalls).toContain("vitest: 9 passed, 0 failed, 3 skipped");
+		expect(renderLines(component)).toContain("raw output stays intact");
+	});
+
+	it("ignores null version-two and empty replayed summaries in folded and expanded dense output", () => {
+		const replayedCall = (command: string): EvalToolCallSummary => ({
+			name: "bash",
+			ok: true,
+			args: { command },
+			testSummary: { version: 1, runner: "valid", passed: 2, failed: 1, skipped: 0 },
+		});
+		const nullSummary = replayedCall("null summary");
+		const versionTwo = replayedCall("version two");
+		const emptySummary = replayedCall("empty summary");
+		const validSummary = replayedCall("valid summary");
+		// Simulate malformed records rehydrated from older persisted eval history.
+		Reflect.set(nullSummary, "testSummary", null);
+		Reflect.set(versionTwo, "testSummary", {
+			version: 2,
+			runner: "version-two",
+			passed: 8,
+			failed: 0,
+			skipped: 0,
+		});
+		Reflect.set(emptySummary, "testSummary", {
+			version: 1,
+			runner: "all-zero",
+			passed: 0,
+			failed: 0,
+			skipped: 0,
+		});
+
+		const component = renderEvalResult(
+			evalResult(
+				{
+					language: "js",
+					summary: "replay old test history",
+					durationMs: 5,
+					toolCalls: [nullSummary, versionTwo, emptySummary, validSummary],
+					truncated: false,
+				},
+				"history replay",
+			),
+			{ expanded: false, isPartial: false },
+			undefined,
+			resultContext(),
+		);
+		const folded = component.renderDensityCard(64, { grouped: false, expanded: false });
+
+		expect(folded).toMatchObject({
+			foldedDetails: ["#4: 2 passed, 1 failed, 0 skipped"],
+		});
+		if (folded?.format !== "structured") throw new Error("expected the structured eval density card");
+		const calls = folded.sections.find(
+			(section) => "label" in section.heading && section.heading.label === "commands",
+		)?.body[0];
+		if (calls?.type !== "rich") throw new Error("expected the grouped nested-command renderer");
+		const expandedCalls = calls.render(64, true).join("\n");
+		expect(expandedCalls).toContain("valid: 2 passed, 1 failed, 0 skipped");
+		expect(expandedCalls).not.toContain("version-two");
+		expect(expandedCalls).not.toContain("all-zero");
+	});
+
+	it("Default nested bash rendering keeps its original rows when test counts are present", () => {
+		const givenResult = evalResult(
+			{
+				language: "js",
+				summary: "run the focused suite",
+				durationMs: 1_200,
+				toolCalls: [
+					{
+						name: "bash",
+						ok: true,
+						args: { command: "bun test default.test.ts" },
+						resultPreview: "host result preview",
+						testSummary: { version: 1, runner: "vitest", passed: 1, failed: 0, skipped: 0 },
+					},
+				],
+				truncated: false,
+			},
+			"cell output",
+		);
+		const component = renderEvalResult(
+			givenResult,
+			{ expanded: false, isPartial: false },
+			plainTheme(),
+			resultContext(),
+		);
+		const lines = component.render(64).map(stripAnsi);
+
+		expect(lines).toEqual([
+			"eval js done",
+			"run the focused suite",
+			"took 1s",
+			"",
+			"cell output",
+			"",
+			'  tool.bash({"command":"bun test default.test.ts"})',
+			"  ✓",
+			"  host result preview",
+		]);
 	});
 
 	it("Given legacy stored details carrying title and no summary when rendered then no label line and no crash", () => {

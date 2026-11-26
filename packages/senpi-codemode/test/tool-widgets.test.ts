@@ -116,6 +116,43 @@ describe("nested tool-call widgets", () => {
 		expect(output).not.toContain("tool.bash(");
 	});
 
+	it("widget: bash test counts stay attributed to their invocation at narrow widths", () => {
+		const first = render(
+			{
+				name: "bash",
+				ok: true,
+				args: { command: "bun test first.test.ts" },
+				resultPreview: "raw first output",
+				testSummary: { version: 1, runner: "vitest", passed: 4, failed: 2, skipped: 1 },
+			},
+			{ width: 24, expanded: true, density: "dense" },
+		);
+		const second = render(
+			{
+				name: "bash",
+				ok: true,
+				args: { command: "bun test second.test.ts" },
+				testSummary: { version: 1, runner: "vitest", passed: 9, failed: 0, skipped: 3 },
+			},
+			{ width: 24, expanded: true, density: "dense" },
+		);
+		const firstText = plain(first);
+		const secondText = plain(second);
+		const firstSingleLine = firstText.replace(/\s+/gu, " ");
+		const secondSingleLine = secondText.replace(/\s+/gu, " ");
+
+		expect(firstSingleLine).toContain("4 passed");
+		expect(firstSingleLine).toContain("2 failed");
+		expect(firstSingleLine).toContain("1 skipped");
+		expect(firstSingleLine).toContain("raw first output");
+		expect(firstSingleLine).toContain("bun test first.test.ts");
+		expect(secondSingleLine).toContain("9 passed");
+		expect(secondSingleLine).toContain("0 failed");
+		expect(secondSingleLine).toContain("3 skipped");
+		expect(secondSingleLine).toContain("bun test second.test.ts");
+		expectVisibleWidthAtMost([...first, ...second], 24);
+	});
+
 	it("widget: write renders the real call shape", () => {
 		const output = plain(render({ name: "write", ok: true, args: { path: "notes.txt", content: "hello" } }));
 

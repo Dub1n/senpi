@@ -1,15 +1,22 @@
 import { sanitizeTerminalLabel } from "@code-yeongyu/senpi";
 import type { KernelToHostMessage } from "../bridge/protocol.ts";
 import type { AgentExecuteTool } from "../bridges/agent-bridge.ts";
-import { capCodePoints, toolCallResultDetails, toolCallResultPreview } from "./call-capture.ts";
+import {
+	capCodePoints,
+	toolCallResultDetails,
+	toolCallResultPreview,
+	toolCallResultTestSummary,
+} from "./call-capture.ts";
 import type { CellResultBuilder } from "./cell-runtime.ts";
 import { marshalToolResult, toolResultIsError } from "./image.ts";
+import type { EvalTestSummary } from "./types.ts";
 
 export type ResolvedToolReply = {
 	readonly value: unknown;
 	readonly toolCallOk: boolean;
 	readonly resultPreview?: string;
 	readonly errorText?: string;
+	readonly testSummary?: EvalTestSummary;
 	/** The result's details, kept only for a tool whose own renderResult draws its nested row. */
 	readonly details?: unknown;
 };
@@ -27,14 +34,17 @@ export async function runNestedTool(
 		onUpdate: (partial) => live.nestedToolUpdate(message.callId, partial),
 	}).finally(() => live.dropNestedTool(message.callId));
 	const toolCallOk = !toolResultIsError(result);
+	const testSummary = toolCallResultTestSummary(result);
 	const details = keepDetails ? toolCallResultDetails(result) : undefined;
 	const kept = details === undefined ? {} : { details };
+	const capturedTestSummary = testSummary === undefined ? {} : { testSummary };
 	if (toolCallOk) {
 		const resultPreview = toolCallResultPreview(result);
 		return {
 			value: marshalToolResult(result),
 			toolCallOk,
 			...(resultPreview === undefined ? {} : { resultPreview }),
+			...capturedTestSummary,
 			...kept,
 		};
 	}
@@ -48,6 +58,7 @@ export async function runNestedTool(
 		value: marshalToolResult(result),
 		toolCallOk,
 		...(errorText === undefined ? {} : { errorText }),
+		...capturedTestSummary,
 		...kept,
 	};
 }

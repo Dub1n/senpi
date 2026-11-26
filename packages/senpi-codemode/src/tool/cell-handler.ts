@@ -150,7 +150,7 @@ export class CellHandler {
 		};
 		if (message.toolName === "eval") {
 			const error = "recursive eval is not allowed";
-			recordToolCall(this.#state.toolCalls, false, capture, undefined, error);
+			recordToolCall(this.#state.toolCalls, { ok: false, capture, error });
 			this.#kernel.deliverToolReply({
 				type: "tool-reply",
 				callId: message.callId,
@@ -186,7 +186,11 @@ export class CellHandler {
 				),
 			);
 			if (!this.#state.active) return;
-			recordToolCall(this.#state.toolCalls, result.ok, capture, undefined, result.ok ? undefined : result.error);
+			recordToolCall(this.#state.toolCalls, {
+				ok: result.ok,
+				capture,
+				...(result.ok ? {} : { error: result.error }),
+			});
 			this.#resultBuilder.emitUpdate(false);
 			return;
 		}
@@ -212,14 +216,14 @@ export class CellHandler {
 		try {
 			const reply = await resolve();
 			if (!this.#state.active) return;
-			recordToolCall(
-				this.#state.toolCalls,
-				reply.toolCallOk,
+			recordToolCall(this.#state.toolCalls, {
+				ok: reply.toolCallOk,
 				capture,
-				reply.resultPreview,
-				reply.errorText,
-				reply.details,
-			);
+				...(reply.resultPreview === undefined ? {} : { resultPreview: reply.resultPreview }),
+				...(reply.errorText === undefined ? {} : { error: reply.errorText }),
+				...(reply.details === undefined ? {} : { details: reply.details }),
+				...(reply.testSummary === undefined ? {} : { testSummary: reply.testSummary }),
+			});
 			this.#kernel.deliverToolReply({ type: "tool-reply", callId: message.callId, ok: true, value: reply.value });
 		} catch (error) {
 			if (!this.#state.active) return;
@@ -231,7 +235,7 @@ export class CellHandler {
 				code === "blocked"
 					? errorMessage
 					: appendSchemaHint(errorMessage, message.toolName, this.#toolParameters(message.toolName));
-			recordToolCall(this.#state.toolCalls, false, capture, undefined, text);
+			recordToolCall(this.#state.toolCalls, { ok: false, capture, error: text });
 			this.#kernel.deliverToolReply({
 				type: "tool-reply",
 				callId: message.callId,

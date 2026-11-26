@@ -13,6 +13,7 @@ import {
 } from "@code-yeongyu/senpi";
 import type { TSchema } from "typebox";
 import { Check } from "typebox/value";
+import { parseEvalTestSummary } from "./call-capture.ts";
 import type { EvalToolCallSummary } from "./types.ts";
 
 export interface WidgetOptions {
@@ -20,6 +21,7 @@ export interface WidgetOptions {
 	readonly theme: Theme | undefined;
 	readonly expanded: boolean;
 	readonly width: number;
+	readonly density?: "dense";
 	/** The registered tool's own row renderers, by tool name; a tool without them keeps the generic row. */
 	readonly renderers?: (toolName: string) => NestedToolRenderers | undefined;
 }
@@ -386,7 +388,21 @@ export function renderToolCallWidget(summary: EvalToolCallSummary, options: Widg
 		: own === undefined
 			? undefined
 			: renderOwnCall(own, summary, options);
-	const lines = callLines ?? renderFallback(summary, innerWidth);
+	const testSummary = options.density === "dense" ? parseEvalTestSummary(summary.testSummary) : undefined;
+	const testLines =
+		testSummary === undefined
+			? []
+			: indent(
+					renderAllVisualLines(
+						style(
+							options.theme,
+							"muted",
+							`${testSummary.runner}: ${testSummary.passed} passed, ${testSummary.failed} failed, ${testSummary.skipped} skipped`,
+						),
+						innerWidth,
+					),
+				);
+	const lines = [...testLines, ...(callLines ?? renderFallback(summary, innerWidth))];
 	lines.push(...renderStatus(summary, options, innerWidth));
 	const resultLines = own === undefined ? undefined : renderOwnResult(own, summary, options);
 	if (resultLines !== undefined) {

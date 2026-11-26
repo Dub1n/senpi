@@ -1,3 +1,23 @@
+## 2026-11-26 - Attribute and persist opt-in test outcomes
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/terminal/tools/bash.ts`, `packages/coding-agent/src/core/extensions/builtin/terminal/tools/spawn.ts`, and `packages/coding-agent/src/core/extensions/builtin/terminal/tools/test-runner.ts` launch the selected runner directly and harvest only its invocation-owned report against the actual PTY exit.
+- `packages/coding-agent/src/core/extensions/builtin/terminal/tools/test-summary.ts` defines the versioned persisted shape. Additional adapters supply their own process and report normalization; they do not require separate terminal card or transcript formats.
+- `packages/coding-agent/src/core/extensions/builtin/terminal/tools/bash-output.ts`, `packages/coding-agent/src/core/extensions/builtin/terminal/tools/render.ts`, `packages/coding-agent/src/core/extensions/builtin/terminal/tools/context.ts`, `packages/coding-agent/src/core/extensions/builtin/terminal/tools/child-placement.ts`, and `packages/coding-agent/src/core/extensions/builtin/terminal/notify.ts` carry the normalized counts through tool results and background completion notices without changing their text.
+
+### Why
+
+- A terminal exit and stdout alone cannot distinguish a failed test from a failed shell command that happens to run tests or print test-like output.
+
+### Why an extension could not handle it
+
+- The terminal builtin owns direct process launch, its exit status, and the result and notification details saved by the session.
+
+### Expected merge conflict zones
+
+- PTY bash schema and completion, launch barrier, and background notification transport.
+
 ## 2026-11-25 - Preserve the terminal age event for dense presentation
 
 ### What changed

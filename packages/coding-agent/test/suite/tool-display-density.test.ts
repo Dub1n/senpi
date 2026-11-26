@@ -3,6 +3,7 @@ import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { Box, stripTerminalSequences, Text, TUI, type TuiMouseEvent, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import { VirtualTerminal } from "../../../tui/test/virtual-terminal.ts";
+import { createCustomMessage } from "../../src/core/messages.ts";
 import { AssistantMessageComponent } from "../../src/modes/interactive/components/assistant-message.ts";
 import { ExplorationTranscriptContainer } from "../../src/modes/interactive/components/exploration-transcript-container.ts";
 import { ToolExecutionComponent } from "../../src/modes/interactive/components/tool-execution.ts";
@@ -58,6 +59,73 @@ function rowIndices(lines: readonly string[]): number[] {
 }
 
 describe("tool display density", () => {
+	it.each(["compact", "grouped"] as const)(
+		"replays attributed counts only in %s and keeps raw output",
+		async (density) => {
+			const surface = await explorationSurface();
+			try {
+				if (!(surface.chat instanceof ExplorationTranscriptContainer)) throw new TypeError("Expected transcript");
+				const testSummary = { version: 1, runner: "vitest", passed: 2, failed: 1, skipped: 3 };
+				const assistant: AssistantMessage = {
+					...fauxAssistantMessage(""),
+					content: [
+						{
+							type: "toolCall",
+							id: "test",
+							name: "bash",
+							arguments: { test_runner: { runner: "vitest", args: [] } },
+						},
+						{ type: "toolCall", id: "plain", name: "bash", arguments: { command: "false" } },
+					],
+					stopReason: "toolUse",
+				};
+				const result = (id: string, text: string, details?: ToolResultMessage["details"]): ToolResultMessage => ({
+					role: "toolResult",
+					toolName: "bash",
+					toolCallId: id,
+					content: [{ type: "text", text }],
+					isError: true,
+					details,
+					timestamp: 0,
+				});
+				invoke(surface.mode, "renderSessionItems", [
+					assistant,
+					result("test", "RAW_TEST_DIAGNOSTIC", { testSummary }),
+					result("plain", "99 failed, 12 passed"),
+					createCustomMessage(
+						"senpi-terminal:notification",
+						"BACKGROUND_OUTPUT",
+						false,
+						{
+							terminalTestCompletion: {
+								id: "bash_42",
+								testSummary: { ...testSummary, passed: 4, failed: 0, skipped: 0 },
+							},
+						},
+						"2026-11-26T00:00:00.000Z",
+					),
+				]);
+				surface.chat.setToolDisplayDensity(density);
+				const folded = surface.text(100);
+				expect(folded).toContain("1 failed, 2 passed, 3 skipped");
+				expect(folded).toContain("4 passed");
+				expect(folded).not.toContain("99 failed");
+				expect(folded).not.toContain("RAW_TEST_DIAGNOSTIC");
+				for (const child of surface.chat.children) {
+					if (child instanceof ToolExecutionComponent) child.setExpanded(true);
+				}
+				expect(surface.text(100)).toContain("RAW_TEST_DIAGNOSTIC");
+				surface.chat.setToolDisplayDensity("default");
+				const normal = surface.text(100);
+				expect(normal).toContain("RAW_TEST_DIAGNOSTIC");
+				expect(normal).not.toContain("1 failed, 2 passed, 3 skipped");
+				expect(normal).not.toContain("BACKGROUND_OUTPUT");
+			} finally {
+				surface.cleanup();
+			}
+		},
+	);
+
 	it.each(["compact", "grouped"] as const)("keeps only the live hidden thinking indicator in %s", async (density) => {
 		const surface = await explorationSurface();
 		try {

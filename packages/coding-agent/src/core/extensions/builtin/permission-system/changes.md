@@ -1,5 +1,23 @@
 # Permission System Builtin Extension
 
+## 2026-11-26 - Keep direct Vitest launches in the bash permission class
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/permission-system/parsers.ts` applies the Vitest command prefix and external argument-path requests to opt-in test runner calls without interpreting argv as shell source.
+
+### Why
+
+- The direct launch has no `command` string, but it must still honor Vitest-specific deny rules and external-directory checks.
+
+### Why an extension could not handle it
+
+- The builtin permission registry owns request parsing for `bash`, including nested calls through `eval`.
+
+### Expected merge conflict zones
+
+- `bash` parser registration.
+
 ## 2026-11-14 - The permission check reads ctx.signal unguarded again (senpi#6679)
 
 ### What changed

@@ -21,6 +21,27 @@ Background sessions are NEVER killed by `timeout` (they live until they exit or 
 call `kill_bash`), even though the bash-timeout extension injects a default `timeout`
 into every `bash` call. Foreground calls behave like the classic `bash` tool.
 
+### Attributed test counts
+
+To show Vitest passed, failed, and skipped counts in Compact and Grouped, opt in
+to a direct, one-shot run of the project's installed Vitest:
+
+```js
+const result = await tool.bash({ test_runner: { runner: "vitest", args: ["src/example.test.ts"] } });
+print(result.text);
+```
+
+Omit `command`; `args` is the argument list after `vitest run`, not shell syntax.
+Ordinary shell commands, pipelines, and `monitor` commands don't produce attributed
+counts, even when their output looks like a test report. If Vitest does not report
+a complete result that explains its exit, Senpi shows the normal process outcome.
+Default display and the model's output text are unchanged.
+
+Verified counts are saved with the result and remain visible after a restart.
+For a background run, they are saved with the completion notice (subject to
+`terminal.notify`) or with a completed `bash_output` log read. Restarting the CLI
+does not restart the process or recover counts that were never recorded.
+
 ### Long-running background sessions
 
 A background session that is still running (started with `run_in_background`, or a

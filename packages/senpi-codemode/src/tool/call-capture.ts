@@ -1,5 +1,5 @@
 import { type AgentToolResult, sanitizeTerminalLabel } from "@code-yeongyu/senpi";
-import type { EvalToolCallSummary } from "./types.ts";
+import type { EvalTestSummary, EvalToolCallSummary } from "./types.ts";
 
 export const MAX_ENRICHED_TOOL_CALLS = 30;
 export const MAX_AGGREGATED_TOOL_NAMES = 64;
@@ -12,6 +12,7 @@ const MAX_ARGUMENT_ENTRIES = 32;
 const MAX_ARGUMENT_DEPTH = 6;
 const MAX_SERIALIZED_ARGUMENT_LENGTH = 4096;
 const MAX_RESULT_PREVIEW_CODE_POINTS = 160;
+const MAX_TEST_SUMMARY_RUNNER_CODE_POINTS = 128;
 /** The serialized size above which a nested result's details are not kept for its renderer (the eval result persists them). */
 const MAX_CAPTURED_DETAILS_CHARACTERS = 16_384;
 
@@ -34,6 +35,15 @@ export interface ToolCallCapture {
 	readonly metric: EvalToolCallMetric;
 	readonly includeDetails: boolean;
 	readonly argsTruncated?: true;
+}
+
+interface ToolCallRecord {
+	readonly ok: boolean;
+	readonly capture: ToolCallCapture;
+	readonly resultPreview?: string;
+	readonly error?: string;
+	readonly details?: unknown;
+	readonly testSummary?: EvalTestSummary;
 }
 
 export function capCodePoints(text: string, max: number): string {
@@ -93,6 +103,10 @@ function boundValue(value: unknown, depth: number, ancestors: WeakSet<object>): 
 	}
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 export function boundToolCallArgs(args: unknown): { args: unknown; truncated: boolean } {
 	try {
 		const bounded = boundValue(args, 0, new WeakSet<object>());
@@ -120,21 +134,16 @@ export function settleToolCallMetric(metric: EvalToolCallMetric, ok: boolean, co
 	metric.durationMs = Math.max(0, completedAt - metric.startedAt);
 }
 
-export function recordToolCall(
-	toolCalls: EvalToolCallSummary[],
-	ok: boolean,
-	capture: ToolCallCapture,
-	resultPreview: string | undefined,
-	error: string | undefined,
-	details?: unknown,
-): void {
+export function recordToolCall(toolCalls: EvalToolCallSummary[], result: ToolCallRecord): void {
 	const completedAt = Date.now();
+	const { ok, capture, resultPreview, error, details, testSummary } = result;
 	settleToolCallMetric(capture.metric, ok, completedAt);
 	const summary = {
 		name: capture.metric.name,
 		ok,
 		...(error === undefined ? {} : { error: capCodePoints(error, 512) }),
 		...(capture.includeDetails ? { durationMs: completedAt - capture.startedAt } : {}),
+		...(testSummary === undefined ? {} : { testSummary }),
 	};
 	const enrichedCount = toolCalls.filter((toolCall) => toolCall.callId !== undefined).length;
 	if (!capture.includeDetails || enrichedCount >= MAX_ENRICHED_TOOL_CALLS) {
@@ -166,6 +175,40 @@ export function toolCallResultDetails(result: AgentToolResult<unknown>): unknown
 	if (serialized === undefined || serialized.length > MAX_CAPTURED_DETAILS_CHARACTERS) return undefined;
 	const copy: unknown = JSON.parse(serialized);
 	return copy;
+}
+
+/** Parses a host or persisted test summary into its bounded display form. */
+export function parseEvalTestSummary(value: unknown): EvalTestSummary | undefined {
+	if (!isRecord(value)) return undefined;
+	const { version, runner, passed, failed, skipped } = value;
+	if (
+		version !== 1 ||
+		typeof runner !== "string" ||
+		typeof passed !== "number" ||
+		!Number.isSafeInteger(passed) ||
+		passed < 0 ||
+		typeof failed !== "number" ||
+		!Number.isSafeInteger(failed) ||
+		failed < 0 ||
+		typeof skipped !== "number" ||
+		!Number.isSafeInteger(skipped) ||
+		skipped < 0 ||
+		(passed === 0 && failed === 0 && skipped === 0)
+	)
+		return undefined;
+	return {
+		version,
+		runner: capCodePoints(sanitizeTerminalLabel(runner), MAX_TEST_SUMMARY_RUNNER_CODE_POINTS),
+		passed,
+		failed,
+		skipped,
+	};
+}
+
+/** Captures only the bounded test-count contract a host tool attached to its result details. */
+export function toolCallResultTestSummary(result: AgentToolResult<unknown>): EvalTestSummary | undefined {
+	if (!isRecord(result.details)) return undefined;
+	return parseEvalTestSummary(result.details.testSummary);
 }
 
 export function toolCallResultPreview(result: AgentToolResult<unknown>): string | undefined {

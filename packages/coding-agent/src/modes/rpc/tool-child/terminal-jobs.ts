@@ -22,6 +22,7 @@ import type {
 	TerminalToolContext,
 } from "../../../core/extensions/builtin/terminal/tools/context.ts";
 import { createKillBashTool } from "../../../core/extensions/builtin/terminal/tools/kill-bash.ts";
+import { testSummaryFor } from "../../../core/extensions/builtin/terminal/tools/spawn.ts";
 import type { ToolChildJobContext, ToolChildJobHandler } from "./entry.ts";
 import { ToolChildJobError } from "./entry-error.ts";
 
@@ -115,6 +116,7 @@ function barrierFor(job: ToolChildJobContext): TerminalLaunchBarrier {
 function exitSummary(id: string, runtime: TerminalExitView): TerminalBackgroundWake {
 	const output = sanitizeTerminalOutput(runtime.fullOutput()).trimEnd();
 	const exit = runtime.exitResult;
+	const testSummary = testSummaryFor(runtime);
 	return {
 		event: "background_exit",
 		id,
@@ -123,6 +125,7 @@ function exitSummary(id: string, runtime: TerminalExitView): TerminalBackgroundW
 				? null
 				: { exitCode: exit.exitCode, signal: exit.signal, cancelled: exit.cancelled, timedOut: exit.timedOut },
 		output: output.length > NOTICE_TAIL_MAX_CHARS ? output.slice(output.length - NOTICE_TAIL_MAX_CHARS - 1) : output,
+		...(testSummary === undefined ? {} : { testSummary }),
 		...(runtime.autoReapedAfterMinutes === undefined
 			? {}
 			: { autoReapedAfterMinutes: runtime.autoReapedAfterMinutes }),

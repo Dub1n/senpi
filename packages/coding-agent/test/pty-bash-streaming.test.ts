@@ -5,6 +5,7 @@ import type { TerminalToolContext, TerminalToolResult } from "../src/core/extens
 const state = vi.hoisted(() => ({ nextSessionId: 0 }));
 
 vi.mock("../src/core/extensions/builtin/terminal/tools/spawn.ts", () => ({
+	testSummaryFor: () => undefined,
 	describeExit: () => "completed",
 	spawnCommandSession: async () => {
 		const listeners = new Set<(chunk: string) => void>();

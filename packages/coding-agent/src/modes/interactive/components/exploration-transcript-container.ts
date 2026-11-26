@@ -33,6 +33,7 @@ import {
 } from "./progressive-transcript-container.ts";
 import { type DensityCardSource, isDensityCardSource, ToolDensityRow } from "./tool-density-row.ts";
 import { TerminalBackgroundNotice } from "./terminal-background-notice.ts";
+import { TerminalTestCompletion } from "./terminal-test-completion.ts";
 import { ToolExecutionComponent } from "./tool-execution.ts";
 import { theme } from "../theme/theme.ts";
 import { TranscriptNotice } from "./transcript-notice.ts";
@@ -258,7 +259,7 @@ export class ExplorationTranscriptContainer extends Container {
 					const empty = poll.emptyPlaceholder !== undefined && poll.emptyPlaceholder !== "literal";
 					const details = child.presentationSnapshot.state.result?.details;
 					const widget = isRecord(details) && isRecord(details.jobWidget) ? details.jobWidget : undefined;
-					const hasExtra = widget !== undefined || poll.notices.length > 0;
+					const hasExtra = widget !== undefined || poll.notices.length > 0 || poll.testLabel !== undefined;
 					if (empty && !hasExtra && (poll.status === "running" || !changed)) return;
 					// A widget refresh only matters when its presentation changes, not when its clock advances.
 					const widgetKey =
@@ -277,7 +278,14 @@ export class ExplorationTranscriptContainer extends Container {
 					}
 					if (seen.has(signature)) return;
 					seen.add(signature);
-					bashRun.push(member);
+					// A test count names one invocation, not the combined set of bash ids.
+					if (poll.testLabel !== undefined) {
+						flushBash();
+						lastBashPolls.set(poll.sessionId, seen);
+						appendRow(child);
+					} else {
+						bashRun.push(member);
+					}
 					return;
 				}
 				flushBash();
@@ -392,6 +400,7 @@ export class ExplorationTranscriptContainer extends Container {
 		};
 		for (let index = 0; index < this.children.length; index++) {
 			const child = this.children[index];
+			if (child instanceof TerminalTestCompletion) continue;
 			if (child instanceof Spacer) {
 				const notice = this.children[index + 1];
 				const nextNotice = this.children[index + 3];

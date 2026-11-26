@@ -10,6 +10,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { isModelOnlyText } from "../../../core/tools/model-only-text.ts";
 import { questionDensityCard } from "../../../core/extensions/builtin/ask-user/render.ts";
+import { formatTestSummary, readTestSummary } from "../../../core/extensions/builtin/terminal/tools/test-summary.ts";
 import { getTextOutput } from "../../../core/tools/render-utils.ts";
 import { GrokToolRow } from "../grok/tool-row.ts";
 import { theme } from "../theme/theme.ts";
@@ -181,6 +182,23 @@ export class ToolExecutionComponent extends Container {
 			earlierModel: this.denseEarlierModel,
 		});
 		if (taskView !== undefined) return taskView;
+		if (this.identity.toolName === "bash" && !this.isPartial && this.result) {
+			const details = this.result.details;
+			const summary = readTestSummary(
+				details && typeof details === "object" ? Reflect.get(details, "testSummary") : undefined,
+			);
+			if (summary !== undefined) {
+				const output = options.expanded ? getTextOutput(this.result, this.showImages) : "";
+				return {
+					format: "structured",
+					kind: "shell",
+					heading: { identity: `${summary.runner} run`, details: [formatTestSummary(summary)] },
+					status: this.result.isError || summary.failed > 0 ? "failed" : "done",
+					body: output ? [{ type: "text", lines: output.split("\n") }] : [],
+					sections: [],
+				};
+			}
+		}
 		let view = this.renderer?.renderDensityCard(width, options);
 		if (view === undefined && (options.expanded || this.displayReleased)) {
 			this.restoreReleasedContent();

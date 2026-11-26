@@ -23,6 +23,7 @@ const MINUTE = 60_000;
 const spawned = vi.hoisted(() => ({ runtime: undefined as unknown }));
 
 vi.mock("../../src/core/extensions/builtin/terminal/tools/spawn.ts", () => ({
+	testSummaryFor: () => undefined,
 	describeExit: () => null,
 	spawnCommandSession: async () => ({ id: "bash_1", runtime: spawned.runtime }),
 }));

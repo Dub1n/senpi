@@ -47,6 +47,23 @@ describe("terminal child job placement", () => {
 });
 
 describe("terminal child background relay", () => {
+	it("carries attributed counts only when they agree with an ordinary process exit", () => {
+		const summaries: unknown[] = [];
+		const hooks = {
+			...ctx,
+			onBackgroundExit: (_id: string, runtime: TerminalExitView) => summaries.push(runtime.testSummary),
+		};
+		const bash = terminalChildJob(hooks, TERMINAL_CHILD_JOB_KINDS.bash);
+		const testSummary = { version: 1, runner: "vitest", passed: 2, failed: 1, skipped: 1 };
+		const exit = { exitCode: 1, signal: null, cancelled: false, timedOut: false };
+		const wake = { event: "background_exit", id: "bash_c1_1", output: "test output", exit, testSummary };
+		bash.wake?.(wake, 1);
+		bash.wake?.({ ...wake, exit: { ...exit, exitCode: 0 } }, 1);
+		bash.wake?.({ ...wake, exit: { ...exit, cancelled: true } }, 1);
+		bash.wake?.({ ...wake, testSummary: { ...testSummary, version: 2 } }, 1);
+		expect(summaries).toEqual([testSummary, undefined, undefined, undefined]);
+	});
+
 	it("hands the child's start and exit to the server hooks, and ends a session lost with its generation", () => {
 		const started: string[] = [];
 		const exits: Array<{ id: string; output: string; code: number | null | undefined }> = [];
