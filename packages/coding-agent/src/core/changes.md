@@ -1,3 +1,21 @@
+## 2026-11-26 - Persist dense card fold defaults and nesting switches
+
+### What changed
+
+- `packages/coding-agent/src/core/settings-manager.ts` saves Folded/Unfolded defaults per visible card name and separate, enabled-by-default switches for nesting reads, patches, Bash output, and project-rule notices.
+
+### Why
+
+- Users can set initial folds and choose which cards combine without writing a click back to settings or changing Default rendering.
+
+### Why an extension could not handle it
+
+- The interactive host owns transcript preferences and their layered, per-key persistence.
+
+### Expected merge conflict zones
+
+- LOW: neighboring tool display settings and accessors.
+
 ## 2026-11-24 - Persist dense card color overrides
 
 ### What changed

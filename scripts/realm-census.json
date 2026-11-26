@@ -7947,6 +7947,10 @@
 			"class": "constant",
 			"reason": "sorted read-only card names derived once for the color settings UI"
 		},
+		"packages/coding-agent/src/modes/interactive/components/density-card-style.ts#densityCardFoldNames": {
+			"class": "constant",
+			"reason": "sorted read-only card names derived once for the fold settings UI"
+		},
 		"packages/coding-agent/src/modes/interactive/components/density-card-style.ts#todoAccent": {
 			"class": "constant",
 			"reason": "fixed light and dark todo accent colors; never written after load"

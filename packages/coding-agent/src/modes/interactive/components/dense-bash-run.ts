@@ -9,6 +9,8 @@ import {
 import { denseBashPoll } from "../../../core/extensions/builtin/terminal/tools/render.ts";
 import type { DenseBashPollView } from "../../../core/extensions/builtin/terminal/tools/render.ts";
 import { densityCardHeading, densityCardStyle } from "./density-card-style.ts";
+import type { DensityFold } from "./density-fold.ts";
+import { densityNestView, DensityRunFold } from "./density-nest.ts";
 import { displayBashSessionId, type TerminalBackgroundNotice } from "./terminal-background-notice.ts";
 import type { DensityCardSource } from "./tool-density-row.ts";
 import type { ToolExecutionComponent } from "./tool-execution.ts";
@@ -89,10 +91,16 @@ export function denseBashProjection(card: ToolExecutionComponent): DenseBashPoll
 
 /** A non-owning presentation of adjacent terminal polls and background warnings in transcript order. */
 export class DenseBashRun implements DensityCardSource {
+	readonly densityGroup = true;
+	private readonly folds: DensityRunFold;
 	private members: readonly DenseBashMember[] = [];
 	private revision = nextRenderRevision();
 
-	setMembers(members: readonly DenseBashMember[]): void {
+	constructor(parent: DensityFold) {
+		this.folds = new DensityRunFold(parent);
+	}
+
+	setMembers(members: readonly DenseBashMember[], folds: readonly DensityFold[]): void {
 		if (
 			this.members.length === members.length &&
 			this.members.every((member, index) => {
@@ -112,20 +120,25 @@ export class DenseBashRun implements DensityCardSource {
 		)
 			return;
 		this.members = members;
+		this.folds.join(folds);
 		this.revision = nextRenderRevision();
 	}
 
 	get densityExpanded(): boolean {
-		return this.members.some((member) =>
-			member.kind === "poll" ? member.card.summarySnapshot.expanded : member.card.densityExpanded,
+		return this.folds.open(
+			"bash-output",
+			this.members.some((member) =>
+				member.kind === "poll" ? member.card.summarySnapshot.expanded : member.card.densityExpanded,
+			),
 		);
 	}
 
 	setExpanded(expanded: boolean): void {
-		for (const member of this.members) {
-			const current = member.kind === "poll" ? member.card.summarySnapshot.expanded : member.card.densityExpanded;
-			if (current !== expanded) member.card.setExpanded(expanded);
-		}
+		this.folds.set(expanded);
+	}
+
+	toggleDensityMember(index: number): void {
+		this.folds.toggleMember(index, "bash-output");
 	}
 
 	renderDensitySummary(width: number, grouped: boolean): string[] {
@@ -134,33 +147,17 @@ export class DenseBashRun implements DensityCardSource {
 		return [densityCardHeading(view.kind, view.heading, style)];
 	}
 
-	renderDensityCard(
-		width: number,
-		{ expanded }: { readonly grouped: boolean; readonly expanded: boolean },
-	): DensityCardStructuredView {
+	renderDensityCard(width: number, { expanded }: { readonly grouped: boolean; readonly expanded: boolean }) {
 		if (expanded) {
-			const [first, ...rest] = this.members;
-			const sections = rest.map(({ view, status, statusGlyph }) => ({
-				heading: {
-					kind: view.kind,
-					heading: view.expandedHeading ?? view.heading,
-					status,
-					statusGlyph,
-				},
-				placement: "frame" as const,
-				body: view.body,
+			const [first, ...rest] = this.members.map(({ view, status, statusGlyph }) => ({
+				...view,
+				status,
+				statusGlyph,
 			}));
-			return {
-				...first.view,
-				status: first.status,
-				statusGlyph: first.statusGlyph,
-				heading: first.view.expandedHeading ?? first.view.heading,
-				sections,
-			};
+			return densityNestView(first, rest, (index) => this.folds.memberOpen(index, "bash-output"));
 		}
 
 		const first = this.members[0];
-		if (first.kind === "warning" && this.members.length === 1) return first.view;
 		const sameOutcome = this.members.every(
 			(member) =>
 				first.kind === "poll" &&
@@ -199,8 +196,8 @@ export class DenseBashRun implements DensityCardSource {
 		const separatorWidth = sharedDetails.length > 0 ? 3 + widthOfDetails + 3 * (sharedDetails.length - 1) : 0;
 		const identityWidth = Math.max(0, width - fixedWidth - separatorWidth);
 		return {
-			format: "structured",
-			kind: "bash-output",
+			format: "structured" as const,
+			kind: "bash-output" as const,
 			heading: {
 				identity: compactIds(ids, identityWidth),
 				details: sharedDetails,
@@ -221,7 +218,7 @@ export class DenseBashRun implements DensityCardSource {
 	}
 
 	getRenderRevision(): number | undefined {
-		let revision = this.revision;
+		let revision = Math.max(this.revision, this.folds.revision);
 		for (const { card } of this.members) {
 			const member = card.getRenderRevision();
 			if (member === undefined) return undefined;

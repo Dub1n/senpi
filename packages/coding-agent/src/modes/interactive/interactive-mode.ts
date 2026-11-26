@@ -1303,6 +1303,7 @@ export class InteractiveMode {
 		this.chatContainer.setDensitySession(this.sessionManager.getSessionId());
 		this.chatContainer.setToolDisplayDensity(this.settingsManager.getToolDisplayDensity());
 		this.chatContainer.setToolDisplayColors(this.settingsManager.getToolDisplayColors());
+		this.applyDenseCardPreferences();
 		this.documentContainer = new Container();
 		this.documentContainer.addChild(this.headerContainer);
 		this.documentContainer.addChild(this.loadedResourcesContainer);
@@ -2988,6 +2989,7 @@ export class InteractiveMode {
 		this.outputPad = this.settingsManager.getOutputPad();
 		this.chatContainer.setToolDisplayDensity(this.settingsManager.getToolDisplayDensity());
 		this.chatContainer.setToolDisplayColors(this.settingsManager.getToolDisplayColors());
+		this.applyDenseCardPreferences();
 		this.applySmoothStreamingRenderFps();
 		this.ui.setShowHardwareCursor(this.settingsManager.getShowHardwareCursor());
 		const clearOnShrink = this.settingsManager.getClearOnShrink();
@@ -7429,7 +7431,7 @@ export class InteractiveMode {
 		if (expanded === this.toolOutputExpanded) return;
 
 		this.toolOutputExpanded = expanded;
-		this.chatContainer.resetDensityFolds?.();
+		this.chatContainer.resetDensityFolds?.(expanded);
 		const activeHeader = this.customHeader ?? this.builtInHeader;
 		if (isExpandable(activeHeader)) {
 			activeHeader.setExpanded(expanded);
@@ -8027,6 +8029,13 @@ export class InteractiveMode {
 		this.ui.requestRender();
 	}
 
+	private applyDenseCardPreferences(): void {
+		this.chatContainer.setDenseCardPreferences(
+			this.settingsManager.getToolCardFoldDefaults(),
+			this.settingsManager.getToolCardNesting(),
+		);
+	}
+
 	private async showSettingsSelector(): Promise<void> {
 		const availableThinkingLevels = this.session.getAvailableThinkingLevels();
 		const toolDisplayColors = this.settingsManager.getToolDisplayColors();
@@ -8052,6 +8061,8 @@ export class InteractiveMode {
 					availableThemes: getAvailableThemes(),
 					hideThinkingBlock: this.hideThinkingBlock,
 					toolDisplayDensity: this.settingsManager.getToolDisplayDensity(),
+					toolCardFoldDefaults: this.settingsManager.getToolCardFoldDefaults(),
+					toolCardNesting: this.settingsManager.getToolCardNesting(),
 					toolDisplayColorOverrides: this.settingsManager.getToolDisplayColorOverrides(),
 					toolDisplayColorFrames: toolDisplayColors.colorFrames,
 					toolDisplayColorNames: toolDisplayColors.colorNames,
@@ -8145,6 +8156,16 @@ export class InteractiveMode {
 					onToolDisplayDensityChange: (density) => {
 						this.settingsManager.setToolDisplayDensity(density);
 						this.chatContainer.setToolDisplayDensity(this.settingsManager.getToolDisplayDensity());
+						this.ui.requestRender();
+					},
+					onToolCardFoldDefaultChange: (name, value) => {
+						this.settingsManager.setToolCardFoldDefault(name, value);
+						this.applyDenseCardPreferences();
+						this.ui.requestRender();
+					},
+					onToolCardNestingChange: (family, enabled) => {
+						this.settingsManager.setToolCardNesting(family, enabled);
+						this.applyDenseCardPreferences();
 						this.ui.requestRender();
 					},
 					onToolDisplayColorOverrideChange: (name, value) => {
@@ -9917,6 +9938,7 @@ export class InteractiveMode {
 			this.outputPad = this.settingsManager.getOutputPad();
 			this.chatContainer.setToolDisplayDensity(this.settingsManager.getToolDisplayDensity());
 			this.chatContainer.setToolDisplayColors(this.settingsManager.getToolDisplayColors());
+			this.applyDenseCardPreferences();
 			// Reload replaces the session runner: a genuine ownership boundary, so the
 			// external-owner delegation episode ends here (settings-only rebuilds below
 			// go through rebuildChatFromMessages and must NOT reset it — post-#1188 core

@@ -1,3 +1,25 @@
+## 2026-11-26 - Configure dense folds and nest members independently
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts`, `packages/coding-agent/src/modes/interactive/components/settings-selector.ts`, `packages/coding-agent/src/modes/interactive/components/dense-card-settings.ts`, and `packages/coding-agent/src/modes/interactive/components/density-card-style.ts` expose initial folds by visible name, separate from color aliases, and four independent nesting switches.
+- `packages/coding-agent/src/modes/interactive/components/exploration-transcript-container.ts` applies the nesting switches when projecting completed runs, after Bash suppression and deduplication. Ungrouping does not change Grouped padding or split the sections of a multi-file patch invocation.
+- `packages/coding-agent/src/modes/interactive/components/density-fold.ts`, `packages/coding-agent/src/modes/interactive/components/density-nest.ts`, `packages/coding-agent/src/modes/interactive/components/tool-density-row.ts`, and `packages/coding-agent/src/modes/interactive/components/custom-entry.ts` keep preferences separate from session-local folds and distinguish the parent gutter from member titles. Nested headings without detail are not toggle targets.
+- `packages/coding-agent/src/modes/interactive/components/dense-read-run.ts`, `packages/coding-agent/src/modes/interactive/components/dense-bash-run.ts`, `packages/coding-agent/src/modes/interactive/components/dense-project-rules.ts`, `packages/coding-agent/src/modes/interactive/components/apply-patch-density.ts`, and `packages/coding-agent/src/modes/interactive/components/patch-density-projection.ts` apply these controls without moving original tools, changing their output, or modifying Eval's internal sections.
+- `packages/coding-agent/src/modes/interactive/components/notice-density-source.ts` shows distinct, actionable failed-memory diagnostics once, without repeating the tool name or failure title.
+
+### Why
+
+- Readers can open one member without opening the other bodies, retain that choice through reprojection, and set defaults for future cards without snapping existing ones shut.
+
+### Why an extension could not handle it
+
+- Settings, transcript ordering, fold handoff, and mouse targeting belong to the interactive host.
+
+### Expected merge conflict zones
+
+- Dense transcript projection and settings selector; Default, tool execution, and persisted result formats are unchanged.
+
 ## 2026-11-26 - Fold running cards and retain their choices on settlement
 
 ### What changed

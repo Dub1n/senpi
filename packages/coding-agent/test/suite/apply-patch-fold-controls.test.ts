@@ -7,6 +7,7 @@ import type {
 	ApplyPatchPreviewFile,
 	ApplyPatchResult,
 } from "../../src/core/extensions/builtin/gpt-apply-patch/types.ts";
+import { toolCardNestingDefaults } from "../../src/core/settings-manager.ts";
 import { ExplorationTranscriptContainer } from "../../src/modes/interactive/components/exploration-transcript-container.ts";
 import { ToolExecutionComponent } from "../../src/modes/interactive/components/tool-execution.ts";
 import { explorationSurface, invoke } from "./exploration-surface-harness.ts";
@@ -76,6 +77,81 @@ function click(
 }
 
 describe.each(["compact", "grouped"] as const)("%s patch fold controls", (density) => {
+	it("uses the renamed parent default after a close, but keeps an explicit open and independent member defaults", async () => {
+		const surface = await explorationSurface(true, [(pi) => pi.registerTool(createApplyPatchTool())]);
+		const width = 100;
+		try {
+			const chat = surface.chat;
+			if (!(chat instanceof ExplorationTranscriptContainer)) throw new TypeError("Expected transcript");
+			chat.setToolDisplayDensity(density);
+			chat.setDenseCardPreferences(
+				{ edited: "folded", added: "unfolded", patched: "unfolded" },
+				toolCardNestingDefaults,
+			);
+			const add = (filePath: string, diff: string): ApplyPatchPreviewFile => ({
+				...file(filePath, diff),
+				operation: "add",
+				removed: 0,
+			});
+			const earlier = [patch("one", repeated), patch("two", middle), patch("three", repeated)];
+			invoke(surface.mode, "renderSessionItems", earlier.flat());
+			const clickHeading = (pattern: RegExp) => {
+				const output = chat.render(width).map(stripTerminalSequences);
+				const row = output.findIndex((line) => pattern.test(line));
+				expect(output[row]).toMatch(pattern);
+				expect(click(surface, { row, width, x: 1 })?.handled).toBe(true);
+			};
+			clickHeading(/╶─.*edited/u);
+			clickHeading(/╭─.*edited/u);
+			const added = patch("new", add("/p/new.txt", "+1 show-new-file"));
+			invoke(surface.mode, "renderSessionItems", added);
+			const renamed = surface.text(width);
+			expect(renamed).toMatch(/╭─.*edited/u);
+			expect(renamed).toContain("show-new-file");
+			expect(renamed).not.toContain("middle-before");
+
+			// Splitting and recombining the run must not recreate its member choices.
+			clickHeading(/╭─.*edited/u);
+			clickHeading(/╶─.*patched/u);
+			chat.setDenseCardPreferences(
+				{ edited: "folded", added: "unfolded", patched: "folded" },
+				{
+					...toolCardNestingDefaults,
+					patches: false,
+				},
+			);
+			expect(surface.text(width).match(/╶─.*edited/gu)).toHaveLength(3);
+			chat.setDenseCardPreferences(
+				{ edited: "folded", added: "unfolded", patched: "folded" },
+				toolCardNestingDefaults,
+			);
+			expect(surface.text(width)).toContain("show-new-file");
+			expect(surface.text(width)).not.toContain("middle-before");
+		} finally {
+			surface.cleanup();
+		}
+	});
+
+	it("keeps one invocation's file sections when cross-call patch nesting is disabled", async () => {
+		const surface = await explorationSurface(true, [(pi) => pi.registerTool(createApplyPatchTool())]);
+		try {
+			const chat = surface.chat;
+			if (!(chat instanceof ExplorationTranscriptContainer)) throw new TypeError("Expected transcript");
+			chat.setToolDisplayDensity(density);
+			chat.setDenseCardPreferences({ edited: "unfolded" }, { ...toolCardNestingDefaults, patches: false });
+			invoke(surface.mode, "renderSessionItems", [patch("many", repeated, middle), patch("other", appended)].flat());
+			const text = surface.text(100);
+			expect(text.match(/╭─.*edited/gu)).toHaveLength(2);
+			expect(text).toMatch(
+				/╭─.*repeated\.txt[^\n]*\n[\s\S]*├─.*middle\.txt[\s\S]*╰─[^\n]*\n[\s\S]*╭─.*appended\.txt/u,
+			);
+			expect(text).toContain("middle-before");
+			expect(text).toContain("appended-before");
+		} finally {
+			surface.cleanup();
+		}
+	});
+
 	it("reveals a renamed nest for one joining invocation and does not replay that reveal", async () => {
 		const width = 80;
 		const surface = await explorationSurface(true, [(pi) => pi.registerTool(createApplyPatchTool())]);

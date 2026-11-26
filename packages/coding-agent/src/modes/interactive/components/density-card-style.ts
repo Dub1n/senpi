@@ -119,13 +119,22 @@ function cardColorKind(kind: DensityCardKind): DensityCardKind {
 }
 
 function cardColorName(kind: DensityCardKind): string {
-	// Both variants say "bash"; keep their independently configurable accents.
-	return kind === "bash-output" ? "bash (output)" : cardRegistry[cardColorKind(kind)].name;
+	return densityCardFoldName(cardColorKind(kind));
 }
 
+/** Use the visible name, not its accent alias; distinguish the two cards labeled bash. */
+export function densityCardFoldName(kind: DensityCardKind): string {
+	return kind === "bash-output" ? "bash (output)" : cardRegistry[kind].name;
+}
+
+const byVisibleName = (a: string, b: string) => a.localeCompare(b);
 export const densityCardColorNames: readonly string[] = [
 	...new Set((Object.keys(cardRegistry) as DensityCardKind[]).map(cardColorName)),
-].sort((a, b) => a.localeCompare(b));
+].sort(byVisibleName);
+export const densityCardFoldNames: readonly string[] = (Object.keys(cardRegistry) as DensityCardKind[])
+	.filter((kind) => kind !== "system")
+	.map(densityCardFoldName)
+	.sort(byVisibleName);
 
 type DensityTitle = {
 	readonly name?: string | undefined;

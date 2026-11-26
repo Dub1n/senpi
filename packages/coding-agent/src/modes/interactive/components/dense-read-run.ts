@@ -11,6 +11,8 @@ import { getCompactReadClassification, readRenderers } from "../../../core/tools
 import { resolveToCwd } from "../../../core/tools/path-utils.ts";
 import { densityCardHeading, densityCardStyle } from "./density-card-style.ts";
 import { denseReadPathLabels } from "./dense-read-paths.ts";
+import type { DensityFold } from "./density-fold.ts";
+import { densityNestView, DensityRunFold } from "./density-nest.ts";
 import type { DensityCardSource } from "./tool-density-row.ts";
 import { ToolExecutionComponent } from "./tool-execution.ts";
 
@@ -58,11 +60,19 @@ function readStatus(member: DenseReadMember): DensityCardStatus {
 
 /** Non-owning presentation of consecutive reads. Session history and expansion remain on the originals. */
 export class DenseReadRun implements DensityCardSource {
+	readonly densityGroup = true;
+	private readonly folds: DensityRunFold;
+	private readonly onToolOpen: ((card: ToolExecutionComponent) => void) | undefined;
 	private members: readonly DenseReadMember[] = [];
 	private labels: readonly string[] = [];
 	private revision = nextRenderRevision();
 
-	setMembers(members: readonly DenseReadMember[]): void {
+	constructor(parent: DensityFold, onToolOpen: ((card: ToolExecutionComponent) => void) | undefined) {
+		this.folds = new DensityRunFold(parent);
+		this.onToolOpen = onToolOpen;
+	}
+
+	setMembers(members: readonly DenseReadMember[], folds: readonly DensityFold[]): void {
 		if (
 			this.members.length === members.length &&
 			this.members.every(
@@ -75,18 +85,25 @@ export class DenseReadRun implements DensityCardSource {
 		)
 			return;
 		this.members = members;
+		this.folds.join(folds);
 		this.labels = denseReadPathLabels(members);
 		this.revision = nextRenderRevision();
 	}
 
 	get densityExpanded(): boolean {
-		return this.members.some(({ card }) => card.summarySnapshot.expanded);
+		return this.folds.open(
+			this.members[0].kind,
+			this.members.some(({ card }) => card.summarySnapshot.expanded),
+		);
 	}
 
 	setExpanded(expanded: boolean): void {
-		for (const { card } of this.members) {
-			if (card.summarySnapshot.expanded !== expanded) card.setExpanded(expanded);
-		}
+		this.folds.set(expanded);
+	}
+
+	toggleDensityMember(index: number): void {
+		const member = this.members[index];
+		if (this.folds.toggleMember(index, member.kind)) this.onToolOpen?.(member.card);
 	}
 
 	renderDensitySummary(width: number, grouped: boolean): string[] {
@@ -100,10 +117,7 @@ export class DenseReadRun implements DensityCardSource {
 		];
 	}
 
-	renderDensityCard(
-		width: number,
-		{ grouped, expanded }: { readonly grouped: boolean; readonly expanded: boolean },
-	): DensityCardStructuredView {
+	renderDensityCard(width: number, { grouped, expanded }: { readonly grouped: boolean; readonly expanded: boolean }) {
 		if (!expanded) {
 			const kind = this.members[0].kind;
 			const statuses = this.members.map(readStatus);
@@ -131,7 +145,7 @@ export class DenseReadRun implements DensityCardSource {
 				return [{ ...span, text }];
 			});
 			return {
-				format: "structured",
+				format: "structured" as const,
 				kind,
 				heading: { details: shared !== undefined || failedCount === 0 ? [files] : [shortened, failure] },
 				status: shared,
@@ -153,20 +167,7 @@ export class DenseReadRun implements DensityCardSource {
 			};
 		});
 		const [first, ...rest] = views;
-		return {
-			...first,
-			heading: first.expandedHeading ?? first.heading,
-			sections: rest.map((view) => ({
-				heading: {
-					kind: view.kind,
-					heading: view.expandedHeading ?? view.heading,
-					status: view.status,
-					statusGlyph: view.statusGlyph,
-				},
-				placement: "frame",
-				body: view.body,
-			})),
-		};
+		return densityNestView(first, rest, (index, view) => this.folds.memberOpen(index, view.kind));
 	}
 
 	// Only the shared dense row renders this adapter; fallback never owns the underlying cards.
@@ -180,7 +181,7 @@ export class DenseReadRun implements DensityCardSource {
 	}
 
 	getRenderRevision(): number | undefined {
-		let revision = this.revision;
+		let revision = Math.max(this.revision, this.folds.revision);
 		for (const { card } of this.members) {
 			const member = card.getRenderRevision();
 			if (member === undefined) return undefined;

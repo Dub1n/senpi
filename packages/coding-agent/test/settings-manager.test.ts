@@ -855,6 +855,63 @@ describe("SettingsManager", () => {
 	});
 
 	describe("tool display density", () => {
+		it("merges independent card fold and nesting edits from different settings writers", async () => {
+			const first = SettingsManager.create(projectDir, agentDir);
+			const second = SettingsManager.create(projectDir, agentDir);
+			expect(first.getToolCardFoldDefaults()).toEqual({});
+			expect(first.getToolCardNesting()).toEqual({
+				reads: true,
+				patches: true,
+				bashOutput: true,
+				projectRules: true,
+			});
+
+			first.setToolCardFoldDefault("edit", "unfolded");
+			first.setToolCardFoldDefault("bash (output)", "unfolded");
+			first.setToolCardNesting("reads", false);
+			first.setToolCardNesting("bashOutput", false);
+			await first.flush();
+
+			second.setToolCardFoldDefault("edited", "folded");
+			second.setToolCardFoldDefault("write", "folded");
+			second.setToolCardFoldDefault("bash", "folded");
+			second.setToolCardNesting("projectRules", false);
+			await second.flush();
+
+			const reopened = SettingsManager.create(projectDir, agentDir);
+			expect(reopened.getToolCardFoldDefaults()).toEqual({
+				edit: "unfolded",
+				edited: "folded",
+				write: "folded",
+				bash: "folded",
+				"bash (output)": "unfolded",
+			});
+			expect(reopened.getToolCardNesting()).toEqual({
+				reads: false,
+				patches: true,
+				bashOutput: false,
+				projectRules: false,
+			});
+			expect(reopened.getToolDisplayDensity()).toBe("default");
+
+			reopened.setToolCardFoldDefault("edit", undefined);
+			reopened.setToolCardNesting("patches", false);
+			await reopened.flush();
+			await first.reload();
+			expect(first.getToolCardFoldDefaults()).toEqual({
+				edited: "folded",
+				write: "folded",
+				bash: "folded",
+				"bash (output)": "unfolded",
+			});
+			expect(first.getToolCardNesting()).toEqual({
+				reads: false,
+				patches: false,
+				bashOutput: false,
+				projectRules: false,
+			});
+		});
+
 		it("defaults to the standard display and remembers each selection across restarts", async () => {
 			const manager = SettingsManager.create(projectDir, agentDir);
 			expect(manager.getToolDisplayDensity()).toBe("default");

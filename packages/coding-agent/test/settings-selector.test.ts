@@ -116,6 +116,45 @@ describe("SettingsSelectorComponent", () => {
 		expect(stripAnsi(list.render(120).join("\n"))).toContain("Invalid color");
 	});
 
+	it("offers independent visible fold names and four On/Off nesting controls", () => {
+		const onToolCardFoldDefaultChange = vi.fn();
+		const onToolCardNestingChange = vi.fn();
+		const config = {
+			toolCardFoldDefaults: { edit: "unfolded", "bash (output)": "unfolded" },
+			toolCardNesting: { reads: true, patches: false, bashOutput: true, projectRules: false },
+			availableThinkingLevels: [],
+			availableThemes: [],
+		} as unknown as SettingsConfig;
+		const callbacks = { onToolCardFoldDefaultChange, onToolCardNestingChange } as unknown as SettingsCallbacks;
+		const list = new SettingsSelectorComponent(config, callbacks).getSettingsList();
+		list.selectItem("tool-card-fold-defaults");
+		list.handleInput("\r");
+		list.handleInput("edit");
+		expect(stripAnsi(list.render(120).join("\n"))).toMatch(/edit +Unfolded[\s\S]*edited +Folded/u);
+		list.handleInput("\r");
+		expect(onToolCardFoldDefaultChange.mock.calls).toEqual([["edit", "folded"]]);
+		for (const _ of "edit") list.handleInput("\x7f");
+		list.handleInput("bash");
+		expect(stripAnsi(list.render(120).join("\n"))).toMatch(/bash +Folded[\s\S]*bash \(output\) +Unfolded/u);
+		list.handleInput("\x1b");
+
+		list.selectItem("tool-card-nesting");
+		list.handleInput("\r");
+		expect(stripAnsi(list.render(120).join("\n"))).toMatch(
+			/Reads +On[\s\S]*Patches +Off[\s\S]*Bash output +On[\s\S]*Project-rule notices +Off/u,
+		);
+		for (let index = 0; index < 4; index++) {
+			list.handleInput("\r");
+			list.handleInput("\x1b[B");
+		}
+		expect(onToolCardNestingChange.mock.calls).toEqual([
+			["reads", false],
+			["patches", true],
+			["bashOutput", false],
+			["projectRules", true],
+		]);
+	});
+
 	it("resets a per-card color override when the editor is submitted empty", () => {
 		const onOverrideChange = vi.fn();
 		const config = {

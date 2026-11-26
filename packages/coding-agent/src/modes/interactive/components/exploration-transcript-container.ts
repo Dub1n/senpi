@@ -8,7 +8,13 @@ import {
 	Spacer,
 	type TuiMouseEvent,
 } from "@earendil-works/pi-tui";
-import type { ToolDisplayColors, ToolDisplayDensity } from "../../../core/settings-manager.ts";
+import {
+	type ToolCardFoldDefaults,
+	type ToolCardNesting,
+	type ToolDisplayColors,
+	type ToolDisplayDensity,
+	toolCardNestingDefaults,
+} from "../../../core/settings-manager.ts";
 import { patchDensityCard } from "../../../core/extensions/builtin/gpt-apply-patch/density.ts";
 import type {
 	ApplyPatchPreviewFile,
@@ -66,14 +72,15 @@ export class ExplorationTranscriptContainer extends Container {
 	private density: ToolDisplayDensity = "default";
 	private densitySessionId: string | undefined;
 	private densityFolds = new DensityFolds();
+	private densityNesting: ToolCardNesting = toolCardNestingDefaults;
 	private pressedDensityRow: ToolDensityRow | undefined;
 	private densityColors: ToolDisplayColors = { colorFrames: false, colorNames: false, colorIcons: false };
 	private readonly densityRows = new WeakMap<ToolExecutionComponent | DensityCardSource, ToolDensityRow>();
-	private readonly denseBashRuns = new WeakMap<ToolExecutionComponent | TerminalBackgroundNotice, DenseBashRun>();
-	private readonly denseReadRuns = new WeakMap<ToolExecutionComponent, DenseReadRun>();
-	private readonly denseProjectRulesRuns = new WeakMap<CustomEntryComponent, DenseProjectRulesRun>();
+	private denseBashRuns = new WeakMap<ToolExecutionComponent | TerminalBackgroundNotice, DenseBashRun>();
+	private denseReadRuns = new WeakMap<ToolExecutionComponent, DenseReadRun>();
+	private denseProjectRulesRuns = new WeakMap<CustomEntryComponent, DenseProjectRulesRun>();
 	private readonly patchDensityProjections = new WeakMap<ToolExecutionComponent, PatchDensityProjection>();
-	private readonly patchDensityGroups = new WeakMap<ToolExecutionComponent, PatchDensityCard>();
+	private patchDensityGroups = new WeakMap<ToolExecutionComponent, PatchDensityCard>();
 	private densityProjection:
 		| {
 				readonly source: readonly Component[];
@@ -110,7 +117,8 @@ export class ExplorationTranscriptContainer extends Container {
 		this.density = density;
 		if (density === "default") {
 			for (const child of this.children) {
-				if (child instanceof ToolExecutionComponent) child.setDensityDetail(undefined);
+				if (child instanceof ToolExecutionComponent || isDensityCardSource(child))
+					child.setDensityDetail?.(undefined);
 			}
 		}
 		this.pressedDensityRow = undefined;
@@ -121,11 +129,36 @@ export class ExplorationTranscriptContainer extends Container {
 	setDensitySession(sessionId: string): void {
 		if (this.densitySessionId === sessionId) return;
 		this.densitySessionId = sessionId;
+		const defaults = this.densityFolds.defaults;
 		this.densityFolds = new DensityFolds();
+		this.densityFolds.setDefaults(defaults);
 	}
 
-	resetDensityFolds(): void {
-		this.densityFolds.reset();
+	resetDensityFolds(expanded: boolean): void {
+		if (this.density !== "default") this.projectDensity();
+		this.densityFolds.reset(expanded);
+		this.display.invalidateCache();
+	}
+
+	setDenseCardPreferences(defaults: ToolCardFoldDefaults, nesting: ToolCardNesting): void {
+		if (this.density !== "default") this.projectDensity();
+		this.densityFolds.setDefaults(defaults);
+		const previous = this.densityNesting;
+		if (previous.reads !== nesting.reads) this.denseReadRuns = new WeakMap();
+		if (previous.patches !== nesting.patches) this.patchDensityGroups = new WeakMap();
+		if (previous.bashOutput !== nesting.bashOutput) this.denseBashRuns = new WeakMap();
+		if (previous.projectRules !== nesting.projectRules) this.denseProjectRulesRuns = new WeakMap();
+		if (
+			previous.reads === nesting.reads &&
+			previous.patches === nesting.patches &&
+			previous.bashOutput === nesting.bashOutput &&
+			previous.projectRules === nesting.projectRules
+		)
+			return;
+		this.densityNesting = nesting;
+		this.pressedDensityRow = undefined;
+		this.densityProjection = undefined;
+		if (this.density !== "default") this.display.invalidateCache();
 	}
 
 	setToolDisplayColors(colors: ToolDisplayColors): void {
@@ -178,46 +211,67 @@ export class ExplorationTranscriptContainer extends Container {
 		const flushReads = (): void => {
 			const [first, second] = reads;
 			if (!first) return;
-			if (second) {
+			if (second && this.densityNesting.reads) {
 				let run = this.denseReadRuns.get(first.card);
 				if (!run) {
-					run = new DenseReadRun();
+					run = new DenseReadRun(
+						this.densityFolds.forNest("reads", first.card.toolCallId),
+						this.options.onDenseToolOpen,
+					);
 					this.denseReadRuns.set(first.card, run);
 				}
-				run.setMembers(reads);
+				run.setMembers(
+					reads,
+					reads.map(({ card }) => this.densityFolds.forTool(card.toolCallId)),
+				);
 				appendRow(run);
 			} else {
-				appendRow(first.card);
+				for (const { card } of reads) appendRow(card);
 			}
 			reads = [];
 		};
+		const appendPatchGroup = (first: ToolExecutionComponent, files: readonly PatchDensityCard[]): void => {
+			let group = this.patchDensityGroups.get(first);
+			if (!group) {
+				group = new PatchDensityCard(this.densityFolds.forPatch(first.toolCallId, "group"));
+				this.patchDensityGroups.set(first, group);
+			}
+			group.setGroup(files);
+			appendRow(group);
+		};
 		const flushPatches = (): void => {
 			if (patchRun.length === 0) return;
-			const files = patchRun.flatMap((run) => run.files);
-			if (files.length >= 3) {
-				const first = patchRun[0].owner;
-				let group = this.patchDensityGroups.get(first);
-				if (!group) {
-					group = new PatchDensityCard(this.densityFolds.forPatch(first.toolCallId, "group"));
-					this.patchDensityGroups.set(first, group);
-				}
-				group.setGroup(files);
-				appendRow(group);
+			if (this.densityNesting.patches) {
+				const files = patchRun.flatMap((run) => run.files);
+				if (files.length >= 3) appendPatchGroup(patchRun[0].owner, files);
+				else for (const file of files) appendRow(file);
 			} else {
-				for (const file of files) appendRow(file);
+				for (const { owner, files } of patchRun) {
+					if (files.length > 1) appendPatchGroup(owner, files);
+					else for (const file of files) appendRow(file);
+				}
 			}
 			patchRun = [];
 		};
 		const flushBash = (): void => {
-			const [first] = bashRun;
-			if (first) {
+			const [first, second] = bashRun;
+			if (first && second && this.densityNesting.bashOutput) {
 				let run = this.denseBashRuns.get(first.card);
 				if (!run) {
-					run = new DenseBashRun();
+					run = new DenseBashRun(
+						first.kind === "poll"
+							? this.densityFolds.forNest("bashOutput", first.card.toolCallId)
+							: this.densityFolds.forSource(first.card, true),
+					);
 					this.denseBashRuns.set(first.card, run);
 				}
-				run.setMembers(bashRun);
+				run.setMembers(
+					bashRun,
+					bashRun.map(({ card }) => this.densityFoldOf(card)),
+				);
 				appendRow(run);
+			} else {
+				for (const { card } of bashRun) appendRow(card);
 			}
 			bashRun = [];
 			lastBashPolls.clear();
@@ -227,16 +281,19 @@ export class ExplorationTranscriptContainer extends Container {
 		const flushRuleNotices = (): void => {
 			const [first, second] = ruleNotices;
 			if (!first) return;
-			if (second) {
+			if (second && this.densityNesting.projectRules) {
 				let run = this.denseProjectRulesRuns.get(first.card);
 				if (!run) {
-					run = new DenseProjectRulesRun();
+					run = new DenseProjectRulesRun(this.densityFolds.forNest("projectRules", first.card.customEntry.id));
 					this.denseProjectRulesRuns.set(first.card, run);
 				}
-				run.setMembers(ruleNotices);
+				run.setMembers(
+					ruleNotices,
+					ruleNotices.map(({ card }) => this.densityFoldOf(card)),
+				);
 				appendRow(run);
 			} else {
-				appendRow(first.card);
+				for (const { card } of ruleNotices) appendRow(card);
 			}
 			ruleNotices = [];
 		};
@@ -402,7 +459,9 @@ export class ExplorationTranscriptContainer extends Container {
 		const cached = this.densityRows.get(card);
 		if (cached !== undefined) return cached;
 		const row = new ToolDensityRow(card, this.requestRender, () => this.densityColors, {
-			...(card instanceof ToolExecutionComponent ? { fold: this.densityFolds.forTool(card.toolCallId) } : {}),
+			...(!("densityGroup" in card) && !(card instanceof PatchDensityCard)
+				? { fold: this.densityFoldOf(card) }
+				: {}),
 			onToolOpen: this.options.onDenseToolOpen,
 			needsHandledPress: this.options.needsDenseHandledPress,
 			onPress: (target) => {
@@ -412,6 +471,12 @@ export class ExplorationTranscriptContainer extends Container {
 		});
 		this.densityRows.set(card, row);
 		return row;
+	}
+
+	private densityFoldOf(card: ToolExecutionComponent | DensityCardSource) {
+		if (card instanceof ToolExecutionComponent) return this.densityFolds.forTool(card.toolCallId);
+		if (card instanceof CustomEntryComponent) return this.densityFolds.forEntry(card.customEntry.id);
+		return this.densityFolds.forSource(card);
 	}
 
 	/**

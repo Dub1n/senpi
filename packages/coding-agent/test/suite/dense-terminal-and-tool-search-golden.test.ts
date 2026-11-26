@@ -7,10 +7,11 @@ import { AgentSessionRuntime } from "../../src/core/agent-session-runtime.ts";
 import { TerminalManager } from "../../src/core/extensions/builtin/terminal/manager.ts";
 import { createBashOutputTool } from "../../src/core/extensions/builtin/terminal/tools/bash-output.ts";
 import { createKillBashTool } from "../../src/core/extensions/builtin/terminal/tools/kill-bash.ts";
+import { toolCardNestingDefaults } from "../../src/core/settings-manager.ts";
 import toolSearchExtension from "../../src/core/extensions/builtin/tool-search/index.ts";
 import { ExplorationTranscriptContainer } from "../../src/modes/interactive/components/exploration-transcript-container.ts";
 import { InteractiveMode } from "../../src/modes/interactive/interactive-mode.ts";
-import { invoke } from "./exploration-surface-harness.ts";
+import { explorationSurface, invoke, runTool } from "./exploration-surface-harness.ts";
 import { createHarness, type HarnessOptions } from "./harness.ts";
 
 const wide = 64;
@@ -355,6 +356,103 @@ it("preserves interleaved sessions and deduplicates an A/B/A poll run", async ()
 	expect(output.match(/beta/g)).toHaveLength(1);
 	expect(output).toContain("├─ ✓ bash 40 • running");
 	expect(output.indexOf("alpha")).toBeLessThan(output.indexOf("beta"));
+});
+
+it("ungroups only Bash, preserving poll dedup, read nesting and Default", async () => {
+	const surface = await explorationSurface(true, [(pi) => pi.registerTool(terminalTool)]);
+	try {
+		const chat = surface.chat;
+		if (!(chat instanceof ExplorationTranscriptContainer)) throw new TypeError("Expected transcript");
+		const poll = (id: string, sessionId: string, text: string) => ({
+			id,
+			sessionId,
+			result: bashOutput(`status: running\n${text}`, sessionId, "running", null),
+		});
+		invoke(
+			surface.mode,
+			"renderSessionItems",
+			bashHistory([
+				poll("a1", "bash_39", "alpha"),
+				poll("b", "bash_40", "beta"),
+				poll("a2", "bash_39", "alpha"),
+				poll("empty", "bash_39", "(no new output)"),
+			]),
+		);
+		await runTool(surface, { id: "read-a", toolName: "read", args: { path: "a.txt" } });
+		await runTool(surface, { id: "read-b", toolName: "read", args: { path: "b.txt" } });
+		const standard = surface.text(wide);
+		chat.setToolDisplayDensity("grouped");
+		expect(surface.text(wide)).toContain("bash 39 40");
+		chat.setDenseCardPreferences({ "bash (output)": "unfolded" }, { ...toolCardNestingDefaults, bashOutput: false });
+
+		const headers = surface
+			.text(wide)
+			.split("\n")
+			.filter((line) => line.includes("╶─"));
+		expect(headers.map((line) => line.trimEnd())).toEqual([
+			" ╶─ ✓ bash 39 • running",
+			" ╶─ ✓ bash 40 • running",
+			" ╶─ ✓ read • a.txt b.txt",
+		]);
+		// Attached rows still share Grouped padding even though the Bash nest is off.
+		expect(surface.text(wide).split("\n").slice(2, 5)).toEqual(headers);
+		chat.setToolDisplayDensity("default");
+		expect(surface.text(wide)).toBe(standard);
+	} finally {
+		surface.cleanup();
+	}
+});
+
+it("opens a same-title Bash summary without toggling the first poll", async () => {
+	const surface = await explorationSurface(true, [(pi) => pi.registerTool(terminalTool)]);
+	try {
+		const chat = surface.chat;
+		if (!(chat instanceof ExplorationTranscriptContainer)) throw new TypeError("Expected transcript");
+		const sessionId = "bash_39";
+		chat.setToolDisplayDensity("compact");
+		const history = bashHistory(
+			["alpha", "beta"].map((body) => ({
+				id: body,
+				sessionId,
+				result: bashOutput(`status: running\n${body}`, sessionId, "running", null),
+			})),
+		);
+		invoke(surface.mode, "renderSessionItems", history);
+		const click = (pattern: RegExp, x: number) => {
+			const lines = surface.text(wide).split("\n");
+			const y = lines.findIndex((line) => pattern.test(line));
+			expect(lines[y]).toMatch(pattern);
+			expect(
+				chat.handleMouse({
+					type: "click",
+					button: "left",
+					x,
+					y,
+					screenX: x,
+					screenY: y,
+					width: wide,
+					height: lines.length,
+					shift: false,
+					alt: false,
+					ctrl: false,
+				})?.handled,
+			).toBe(true);
+		};
+		click(/╶─ ✓ bash 39 • running/u, 6);
+		expect(surface.text(wide)).toMatch(/│ alpha[\s\S]*│ beta/u);
+		click(/╭─ ✓ bash 39 • running/u, 6);
+		expect(surface.text(wide)).not.toContain("alpha");
+		expect(surface.text(wide)).toContain("│ beta");
+		click(/╭─ ✓ bash 39 • running/u, 1);
+		chat.setToolDisplayDensity("grouped");
+		chat.clear();
+		invoke(surface.mode, "renderSessionItems", history);
+		click(/╶─ ✓ bash 39 • running/u, 6);
+		expect(surface.text(wide)).not.toContain("alpha");
+		expect(surface.text(wide)).toContain("│ beta");
+	} finally {
+		surface.cleanup();
+	}
 });
 
 it("resets a session's duplicate interval after a hidden running transition", async () => {

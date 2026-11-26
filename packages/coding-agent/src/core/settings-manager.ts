@@ -145,6 +145,10 @@ export const DEFAULT_EXTENSION_EVENT_HANDLER_TIMEOUT_MS = 1_200_000;
 
 export type TuiMode = RendererTuiMode;
 export type ToolDisplayDensity = "default" | "compact" | "grouped";
+export type ToolCardFoldDefault = "folded" | "unfolded";
+export type ToolCardFoldDefaults = Readonly<Partial<Record<string, ToolCardFoldDefault>>>;
+export const toolCardNestingDefaults = { reads: true, patches: true, bashOutput: true, projectRules: true } as const;
+export type ToolCardNesting = Readonly<{ [Family in keyof typeof toolCardNestingDefaults]: boolean }>;
 export type ToolDisplayColors = {
 	readonly colorFrames: boolean;
 	readonly colorNames: boolean;
@@ -233,6 +237,8 @@ export interface Settings {
 	fallback?: FallbackCircuitSettings;
 	hideThinkingBlock?: boolean;
 	toolDisplayDensity?: ToolDisplayDensity;
+	toolCardFoldDefaults?: ToolCardFoldDefaults;
+	toolCardNesting?: Partial<ToolCardNesting>;
 	toolDisplayColorFrames?: boolean;
 	toolDisplayColorNames?: boolean;
 	toolDisplayColorIcons?: boolean;
@@ -2225,6 +2231,43 @@ export class SettingsManager {
 		this.save();
 	}
 
+	getToolCardFoldDefaults(): ToolCardFoldDefaults {
+		const defaults: unknown = this.settings.toolCardFoldDefaults;
+		if (!isMergeableObject(defaults)) return {};
+		return Object.fromEntries(
+			Object.entries(defaults).filter(
+				(entry): entry is [string, ToolCardFoldDefault] =>
+					isToolCardName(entry[0]) && (entry[1] === "folded" || entry[1] === "unfolded"),
+			),
+		);
+	}
+
+	setToolCardFoldDefault(name: string, value: ToolCardFoldDefault | undefined): void {
+		if (!isToolCardName(name)) return;
+		const defaults = { ...this.globalSettings.toolCardFoldDefaults };
+		if (value === undefined) delete defaults[name];
+		else defaults[name] = value;
+		this.globalSettings.toolCardFoldDefaults = defaults;
+		this.markModified("toolCardFoldDefaults", name);
+		this.save();
+	}
+
+	getToolCardNesting(): ToolCardNesting {
+		const settings = this.settings.toolCardNesting;
+		return {
+			reads: settings?.reads !== false,
+			patches: settings?.patches !== false,
+			bashOutput: settings?.bashOutput !== false,
+			projectRules: settings?.projectRules !== false,
+		};
+	}
+
+	setToolCardNesting(family: keyof ToolCardNesting, enabled: boolean): void {
+		this.globalSettings.toolCardNesting = { ...this.globalSettings.toolCardNesting, [family]: enabled };
+		this.markModified("toolCardNesting", family);
+		this.save();
+	}
+
 	getToolDisplayColors(): ToolDisplayColors {
 		const overrides = new Map<string, Color>();
 		for (const [kind, value] of Object.entries(this.getToolDisplayColorOverrides())) {
@@ -2245,7 +2288,7 @@ export class SettingsManager {
 		return Object.fromEntries(
 			Object.entries(overrides).filter(
 				(entry): entry is [string, string | number] =>
-					isToolDisplayColorName(entry[0]) &&
+					isToolCardName(entry[0]) &&
 					(typeof entry[1] === "string" || typeof entry[1] === "number") &&
 					parseToolDisplayColor(entry[1]) !== undefined,
 			),
@@ -2253,7 +2296,7 @@ export class SettingsManager {
 	}
 
 	setToolDisplayColorOverride(name: string, value: string | number | undefined): void {
-		if (!isToolDisplayColorName(name) || (value !== undefined && !parseToolDisplayColor(value))) return;
+		if (!isToolCardName(name) || (value !== undefined && !parseToolDisplayColor(value))) return;
 		const overrides = { ...this.globalSettings.toolDisplayColorOverrides };
 		if (value === undefined) delete overrides[name];
 		else overrides[name] = value;
@@ -2884,6 +2927,6 @@ export class SettingsManager {
 	}
 }
 
-function isToolDisplayColorName(name: string): boolean {
+function isToolCardName(name: string): boolean {
 	return /^[a-z][a-z0-9-]*(?: [a-z][a-z0-9-]*)*(?: \(output\))?$/i.test(name);
 }

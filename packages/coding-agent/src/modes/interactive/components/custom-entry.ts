@@ -28,6 +28,7 @@ export class CustomEntryComponent extends Container {
 	readonly projectRulesNotice: ProjectRulesActivationDetails | undefined;
 	private customComponent?: Component;
 	private _expanded = false;
+	private densityDetail: boolean | undefined;
 
 	constructor(entry: CustomEntry<unknown>, renderer: EntryRenderer) {
 		super();
@@ -87,8 +88,15 @@ export class CustomEntryComponent extends Container {
 	setExpanded(expanded: boolean): void {
 		if (this._expanded !== expanded) {
 			this._expanded = expanded;
-			this.rebuild();
+			if (this.densityDetail === undefined) this.rebuild();
 		}
+	}
+
+	setDensityDetail(detail: boolean | undefined): void {
+		if (detail === this.densityDetail) return;
+		const previous = this.densityDetail ?? this._expanded;
+		this.densityDetail = detail;
+		if ((detail ?? this._expanded) !== previous) this.rebuild();
 	}
 
 	override invalidate(): void {
@@ -102,7 +110,7 @@ export class CustomEntryComponent extends Container {
 
 		let component: Component | undefined;
 		try {
-			component = this.renderer(this.entry, { expanded: this._expanded }, theme);
+			component = this.renderer(this.entry, { expanded: this.densityDetail ?? this._expanded }, theme);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));

@@ -43,13 +43,13 @@ async function foregroundAt(lines: readonly string[], text: string) {
 	}
 }
 
-function click(surface: Awaited<ReturnType<typeof fixture>>, y: number) {
+function click(surface: Awaited<ReturnType<typeof fixture>>, y: number, x = 6) {
 	return surface.chat.handleMouse({
 		type: "click",
 		button: "left",
-		x: 6,
+		x,
 		y,
-		screenX: 6,
+		screenX: x,
 		screenY: y,
 		width,
 		height: surface.chat.render(width).length,
@@ -255,6 +255,7 @@ describe("dense consecutive read projection", () => {
 						row(" ╰─"),
 						row(""),
 					]);
+				expect(click(surface, 4)).toBeUndefined();
 				await surface.event({
 					type: "tool_execution_end",
 					toolCallId: "b",
@@ -275,7 +276,20 @@ describe("dense consecutive read projection", () => {
 						row(""),
 					]);
 				expect.soft(click(surface, 4)?.handled).toBe(true);
-				expect.soft(rows(surface)).toEqual(["", row(""), row(" ╶─ ✓ read • a.ts b.ts"), row("")]);
+				expect(rows(surface)).toEqual([
+					"",
+					row(""),
+					row(" ╭─ ✓ read • a.ts"),
+					row(" │ first"),
+					row(" ├─ ✓ read • b.ts"),
+					row(" ╰─"),
+					row(""),
+				]);
+				expect(click(surface, 2, 1)?.handled).toBe(true);
+				expect(rows(surface)).toEqual(["", row(""), row(" ╶─ ✓ read • a.ts b.ts"), row("")]);
+				expect(click(surface, 2)?.handled).toBe(true);
+				expect(rows(surface)).toContain(row(" │ first"));
+				expect(rows(surface)).not.toContain(row(" │ second"));
 			} finally {
 				surface.cleanup();
 			}

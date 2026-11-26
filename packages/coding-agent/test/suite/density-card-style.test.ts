@@ -255,7 +255,23 @@ describe("semantic density card styling", () => {
 			},
 		);
 
-		it("keeps the failed memory title and the expanded diagnostics", () => {
+		it.each([
+			{
+				friendly: "'insert_line' must be a number.",
+				raw: "memory: insert: 'insert_line' must be a number",
+				body: ["insert: 'insert_line' must be a number"],
+			},
+			{
+				friendly: "Nothing needed to change.",
+				raw: "memory: replace: made no effective changes\nmemory: replace: made no effective changes\nReview the target block.",
+				body: ["replace: made no effective changes", "Review the target block."],
+			},
+			{
+				friendly: undefined,
+				raw: "Not remembered.\nmemory: delete: target is read-only",
+				body: ["delete: target is read-only"],
+			},
+		])("shows each distinct failed memory diagnostic once: $raw", ({ friendly, raw, body }) => {
 			const card = new ToolExecutionComponent(
 				"memory",
 				"memory-failure",
@@ -264,10 +280,11 @@ describe("semantic density card styling", () => {
 				{
 					renderShell: "self",
 					renderResult: (_result, options) => {
+						if (friendly === undefined) return new Text(raw, 0, 0);
 						const notice = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
 						notice.addChild(new Text("○ Not remembered", 0, 0));
-						notice.addChild(new Text("The request had no new string.", 0, 0));
-						if (options.expanded) notice.addChild(new Text("memory: missing new_string", 0, 0));
+						notice.addChild(new Text(friendly, 0, 0));
+						if (options.expanded) notice.addChild(new Text(raw, 0, 0));
 						return notice;
 					},
 				},
@@ -275,15 +292,17 @@ describe("semantic density card styling", () => {
 				process.cwd(),
 			);
 			try {
-				card.updateResult({ content: [{ type: "text", text: "memory: missing new_string" }], isError: true });
+				card.updateResult({ content: [{ type: "text", text: raw }], isError: true });
 				const row = new ToolDensityRow(card, () => {});
 				row.setLayout(density === "grouped", true, true);
 				expect(row.render(76).map(stripTerminalSequences).join("\n")).toContain("╶─ ✗ memory · not remembered");
 				card.setExpanded(true);
 				const expanded = row.render(76).map(stripTerminalSequences).join("\n");
 				expect(expanded).toContain("╭─ ✗ memory · not remembered");
-				expect(expanded).toContain("│ The request had no new string.");
-				expect(expanded).toContain("│ memory: missing new_string");
+				expect(
+					expanded.split("\n").flatMap((line) => (line.startsWith(" │ ") ? [line.trimEnd().slice(3)] : [])),
+				).toEqual(body);
+				expect(card.presentationSnapshot.state.result?.content).toEqual([{ type: "text", text: raw }]);
 			} finally {
 				card.dispose();
 			}

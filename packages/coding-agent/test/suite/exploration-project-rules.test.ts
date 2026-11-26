@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { registerRuleActivationRenderer } from "../../src/core/extensions/builtin/rule-activation/index.ts";
+import { toolCardNestingDefaults } from "../../src/core/settings-manager.ts";
 import { ExplorationTranscriptContainer } from "../../src/modes/interactive/components/exploration-transcript-container.ts";
-import { explorationSurface, runTool } from "./exploration-surface-harness.ts";
+import { explorationSurface, invoke, runTool } from "./exploration-surface-harness.ts";
 
 // senpi#2057: a project-rules notice for a read inside an exploration group folds into that group.
 function projectRules(toolCallId: string | undefined, rules: string[], targetPath = "src/a.ts") {
@@ -70,25 +71,27 @@ describe.each(["compact", "grouped"] as const)("project rules in %s density", (d
 		return { ...surface, chat: surface.chat };
 	}
 
-	function expand(surface: Awaited<ReturnType<typeof denseSurface>>, width: number) {
+	function click(surface: Awaited<ReturnType<typeof denseSurface>>, width: number, pattern: RegExp, x = 6) {
 		const lines = surface.text(width).split("\n");
-		const y = lines.findIndex((line) => line.includes("● project rules"));
+		const y = lines.findIndex((line) => pattern.test(line));
 		expect(y).toBeGreaterThanOrEqual(0);
-		expect(
-			surface.chat.handleMouse({
-				type: "click",
-				button: "left",
-				x: 6,
-				screenX: 6,
-				y,
-				screenY: y,
-				width,
-				height: lines.length,
-				shift: false,
-				alt: false,
-				ctrl: false,
-			})?.handled,
-		).toBe(true);
+		return surface.chat.handleMouse({
+			type: "click",
+			button: "left",
+			x,
+			screenX: x,
+			y,
+			screenY: y,
+			width,
+			height: lines.length,
+			shift: false,
+			alt: false,
+			ctrl: false,
+		});
+	}
+
+	function expand(surface: Awaited<ReturnType<typeof denseSurface>>, width: number) {
+		expect(click(surface, width, /╶─ ● project rules/u)?.handled).toBe(true);
 		return surface.text(width);
 	}
 
@@ -116,10 +119,11 @@ describe.each(["compact", "grouped"] as const)("project rules in %s density", (d
 	it("merges adjacent notices and preserves their rule-to-target associations at narrow widths", async () => {
 		const surface = await denseSurface();
 		try {
-			for (const entry of [
+			const entries = [
 				projectRules("first", ["AGENTS.md", "skills/AGENTS.md"], "plugin/skills/a.md"),
 				projectRules("second", ["skills/visual  qa/AGENTS.md"], "plugin/skills/b  docs.md"),
-			]) {
+			];
+			for (const entry of entries) {
 				await surface.event({ type: "entry_appended", entry });
 			}
 
@@ -133,9 +137,34 @@ describe.each(["compact", "grouped"] as const)("project rules in %s density", (d
 					.join("\n"),
 			).toContain(
 				" ├─ rule • AGENTS.md\n │ matched on: plugin/skills/a.md\n" +
-					" ├─ rule • skills/AGENTS.md\n │ matched on: plugin/skills/a.md\n" +
-					" ├─ rule • skills/visual  qa/AGENTS.md\n │ matched on: plugin/skills/b  docs.md",
+					" ├─ rule • skills/AGENTS.md\n │ matched on: plugin/skills/a.md",
 			);
+			expect(surface.text(45)).toMatch(
+				/├─ ● project rules[^\n]+\n ├─ rule • skills\/visual {2}qa\/AGENTS\.md\s*\n │ matched on: plugin\/skills\/b {2}docs\.md/u,
+			);
+			expect(click(surface, 45, /├─ rule • skills\/visual/u)).toBeUndefined();
+			expect(click(surface, 45, /├─ ● project rules/u)?.handled).toBe(true);
+			expect(click(surface, 45, /╭─ ● project rules/u, 1)?.handled).toBe(true);
+
+			surface.chat.clear();
+			invoke(surface.mode, "renderSessionItems", entries);
+			const reopened = expand(surface, 80);
+			expect(reopened.match(/matched on: plugin\/skills\/a\.md/gu)).toHaveLength(2);
+			expect(reopened).not.toContain("matched on: plugin/skills/b  docs.md");
+
+			surface.chat.setDenseCardPreferences({}, { ...toolCardNestingDefaults, projectRules: false, reads: false });
+			await runTool(surface, { id: "one", toolName: "read", args: { path: "a.ts" } });
+			await runTool(surface, { id: "two", toolName: "read", args: { path: "b.ts" } });
+			const headers = surface
+				.text(120)
+				.split("\n")
+				.filter((line) => line.includes("╶─"));
+			expect(headers.map((line) => line.trimEnd())).toEqual([
+				" ╶─ ● project rules • AGENTS.md skills/AGENTS.md",
+				" ╶─ ● project rules • skills/visual  qa/AGENTS.md",
+				" ╶─ ✓ read • a.ts",
+				" ╶─ ✓ read • b.ts",
+			]);
 		} finally {
 			surface.cleanup();
 		}

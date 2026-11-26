@@ -20,6 +20,9 @@ import type {
 	FullscreenExitOutput,
 	MermaidRenderingMode,
 	QuietStartup,
+	ToolCardFoldDefault,
+	ToolCardFoldDefaults,
+	ToolCardNesting,
 	ToolDisplayDensity,
 	TuiMode,
 	WarningSettings,
@@ -34,6 +37,7 @@ import {
 	theme,
 } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
+import { denseCardSettingsItems } from "./dense-card-settings.ts";
 import { ExtensionInputComponent } from "./extension-input.ts";
 import { keyDisplayText } from "./keybinding-hints.ts";
 import { densityCardColorNames } from "./density-card-style.ts";
@@ -88,6 +92,8 @@ export interface SettingsConfig {
 	availableThemes: string[];
 	hideThinkingBlock: boolean;
 	toolDisplayDensity: ToolDisplayDensity;
+	readonly toolCardFoldDefaults?: ToolCardFoldDefaults;
+	readonly toolCardNesting?: ToolCardNesting;
 	toolDisplayColorOverrides: Readonly<Record<string, string | number>>;
 	readonly toolDisplayColorFrames: boolean;
 	readonly toolDisplayColorNames: boolean;
@@ -133,6 +139,8 @@ export interface SettingsCallbacks {
 	onThemePreview?: (theme: string) => void;
 	onHideThinkingBlockChange: (hidden: boolean) => void;
 	onToolDisplayDensityChange: (density: ToolDisplayDensity) => void;
+	readonly onToolCardFoldDefaultChange: (name: string, value: ToolCardFoldDefault) => void;
+	readonly onToolCardNestingChange: (family: keyof ToolCardNesting, enabled: boolean) => void;
 	onToolDisplayColorOverrideChange: (name: string, value: string | undefined) => void;
 	readonly onToolDisplayColorFramesChange: (enabled: boolean) => void;
 	readonly onToolDisplayColorNamesChange: (enabled: boolean) => void;
@@ -671,6 +679,7 @@ export class SettingsSelectorComponent extends Container {
 				currentValue: TOOL_DISPLAY_DENSITY_LABELS[config.toolDisplayDensity],
 				values: Object.values(TOOL_DISPLAY_DENSITY_LABELS),
 			},
+			...denseCardSettingsItems(config, callbacks),
 			{
 				id: "tool-display-color-overrides",
 				label: "Tool card colors",

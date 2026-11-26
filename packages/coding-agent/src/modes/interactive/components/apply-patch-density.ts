@@ -8,6 +8,7 @@ import {
 import type { ToolExecutionComponent } from "./tool-execution.ts";
 import type { DensityCardSource } from "./tool-density-row.ts";
 import type { DensityFold } from "./density-fold.ts";
+import { densityNestView, revealJoiningMembers } from "./density-nest.ts";
 import { denseReadPathLabels } from "./dense-read-paths.ts";
 import { densityCardHeading, densityCardStyle } from "./density-card-style.ts";
 import type { ToolDisplayColors } from "../../../core/settings-manager.ts";
@@ -38,11 +39,21 @@ export class PatchDensityCard implements DensityCardSource {
 	}
 
 	get densityExpanded(): boolean {
-		return this.fold.choice ?? this.toolFold?.choice ?? this.defaultExpanded;
+		const kind = this.foldKind;
+		const fallback = this.defaultExpanded;
+		if (this.densityGroup) return this.fold.nestOpen(kind, fallback);
+		return this.fold.choice ?? this.toolFold?.choice ?? this.fold.defaultOpen(kind, fallback);
 	}
 
 	private get memberExpanded(): boolean {
-		return this.fold.choice ?? this.toolFold?.patchChoice ?? this.defaultExpanded;
+		return (
+			this.fold.choice ?? this.toolFold?.memberChoice ?? this.fold.defaultOpen(this.foldKind, this.defaultExpanded)
+		);
+	}
+
+	private get foldKind(): DensityCardStructuredView["kind"] {
+		const first = this.ownerViews[0]?.view.kind ?? "patched";
+		return this.ownerViews.every(({ view }) => view.kind === first) ? first : "patched";
 	}
 
 	private get defaultExpanded(): boolean {
@@ -77,11 +88,7 @@ export class PatchDensityCard implements DensityCardSource {
 				if (previous.has(card) || !card.toolFold) continue;
 				joining.set(card.toolFold, card.memberExpanded || joining.get(card.toolFold) === true);
 			}
-			let reveal = false;
-			for (const [fold, openMember] of joining) {
-				if (fold.takeReveal() && openMember) reveal = true;
-			}
-			if (reveal) this.fold.set(true);
+			revealJoiningMembers(this.fold, joining);
 			this.localRevision = nextRenderRevision();
 		}
 		this.groupMembers = cards;
@@ -111,8 +118,7 @@ export class PatchDensityCard implements DensityCardSource {
 		if (this.mode !== "group") return this.singleView;
 		const [first] = this.ownerViews;
 		if (!first) return undefined;
-		const allSameKind = this.ownerViews.every(({ view }) => view.kind === first.view.kind);
-		const kind = allSameKind ? first.view.kind : "patched";
+		const kind = this.foldKind;
 		const uniqueLabels = denseReadPathLabels(
 			this.ownerViews.map(({ path }) => ({ path: path.split(" → ").at(-1) ?? path })),
 		);
@@ -120,34 +126,11 @@ export class PatchDensityCard implements DensityCardSource {
 			path.includes(" → ") ? label : uniqueLabels[index],
 		);
 		if (options.expanded) {
-			const firstMember = this.groupMembers[0];
-			const firstFile = firstMember?.ownerViews[0];
-			if (!firstMember || !firstFile) return undefined;
-			return {
-				format: "structured",
-				kind: firstFile.view.kind,
-				heading: firstMember.memberExpanded
-					? (firstFile.view.expandedHeading ?? firstFile.view.heading)
-					: firstFile.view.heading,
-				status: "done",
-				body: firstMember.memberExpanded ? firstFile.view.body : [],
-				sections: this.groupMembers.slice(1).flatMap((member) => {
-					const file = member.ownerViews[0];
-					if (!file) return [];
-					return [
-						{
-							placement: "frame",
-							heading: {
-								kind: file.view.kind,
-								heading: member.memberExpanded
-									? (file.view.expandedHeading ?? file.view.heading)
-									: file.view.heading,
-							},
-							body: member.memberExpanded ? file.view.body : [],
-						},
-					];
-				}),
-			};
+			return densityNestView(
+				{ ...first.view, status: "done" },
+				this.ownerViews.slice(1).map(({ view }) => ({ ...view, status: undefined })),
+				(index) => this.groupMembers[index].memberExpanded,
+			);
 		}
 		return {
 			format: "structured",

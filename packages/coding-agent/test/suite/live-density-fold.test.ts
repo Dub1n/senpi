@@ -2,6 +2,8 @@ import { stripTerminalSequences, TuiAltScreen, type TuiMouseEvent, visibleWidth 
 import { describe, expect, it, vi } from "vitest";
 import { VirtualTerminal } from "../../../tui/test/virtual-terminal.ts";
 import type { AgentSessionEvent } from "../../src/core/agent-session.ts";
+import { toolCardNestingDefaults } from "../../src/core/settings-manager.ts";
+import { createWriteDetails } from "../../src/core/tools/write-result.ts";
 import { ExplorationTranscriptContainer } from "../../src/modes/interactive/components/exploration-transcript-container.ts";
 import { explorationSurface, invoke } from "./exploration-surface-harness.ts";
 
@@ -51,6 +53,86 @@ function mouse(
 
 describe.each(cases)("$density live tool folds at $width columns", (config) => {
 	const { width } = config;
+	it.each([false, true])(
+		"uses the settled write name unless the running card was manually opened (%s)",
+		async (manual) => {
+			const surface = await explorationSurface();
+			try {
+				const chat = denseChat(surface, config);
+				chat.setDenseCardPreferences(
+					{ write: "folded", edited: "unfolded", added: "folded" },
+					toolCardNestingDefaults,
+				);
+				const call = {
+					toolName: "write",
+					toolCallId: "write-live",
+					args: { path: "example.txt", content: "new\n" },
+				};
+				await surface.event({ type: "tool_execution_start", ...call });
+				expect(surface.text(width)).toMatch(/╶─.*write.*example\.txt/u);
+				if (manual) expect(mouse(surface, { tool: "write", width })?.handled).toBe(true);
+
+				chat.setDenseCardPreferences(
+					{ write: "unfolded", edited: "unfolded", added: "folded" },
+					toolCardNestingDefaults,
+				);
+				await surface.event({
+					type: "tool_execution_end",
+					...call,
+					isError: false,
+					result: textResult(
+						"wrote file",
+						createWriteDetails(call.args.path, call.args.content, { kind: "missing" }),
+					),
+				});
+				expect(surface.text(width)).toMatch(new RegExp(`${manual ? "╭─" : "╶─"}.*added.*example\\.txt`, "u"));
+			} finally {
+				surface.cleanup();
+			}
+		},
+	);
+	it("applies new defaults to future cards without snapping existing cards or changing Default", async () => {
+		const surface = await explorationSurface();
+		try {
+			const chat = denseChat(surface, config);
+			chat.setDenseCardPreferences({ tool: "unfolded" }, toolCardNestingDefaults);
+			const call = (id: string) => ({ toolName: "unregistered", toolCallId: id, args: {} });
+			await surface.event({ type: "tool_execution_start", ...call("before") });
+			await surface.event({
+				type: "tool_execution_update",
+				...call("before"),
+				partialResult: textResult("keep-before"),
+			});
+			expect(surface.text(width)).toContain("keep-before");
+			chat.setDenseCardPreferences({ tool: "folded" }, toolCardNestingDefaults);
+			await surface.event({ type: "tool_execution_start", ...call("after") });
+			await surface.event({
+				type: "tool_execution_update",
+				...call("after"),
+				partialResult: textResult("hide-after"),
+			});
+			const dense = surface.text(width);
+			expect(dense).toContain("keep-before");
+			expect(dense).not.toContain("hide-after");
+			for (const id of ["before", "after"]) {
+				await surface.event({
+					type: "tool_execution_end",
+					...call(id),
+					result: textResult(`final-${id}`),
+					isError: false,
+				});
+			}
+			expect(surface.text(width)).toContain("final-before");
+			expect(surface.text(width)).not.toContain("final-after");
+			chat.setToolDisplayDensity("default");
+			const normal = surface.text(width);
+			expect(normal).not.toMatch(/╶─|╭─/u);
+			expect(normal).toContain("final-before");
+			expect(normal).toContain("final-after");
+		} finally {
+			surface.cleanup();
+		}
+	});
 	it("opens a silent running card without opening a simultaneous invocation", async () => {
 		const surface = await explorationSurface();
 		const terminal = new VirtualTerminal(width, 40);

@@ -8,6 +8,8 @@ import {
 } from "@earendil-works/pi-tui";
 import type { ProjectRulesActivationDetails } from "../../../core/extensions/builtin/rule-activation/types.ts";
 import type { CustomEntryComponent } from "./custom-entry.ts";
+import type { DensityFold } from "./density-fold.ts";
+import { densityNestView, DensityRunFold } from "./density-nest.ts";
 import type { DensityCardSource } from "./tool-density-row.ts";
 
 function displayRecordedPath(path: string): string {
@@ -40,6 +42,7 @@ export function projectRulesDensityCard(
 	notices: readonly ProjectRulesActivationDetails[],
 	width: number,
 	expanded: boolean,
+	member = false,
 ): DensityCardStructuredView {
 	const matches = notices.flatMap(({ rules, targetPath }) => {
 		const target = displayRecordedPath(targetPath);
@@ -51,10 +54,10 @@ export function projectRulesDensityCard(
 	const titleWidth = expanded ? width - 4 : width;
 	const labelsFit = visibleWidth(`● project rules • ${labels}`) <= titleWidth;
 	const detail = labelsFit ? labels : `${count} ${noun} matched`;
-	const single = count === 1 && labelsFit ? matches[0] : undefined;
+	const single = count === 1 && labelsFit && !member ? matches[0] : undefined;
 	const matchedOn = (target: string) => wrapRecordedPathLine(`matched on: ${target}`, width - 3);
 	const summary =
-		notices.length === 1
+		notices.length === 1 && !member
 			? [`${count} ${count === 1 ? "instruction" : "instructions"} matched and injected for this tool result.`]
 			: [];
 	return {
@@ -62,7 +65,10 @@ export function projectRulesDensityCard(
 		kind: "project-rules",
 		heading: { details: [detail] },
 		statusGlyph: "●",
-		body: expanded ? [{ type: "text", lines: [...summary, ...(single ? matchedOn(single.target) : [])] }] : [],
+		body:
+			expanded && !member
+				? [{ type: "text", lines: [...summary, ...(single ? matchedOn(single.target) : [])] }]
+				: [],
 		sections:
 			expanded && !single
 				? matches.map(({ rule, target }) => ({
@@ -81,10 +87,16 @@ export interface DenseProjectRulesMember {
 
 /** Non-owning view of adjacent notices; keep click expansion on the original entries. */
 export class DenseProjectRulesRun implements DensityCardSource {
+	readonly densityGroup = true;
+	private readonly folds: DensityRunFold;
 	private members: readonly DenseProjectRulesMember[] = [];
 	private revision = nextRenderRevision();
 
-	setMembers(members: readonly DenseProjectRulesMember[]): void {
+	constructor(parent: DensityFold) {
+		this.folds = new DensityRunFold(parent);
+	}
+
+	setMembers(members: readonly DenseProjectRulesMember[], folds: readonly DensityFold[]): void {
 		if (
 			this.members.length === members.length &&
 			this.members.every(
@@ -93,22 +105,36 @@ export class DenseProjectRulesRun implements DensityCardSource {
 		)
 			return;
 		this.members = members;
+		this.folds.join(folds);
 		this.revision = nextRenderRevision();
 	}
 
 	get densityExpanded(): boolean {
-		return this.members.some(({ card }) => card.densityExpanded);
+		return this.folds.open(
+			"project-rules",
+			this.members.some(({ card }) => card.densityExpanded),
+		);
 	}
 
 	setExpanded(expanded: boolean): void {
-		for (const { card } of this.members) card.setExpanded(expanded);
+		this.folds.set(expanded);
 	}
 
-	renderDensityCard(width: number, { expanded = false }: DensityCardRenderOptions): DensityCardStructuredView {
+	toggleDensityMember(index: number): void {
+		this.folds.toggleMember(index, "project-rules");
+	}
+
+	renderDensityCard(width: number, { expanded = false }: DensityCardRenderOptions) {
+		if (expanded) {
+			const [first, ...rest] = this.members.map(({ notice }) =>
+				projectRulesDensityCard([notice], width, true, true),
+			);
+			return densityNestView(first, rest, (index) => this.folds.memberOpen(index, "project-rules"));
+		}
 		return projectRulesDensityCard(
 			this.members.map(({ notice }) => notice),
 			width,
-			expanded,
+			false,
 		);
 	}
 
@@ -125,7 +151,7 @@ export class DenseProjectRulesRun implements DensityCardSource {
 	}
 
 	getRenderRevision(): number | undefined {
-		let revision = this.revision;
+		let revision = Math.max(this.revision, this.folds.revision);
 		for (const { card } of this.members) {
 			const member = card.getRenderRevision();
 			if (member === undefined) return undefined;

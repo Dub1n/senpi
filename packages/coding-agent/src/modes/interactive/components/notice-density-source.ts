@@ -98,21 +98,38 @@ export function isRememberedNoticeBox(component: Component | undefined): boolean
 	return box !== undefined && hasTitle(box, (title) => /^(?:●\s*)?Remembered(?:$|\s|·)/u.test(title));
 }
 
-/** Keep the installed memory renderer's explanatory rows, but let dense chrome show the failure. */
+/** Show the engine diagnostic once; the OmO notice's friendly first row restates that error. */
 export function failedMemoryDensityCard(
 	component: Component | undefined,
 	diagnostics: readonly string[],
 ): DensityCardView {
 	const box = purpleBox(component);
+	const normalize = (lines: readonly string[]): string[] => [
+		...new Set(
+			lines
+				.flatMap((line) => stripTerminalSequences(line).split(/\r?\n/u))
+				.map((line) => line.replace(/^\s*memory:\s*/iu, "").trimEnd())
+				.filter(
+					(line) => line.trim() && !/^(?:○\s*)?(?:not remembered|couldn['’]t let go)[.!]?$/iu.test(line.trim()),
+				),
+		),
+	];
 	return {
 		kind: "memory",
 		name: "memory",
 		status: "failed",
 		title: " · not remembered",
-		renderContent: (width) =>
-			box && hasTitle(box, (title) => /^○\s+(?:Not remembered|Couldn't let go)(?:$|\s)/u.test(title))
-				? joinLineArrays(box.children.slice(1).map((child) => child.render(width)))
-				: diagnostics.flatMap((line) => wrapTextWithAnsi(theme.fg("text", line), width)),
+		renderContent: (width) => {
+			const lines = normalize(diagnostics);
+			// A notice with no engine text may still supply the only explanation.
+			const body =
+				lines.length === 0 &&
+				box &&
+				hasTitle(box, (title) => /^○\s+(?:Not remembered|Couldn't let go)(?:$|\s)/u.test(title))
+					? normalize(box.children.slice(1).flatMap((child) => child.render(width)))
+					: lines;
+			return body.flatMap((line) => wrapTextWithAnsi(theme.fg("text", line), width));
+		},
 		sections: [],
 	};
 }

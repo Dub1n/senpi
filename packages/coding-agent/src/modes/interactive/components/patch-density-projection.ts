@@ -16,7 +16,7 @@ export type ApplyPatchDensityProjection =
 
 /** Retain the original tool result while projecting applied patch files as independent cards. */
 export class PatchDensityProjection {
-	private readonly fileCards = new Map<string, PatchDensityCard>();
+	private readonly fileCards: PatchDensityCard[] = [];
 	private readonly failureCard: PatchDensityCard;
 	private readonly folds: DensityFolds;
 
@@ -27,26 +27,17 @@ export class PatchDensityProjection {
 
 	update(owner: ToolExecutionComponent, view: DensityCardStructuredView): ApplyPatchDensityProjection | undefined {
 		const files = patchFileViews(owner, view);
-		const occurrences = new Map<string, number>();
-		const active = new Set<string>();
-		const fileCards = files.map((file) => {
-			const baseKey = `${file.view.kind}\u0000${file.path}`;
-			const occurrence = occurrences.get(baseKey) ?? 0;
-			occurrences.set(baseKey, occurrence + 1);
-			const key = `${baseKey}\u0000${occurrence}`;
-			active.add(key);
-			let card = this.fileCards.get(key);
+		const fileCards = files.map((file, occurrence) => {
+			let card = this.fileCards[occurrence];
 			if (!card) {
 				const id = owner.toolCallId;
-				card = new PatchDensityCard(this.folds.forPatch(id, "file", key), this.folds.forTool(id));
-				this.fileCards.set(key, card);
+				card = new PatchDensityCard(this.folds.forPatch(id, "file", occurrence), this.folds.forTool(id));
+				this.fileCards[occurrence] = card;
 			}
 			card.setFile(file);
 			return card;
 		});
-		for (const key of this.fileCards.keys()) {
-			if (!active.has(key)) this.fileCards.delete(key);
-		}
+		this.fileCards.length = files.length;
 
 		if (view.status === "failed") {
 			this.failureCard.setFailure(owner, { ...view, sections: [] });

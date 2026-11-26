@@ -28,6 +28,7 @@ import type { ToolDisplayColors } from "../../../core/settings-manager.ts";
 import { theme } from "../theme/theme.ts";
 import { densityCardHeading, densityCardStyle, densityCardText } from "./density-card-style.ts";
 import type { DensityFold } from "./density-fold.ts";
+import type { DensityMemberControls } from "./density-nest.ts";
 import { toolDensityKind, toolDensitySummary } from "./tool-density-summary.ts";
 import type { ToolExecutionComponent } from "./tool-execution.ts";
 
@@ -45,6 +46,7 @@ export interface DensityCardSource extends Component {
 	renderDensitySummary(width: number, grouped: boolean): string[];
 	getBackgroundPainter(): ((text: string) => string) | undefined;
 	setExpanded(expanded: boolean): void;
+	setDensityDetail?(detail: boolean | undefined): void;
 	toggleDensityMember?(index: number): void;
 }
 
@@ -90,6 +92,9 @@ export class ToolDensityRow implements Component {
 	private last = true;
 	private revision = 0;
 	private foldedHeight = 0;
+	private expanded = false;
+	private denseFold = false;
+	private renderedDetail: boolean | undefined;
 	private detailLayout:
 		| {
 				readonly original: readonly string[];
@@ -97,7 +102,12 @@ export class ToolDensityRow implements Component {
 				readonly height: number;
 				readonly inset: number;
 				readonly renderInset: number;
-				readonly sectionHeaders?: readonly { readonly start: number; readonly end: number }[];
+				readonly firstMember?: boolean;
+				readonly sectionHeaders?: readonly {
+					readonly start: number;
+					readonly end: number;
+					readonly member: number;
+				}[];
 		  }
 		| undefined;
 
@@ -124,20 +134,34 @@ export class ToolDensityRow implements Component {
 
 	render(width: number): string[] {
 		const frameRow = claimFrameRow(this);
-		if ("summarySnapshot" in this.card) this.card.setDensityDetail(this.expanded);
-		if (this.expanded) return this.renderExpanded(width, frameRow);
-		this.detailLayout = undefined;
 		const left = width >= 3 ? " " : "";
 		const right = width >= 4 ? "  " : left;
 		const innerWidth = width - left.length - right.length;
 		const foldWidth = innerWidth >= 5 ? 3 : 0;
 		const available = Math.max(0, innerWidth - foldWidth);
-		const densityCard = this.densityCard(available);
-		const style = this.cardStyle(densityCard?.kind);
-		const fold = foldWidth ? `${style.frame("╶─")} ` : "";
+		const tool = "summarySnapshot" in this.card ? this.card : undefined;
+		const densityCard = this.densityCard(available, false);
+		const kind = densityCard?.kind ?? (tool ? (toolDensityKind(tool.summarySnapshot.name) ?? "tool") : undefined);
+		const fold = this.options.fold;
+		const fallback = "densityExpanded" in this.card ? this.card.densityExpanded : this.card.summarySnapshot.expanded;
+		this.denseFold =
+			kind !== undefined && fold !== undefined && !("densityGroup" in this.card && this.card.densityGroup);
+		const namedDefault = this.denseFold && kind !== undefined ? fold?.defaultOpen(kind, fallback) : undefined;
+		this.expanded =
+			!("densityExpandable" in this.card && this.card.densityExpandable === false) &&
+			(this.denseFold ? (fold?.choice ?? namedDefault ?? fallback) : fallback);
+		const detail = tool || this.denseFold ? this.expanded : undefined;
+		const detailChanged = detail !== this.renderedDetail;
+		this.renderedDetail = detail;
+		this.card.setDensityDetail?.(detail);
+		if (this.expanded) return this.renderExpanded(width, frameRow);
+		this.detailLayout = undefined;
+		const foldedCard = detailChanged && densityCard !== undefined ? this.densityCard(available, false) : densityCard;
+		const style = this.cardStyle(foldedCard?.kind);
+		const gutterLabel = foldWidth ? `${style.frame("╶─")} ` : "";
 		const summary =
-			densityCard !== undefined
-				? [renderDensityCardSummary(densityCard, style), ...(densityCard.foldedDetails ?? [])]
+			foldedCard !== undefined
+				? [renderDensityCardSummary(foldedCard, style), ...(foldedCard.foldedDetails ?? [])]
 				: "densityExpanded" in this.card
 					? this.card.renderDensitySummary(available, this.grouped)
 					: (this.card.renderNoticeDensitySummary(available) ?? [
@@ -146,7 +170,7 @@ export class ToolDensityRow implements Component {
 		const paint = this.background;
 		const blank = applyBackgroundToLine("", width, paint);
 		const rows = summary.map((line, index) => {
-			const gutter = index === 0 ? fold : " ".repeat(foldWidth);
+			const gutter = index === 0 ? gutterLabel : " ".repeat(foldWidth);
 			return applyBackgroundToLine(
 				left + gutter + truncateToWidth(narrowLightning(line), available, "…") + right,
 				width,
@@ -158,17 +182,10 @@ export class ToolDensityRow implements Component {
 		return [...(this.first ? ["", blank] : []), ...rows, ...(this.last ? [blank] : [])];
 	}
 
-	private get expanded(): boolean {
-		if ("densityExpandable" in this.card && this.card.densityExpandable === false) return false;
-		return "densityExpanded" in this.card
-			? this.card.densityExpanded
-			: (this.options.fold?.choice ?? this.card.summarySnapshot.expanded);
-	}
-
-	private densityCard(width: number): DensityCardView | undefined {
+	private densityCard(width: number, expanded = this.expanded): DensityCardView | undefined {
 		if ("summarySnapshot" in this.card && this.card.summarySnapshot.hasVisibleImages) return undefined;
 		return isSemanticDensityCardSource(this.card)
-			? this.card.renderDensityCard(width, { grouped: this.grouped, expanded: this.expanded })
+			? this.card.renderDensityCard(width, { grouped: this.grouped, expanded })
 			: undefined;
 	}
 
@@ -231,7 +248,10 @@ export class ToolDensityRow implements Component {
 		return copyLineSources(rows, lines, this.first ? 2 : 0, inset);
 	}
 
-	private renderDensityCard(width: number, view: DensityCardView): string[] {
+	private renderDensityCard(
+		width: number,
+		view: DensityCardView & { readonly memberControls?: DensityMemberControls },
+	): string[] {
 		const paint = this.background;
 		const style = this.cardStyle(view.kind);
 		const bodyPrefix = ` ${style.frame("│")} `;
@@ -243,7 +263,7 @@ export class ToolDensityRow implements Component {
 		};
 		const title = truncateToWidth(renderDensityCardSummary(view, style, true), Math.max(0, width - 4), "…");
 		const frame = renderLabel(` ${style.frame("╭─")} `, title);
-		const sectionHeaders: { start: number; end: number }[] = [];
+		const sectionHeaders: { start: number; end: number; member: number }[] = [];
 		const livePreview = "summarySnapshot" in this.card && this.card.summarySnapshot.pending;
 		const appendContent = (prefix: string, content: readonly string[]): void => {
 			const skipped = livePreview && !content.some(isImageLine) ? Math.max(0, content.length - livePreviewLines) : 0;
@@ -298,7 +318,7 @@ export class ToolDensityRow implements Component {
 		}
 		const after: string[] = [];
 		if (view.format === "structured") {
-			for (const section of view.sections) {
+			for (const [sectionIndex, section] of view.sections.entries()) {
 				const heading = section.heading;
 				const sectionStyle = "kind" in heading ? this.cardStyle(heading.kind) : style;
 				if (section.placement === "after" || (section.placement === "grouped" && !this.grouped)) {
@@ -316,14 +336,8 @@ export class ToolDensityRow implements Component {
 						: renderStructuredHeading(heading, sectionStyle);
 				const headerStart = frame.length;
 				frame.push(...renderLabel(` ${style.frame("├─")} `, label));
-				if (
-					"densityGroup" in this.card &&
-					this.card.densityGroup === true &&
-					"toggleDensityMember" in this.card &&
-					this.card.toggleDensityMember
-				) {
-					sectionHeaders.push({ start: headerStart, end: frame.length });
-				}
+				const member = view.memberControls?.sections[sectionIndex];
+				if (member !== undefined) sectionHeaders.push({ start: headerStart, end: frame.length, member });
 				appendContent(bodyPrefix, renderBlocks(section.body, contentWidth, sectionStyle.bodyRole));
 			}
 		} else {
@@ -354,6 +368,7 @@ export class ToolDensityRow implements Component {
 			height: rows.length,
 			inset: 0,
 			renderInset: 0,
+			firstMember: view.memberControls?.first,
 			...(sectionHeaders.length > 0 ? { sectionHeaders } : {}),
 		};
 		const lines = [...(this.first ? ["", blank] : []), ...rows, ...(this.last ? [blank] : [])];
@@ -425,22 +440,25 @@ export class ToolDensityRow implements Component {
 		) {
 			if (row === 0 && (!expanded || event.x < 3)) {
 				this.card.setExpanded(!expanded);
-			} else if (expanded && detail && row === 0 && event.x >= 4) {
+			} else if (expanded && detail?.firstMember && row === 0 && event.x >= 4) {
 				this.card.toggleDensityMember(0);
 			} else if (expanded && detail) {
-				const member = detail.sectionHeaders?.findIndex(({ start, end }) => row >= start && row < end) ?? -1;
-				if (member < 0) return undefined;
-				// The frame title represents member zero; section headers start at member one.
-				this.card.toggleDensityMember(member + 1);
+				const target = detail.sectionHeaders?.find(({ start, end }) => row >= start && row < end);
+				if (!target) return undefined;
+				this.card.toggleDensityMember(target.member);
 			} else {
 				return undefined;
 			}
 			this.requestRender();
 			return { handled: true };
 		}
-		if ("summarySnapshot" in this.card && this.options.fold) {
-			this.options.fold.setToolChoice(!expanded, this.card.summarySnapshot.pending);
-			if (!expanded) this.options.onToolOpen?.(this.card);
+		if (this.denseFold && this.options.fold) {
+			if ("summarySnapshot" in this.card) {
+				this.options.fold.setToolChoice(!expanded, this.card.summarySnapshot.pending);
+				if (!expanded) this.options.onToolOpen?.(this.card);
+			} else {
+				this.options.fold.set(!expanded);
+			}
 		} else {
 			this.card.setExpanded(!expanded);
 		}
