@@ -132,6 +132,38 @@ describe.each(["compact", "grouped"] as const)("%s patch fold controls", (densit
 		}
 	});
 
+	it("moves the final folded patch file title to the nest ending and keeps it clickable", async () => {
+		const surface = await explorationSurface(true, [(pi) => pi.registerTool(createApplyPatchTool())]);
+		const width = 100;
+		try {
+			const chat = surface.chat;
+			if (!(chat instanceof ExplorationTranscriptContainer)) throw new TypeError("Expected transcript");
+			chat.setToolDisplayDensity(density);
+			chat.setDenseCardPreferences({ edited: "unfolded", patched: "unfolded" }, toolCardNestingDefaults);
+			invoke(surface.mode, "renderSessionItems", [
+				...patch("one", repeated),
+				...patch("two", middle),
+				...patch("three", appended),
+			]);
+
+			const clickTitle = (pattern: RegExp) => {
+				const output = chat.render(width).map(stripTerminalSequences);
+				const row = output.findIndex((line) => pattern.test(line));
+				expect(output[row]).toMatch(pattern);
+				expect(click(surface, { row, width })?.handled).toBe(true);
+			};
+			clickTitle(/├─.*appended\.txt/u);
+			expect(surface.text(width)).toContain("╰─ edited • appended.txt");
+			expect(surface.text(width)).not.toMatch(/^ ╰─\s*$/mu);
+
+			clickTitle(/╰─.*appended\.txt/u);
+			expect(surface.text(width)).toContain("│ -1 appended-before");
+			expect(surface.text(width)).toMatch(/^ ╰─\s*$/mu);
+		} finally {
+			surface.cleanup();
+		}
+	});
+
 	it("keeps one invocation's file sections when cross-call patch nesting is disabled", async () => {
 		const surface = await explorationSurface(true, [(pi) => pi.registerTool(createApplyPatchTool())]);
 		try {
@@ -281,7 +313,7 @@ describe.each(["compact", "grouped"] as const)("%s patch fold controls", (densit
 			expect(output.some((line) => line.includes("╭─ ✓ edited • /p/repeated.txt:(+1 -1)"))).toBe(true);
 			expect(output.some((line) => line.includes("╭─ ✓ edited • repeated.txt middle.txt repeated.txt"))).toBe(false);
 			const foldedRepeatedHeadings = output.flatMap((line, index) =>
-				line.includes("├─ edited • repeated.txt") ? [index] : [],
+				line.includes("╰─ edited • repeated.txt") ? [index] : [],
 			);
 			expect(foldedRepeatedHeadings).toHaveLength(1);
 			expect(click(surface, { row: foldedRepeatedHeadings[0], width })?.handled).toBe(true);

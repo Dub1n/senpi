@@ -225,6 +225,7 @@ import { BorderedLoader } from "./components/bordered-loader.ts";
 import { BranchSummaryMessageComponent } from "./components/branch-summary-message.ts";
 import { CompactionSummaryMessageComponent } from "./components/compaction-summary-message.ts";
 import { SystemPromptStatus } from "./components/system-prompt-status.ts";
+import { NotificationCard } from "./components/notification-card.ts";
 import { ContinuityNoticeTracker } from "./components/continuity-notice.ts";
 import { CustomEditor } from "./components/custom-editor.ts";
 import { CustomEntryComponent, replacedEntryCardIndex } from "./components/custom-entry.ts";
@@ -274,7 +275,7 @@ import {
 	type StatusIndicator,
 	WorkingStatusIndicator,
 } from "./components/status-indicator.ts";
-import { ThemedText, TranscriptStatusText } from "./components/themed-text.ts";
+import { ThemedText } from "./components/themed-text.ts";
 import { TerminalBackgroundNotice } from "./components/terminal-background-notice.ts";
 import { TerminalTestCompletion } from "./components/terminal-test-completion.ts";
 import { ThinkingSelectorComponent } from "./components/thinking-selector.ts";
@@ -3041,11 +3042,27 @@ export class InteractiveMode {
 
 	private async handleFatalRuntimeError(prefix: string, error: unknown): Promise<never> {
 		const message = error instanceof Error ? error.message : String(error);
-		this.showError(`${prefix}: ${message}`);
 		const extensionHint = this.getCrashExtensionHint(error);
-		if (extensionHint) {
-			this.chatContainer.addChild(new ThemedText(() => theme.fg("warning", extensionHint), this.outputPad, 0));
-		}
+		const errorMessage = sanitizeTuiErrorMessage(interactiveErrorText(`${prefix}: ${message}`));
+		this.chatContainer.addChild(new Spacer(1));
+		this.chatContainer.addChild(
+			new NotificationCard(
+				"error",
+				[errorMessage, ...(extensionHint === undefined ? [] : [extensionHint])].join("\n"),
+				{
+					...(extensionHint === undefined ? {} : { heading: "runtime failure • extension hint" }),
+					body: [errorMessage, ...(extensionHint === undefined ? [] : [extensionHint])].join("\n"),
+					defaultText: () =>
+						[
+							theme.fg("error", `Error: ${errorMessage}`),
+							...(extensionHint === undefined
+								? []
+								: [`${" ".repeat(Math.max(0, this.outputPad - 1))}${theme.fg("warning", extensionHint)}`]),
+						].join("\n"),
+				},
+			),
+		);
+		this.ui.requestRender();
 		stopThemeWatcher();
 		this.stop("transcript");
 		process.exit(1);
@@ -4686,7 +4703,7 @@ export class InteractiveMode {
 		} else if (type === "warning") {
 			this.showWarning(message);
 		} else {
-			this.showStatus(message);
+			this.showStatus(message, message.startsWith("Hot-reload deferred: ") ? "hot-reload" : undefined);
 		}
 	}
 
@@ -4781,16 +4798,17 @@ export class InteractiveMode {
 		readonly stack?: string;
 	}): void {
 		const errorMsg = formatExtensionErrorHeadline(error);
-		const errorText = new ThemedText(() => theme.fg("error", errorMsg), 1, 0);
-		this.chatContainer.addChild(errorText);
-		if (error.stack) {
-			// Show stack trace in dim color, indented
-			const stackLines = error.stack.split("\n").slice(1); // Skip first line (duplicates error message)
-			if (stackLines.length > 0) {
-				const renderStack = () => stackLines.map((line) => theme.fg("dim", `  ${line.trim()}`)).join("\n");
-				this.chatContainer.addChild(new ThemedText(renderStack, 1, 0));
-			}
-		}
+		const stackLines = error.stack?.split("\n").slice(1) ?? [];
+		const body = [errorMsg, ...stackLines.map((line) => `  ${line.trim()}`)].join("\n");
+		this.chatContainer.addChild(
+			new NotificationCard("error", body, {
+				heading: "extension failure",
+				defaultText: () =>
+					[theme.fg("error", errorMsg), ...stackLines.map((line) => theme.fg("dim", `  ${line.trim()}`))].join(
+						"\n",
+					),
+			}),
+		);
 		this.ui.requestRender();
 	}
 
@@ -5902,7 +5920,11 @@ export class InteractiveMode {
 						this.showError(cancelMessage);
 					} else if (event.errorMessage) {
 						this.chatContainer.addChild(new Spacer(1));
-						this.chatContainer.addChild(new Text(theme.fg("error", cancelMessage), 1, 0));
+						this.chatContainer.addChild(
+							new NotificationCard("error", cancelMessage, {
+								defaultText: () => theme.fg("error", cancelMessage),
+							}),
+						);
 					} else {
 						this.showStatus("Auto-compaction cancelled");
 					}
@@ -5967,7 +5989,11 @@ export class InteractiveMode {
 					} else if (event.reason === "manual") {
 						this.showError(errorMessage);
 					} else {
-						this.chatContainer.addChild(new Text(theme.fg("error", errorMessage), 1, 0));
+						this.chatContainer.addChild(
+							new NotificationCard("error", errorMessage, {
+								defaultText: () => theme.fg("error", errorMessage),
+							}),
+						);
 					}
 				} else if (event.accepted === false) {
 					// Exhaustive fallback per plan Section 1: compaction_end must never fall
@@ -5979,7 +6005,7 @@ export class InteractiveMode {
 						this.showError(message);
 					} else {
 						this.chatContainer.addChild(new Spacer(1));
-						this.chatContainer.addChild(new ThemedText(() => theme.fg("error", message), 1, 0));
+						this.chatContainer.addChild(new NotificationCard("error", message));
 					}
 				}
 				// Every terminal compaction_end resolves the TUI compaction queue.
@@ -6280,9 +6306,15 @@ export class InteractiveMode {
 			this.chatContainer.addChild(new Spacer(1));
 			this.managedToolStatusStarted = true;
 		}
+		const kind = status.type === "warning" ? "warning" : "tool";
 		const message = status.type === "warning" ? `Warning: ${status.message}` : status.message;
-		const color = status.type === "warning" ? "warning" : "dim";
-		this.chatContainer.addChild(new ThemedText(() => theme.fg(color, message), 1, 0));
+		this.chatContainer.addChild(
+			new NotificationCard(kind, message, {
+				heading: `tool • ${status.message}`,
+				paddingX: 1,
+				defaultText: () => theme.fg(status.type === "warning" ? "warning" : "dim", message),
+			}),
+		);
 		this.lastStatusSpacer = undefined;
 		this.lastStatusText = undefined;
 		this.ui.requestRender();
@@ -6294,7 +6326,7 @@ export class InteractiveMode {
 	 * If multiple status messages are emitted back-to-back (without anything else being added to the chat),
 	 * we update the previous status line instead of appending new ones to avoid log spam.
 	 */
-	private showStatus(message: string, kind?: "system-prompt"): void {
+	private showStatus(message: string, kind?: "system-prompt" | "hot-reload"): void {
 		const children = this.chatContainer.children;
 		// While a turn streams, a notice goes above the live message, like a custom entry does. Appended
 		// after it, a notice taller than the screen pushed the live output above the viewport, and every
@@ -6308,7 +6340,10 @@ export class InteractiveMode {
 		const text =
 			kind === "system-prompt"
 				? new SystemPromptStatus(message)
-				: new TranscriptStatusText(() => theme.fg("dim", message), 1, 0);
+				: new NotificationCard(kind === "hot-reload" ? "hot-reload" : "info", message, {
+						body: kind === "hot-reload" ? message.slice("Hot-reload deferred: ".length) : message,
+						defaultText: () => theme.fg("dim", message),
+					});
 
 		if (last && secondLast && last === this.lastStatusText && secondLast === this.lastStatusSpacer) {
 			children[end - 1] = text;
@@ -6759,7 +6794,9 @@ export class InteractiveMode {
 	 */
 	private addModelChangeNotice(notice: ModelChangeNotice): void {
 		this.chatContainer.addChild(new Spacer(1));
-		this.chatContainer.addChild(new ThemedText(() => theme.fg("warning", notice.text), 1, 0));
+		this.chatContainer.addChild(
+			new NotificationCard("warning", notice.text, { defaultText: () => theme.fg("warning", notice.text) }),
+		);
 	}
 
 	private addCompactionCostNotice(notice: CompactionCostNotice): void {
@@ -6769,10 +6806,9 @@ export class InteractiveMode {
 		const tokens = usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
 		const cost = usage.cost.total >= 0.01 ? ` (~$${usage.cost.total.toFixed(2)})` : "";
 		const label = notice.kind === "compaction" ? "Compaction" : "Branch summary";
+		const message = `${label}: ${formatTokens(tokens)} tokens billed${cost}`;
 		this.chatContainer.addChild(new Spacer(1));
-		this.chatContainer.addChild(
-			new ThemedText(() => theme.fg("warning", `${label}: ${formatTokens(tokens)} tokens billed${cost}`), 1, 0),
-		);
+		this.chatContainer.addChild(new NotificationCard("warning", message));
 	}
 
 	private maybeShowAssistantDiagnostics(message: AssistantMessage, options?: { replay?: boolean }): void {
@@ -6783,7 +6819,7 @@ export class InteractiveMode {
 			if (typeof notice !== "string" || this.copilotToolLimitNoticeSessionId === sessionId) continue;
 			this.copilotToolLimitNoticeSessionId = sessionId;
 			this.chatContainer.addChild(new Spacer(1));
-			this.chatContainer.addChild(new ThemedText(() => theme.fg("warning", notice), 1, 0));
+			this.chatContainer.addChild(new NotificationCard("warning", notice));
 		}
 
 		// Thinking-drop notices are live-only: on replay the branch's last assistant message is not the
@@ -6829,11 +6865,7 @@ export class InteractiveMode {
 		const noun = droppedCount === 1 ? "thinking block" : "thinking blocks";
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(
-			new ThemedText(
-				() => theme.fg("warning", `Anthropic dropped ${droppedCount} ${noun} (details in session)`),
-				1,
-				0,
-			),
+			new NotificationCard("warning", `Anthropic dropped ${droppedCount} ${noun} (details in session)`),
 		);
 	}
 
@@ -6870,7 +6902,7 @@ export class InteractiveMode {
 			label = `Cache miss after ${Math.round(miss.idleMs / 60_000)}m idle`;
 		}
 		this.chatContainer.addChild(new Spacer(1));
-		this.chatContainer.addChild(new ThemedText(() => theme.fg("warning", `${label}: ${reBilled}`), 1, 0));
+		this.chatContainer.addChild(new NotificationCard("warning", `${label}: ${reBilled}`));
 	}
 
 	renderInitialMessages(): void {
@@ -7517,11 +7549,10 @@ export class InteractiveMode {
 		}
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(
-			new ThemedText(
-				() => theme.fg("error", `Error: ${sanitizeTuiErrorMessage(interactiveErrorText(errorMessage))}`),
-				1,
-				0,
-			),
+			new NotificationCard("error", sanitizeTuiErrorMessage(interactiveErrorText(errorMessage)), {
+				defaultText: () =>
+					theme.fg("error", `Error: ${sanitizeTuiErrorMessage(interactiveErrorText(errorMessage))}`),
+			}),
 		);
 		this.ui.requestRender();
 	}
@@ -7553,7 +7584,11 @@ export class InteractiveMode {
 
 	showWarning(warningMessage: string): void {
 		this.chatContainer.addChild(new Spacer(1));
-		this.chatContainer.addChild(new ThemedText(() => theme.fg("warning", `Warning: ${warningMessage}`), 1, 0));
+		this.chatContainer.addChild(
+			new NotificationCard("warning", warningMessage, {
+				defaultText: () => theme.fg("warning", `Warning: ${warningMessage}`),
+			}),
+		);
 		this.ui.requestRender();
 	}
 

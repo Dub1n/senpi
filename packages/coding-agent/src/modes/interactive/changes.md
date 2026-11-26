@@ -1,3 +1,42 @@
+## 2026-11-26 - Fold plain transcript notifications in dense views
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts` routes previously plain transcript notifications through `packages/coding-agent/src/modes/interactive/components/notification-card.ts`. Compact and Grouped show a clickable heading, including `Ⅱ hot-reload • deferred`, with the full reason in the expanded body. Default retains its plain rows.
+
+### Why
+
+- Multi-line system notices otherwise interrupt the dense transcript, even when their details are not needed immediately.
+
+### Why an extension could not handle it
+
+- The interactive host owns transcript notification rendering, including generic extension notifications and internal status rows.
+
+### Expected merge conflict zones
+
+- Notification routing and status replacement in `interactive-mode.ts`.
+
+## 2026-11-26 - Clarify search headings and close folded nest endings
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/assistant-density-card.ts` puts the source count and quoted query in dense native search headings and keeps the provider in expanded detail.
+- `packages/coding-agent/src/modes/interactive/components/assistant-message.ts` and `packages/coding-agent/src/modes/interactive/components/exploration-transcript-container.ts` skip completed searches without a query or sources and group consecutive visible searches. The folded group shows each search's source count; open groups retain independent member folds.
+- `packages/coding-agent/src/modes/interactive/components/dense-search-run.ts` builds the per-search summary and reuses the shared nest framing for expanded members.
+- `packages/coding-agent/src/modes/interactive/components/density-nest.ts` and `packages/coding-agent/src/modes/interactive/components/tool-density-row.ts` close a shared frame on its final folded member heading without changing the heading's click action.
+
+### Why
+
+- Dense transcripts show useful search results at a glance without status-only cards, and a folded final section no longer leaves an empty closing row.
+
+### Why an extension could not handle it
+
+- The interactive transcript owns provider-native cards, shared frames, and fold hit targets.
+
+### Expected merge conflict zones
+
+- Provider-native density cards and structured nest layout. Default rendering is unchanged.
+
 ## 2026-11-26 - Configure dense folds and nest members independently
 
 ### What changed

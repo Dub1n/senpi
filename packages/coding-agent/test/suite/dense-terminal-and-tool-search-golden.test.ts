@@ -455,6 +455,67 @@ it("opens a same-title Bash summary without toggling the first poll", async () =
 	}
 });
 
+it.each(densities)("keeps the final folded Bash poll title clickable in %s", async (density) => {
+	const surface = await explorationSurface(true, [(pi) => pi.registerTool(terminalTool)]);
+	try {
+		const chat = surface.chat;
+		if (!(chat instanceof ExplorationTranscriptContainer)) throw new TypeError("Expected transcript");
+		chat.setToolDisplayDensity(density);
+		invoke(
+			surface.mode,
+			"renderSessionItems",
+			bashHistory(
+				["alpha", "beta"].map((body) => ({
+					id: body,
+					sessionId: "bash_39",
+					result: bashOutput(`status: running\n${body}`, "bash_39", "running", null),
+				})),
+			),
+		);
+		const width = wide;
+		const clickAt = (y: number) => {
+			const lines = chat.render(width).map(stripTerminalSequences);
+			expect(y).toBeGreaterThanOrEqual(0);
+			expect(
+				chat.handleMouse({
+					type: "click",
+					button: "left",
+					x: 6,
+					y,
+					screenX: 6,
+					screenY: y,
+					width,
+					height: lines.length,
+					shift: false,
+					alt: false,
+					ctrl: false,
+				})?.handled,
+			).toBe(true);
+		};
+		const clickTitle = (pattern: RegExp) => {
+			const lines = chat.render(width).map(stripTerminalSequences);
+			const y = lines.findIndex((line) => pattern.test(line));
+			expect(lines[y]).toMatch(pattern);
+			clickAt(y);
+		};
+		clickTitle(/╶─.*bash 39/u);
+		const expanded = chat.render(width).map(stripTerminalSequences);
+		const finalMember = expanded.flatMap((line, index) => (line.includes("├─") ? [index] : [])).at(-1);
+		clickAt(finalMember ?? -1);
+		let output = chat.render(width).map(stripTerminalSequences);
+		expect(output.some((line) => line.includes("╰─") && !/^ ╰─\s*$/u.test(line))).toBe(true);
+		expect(output).not.toContainEqual(expect.stringMatching(/^ ╰─\s*$/u));
+
+		const terminalMember = output.findIndex((line) => line.includes("╰─") && !/^ ╰─\s*$/u.test(line));
+		clickAt(terminalMember);
+		output = chat.render(width).map(stripTerminalSequences);
+		expect(output.some((line) => line.includes("│ beta"))).toBe(true);
+		expect(output).toContainEqual(expect.stringMatching(/^ ╰─\s*$/u));
+	} finally {
+		surface.cleanup();
+	}
+});
+
 it("resets a session's duplicate interval after a hidden running transition", async () => {
 	const history = bashHistory([
 		{ id: "before", sessionId: "bash_39", result: bashOutput("status: completed\nalpha", "bash_39", "completed", 0) },

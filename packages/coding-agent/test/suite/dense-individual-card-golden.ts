@@ -46,30 +46,28 @@ export const readGolden = {
 
 export const searchGolden = {
 	completed: {
-		compact: compactSearchRows(" ╶─ ✓ search chatgpt-subscription • web_search", "    status: completed"),
-		grouped: cardRows(" ╶─ ✓ search chatgpt-subscription • web_search"),
+		compact: compactSearchRows(' ╶─ ✓ search • 1 source · "terminal rows"', "    status: completed"),
+		grouped: cardRows(' ╶─ ✓ search • 1 source · "terminal rows"'),
 	},
 	failed: {
-		compact: compactSearchRows(" ╶─ ✗ search chatgpt-subscription • web_search", "    status: failed"),
-		grouped: cardRows(" ╶─ ✗ search chatgpt-subscription • web_search"),
+		compact: compactSearchRows(' ╶─ ✗ search • 1 source · "terminal rows"', "    status: failed"),
+		grouped: cardRows(' ╶─ ✗ search • 1 source · "terminal rows"'),
 	},
 	unfamiliar: {
-		compact: compactSearchRows(" ╶─ search chatgpt-subscription • web_search", "    status: awaiting_index"),
-		grouped: cardRows(" ╶─ search chatgpt-subscription • web_search · awaiting_index"),
+		compact: compactSearchRows(' ╶─ search • 1 source · "terminal rows"', "    status: awaiting_index"),
+		grouped: cardRows(' ╶─ search • 1 source · "terminal rows" · awaiting_index'),
 	},
 	absent: {
-		compact: compactSearchRows(" ╶─ search chatgpt-subscription • web_search"),
-		grouped: cardRows(" ╶─ search chatgpt-subscription • web_search"),
+		compact: compactSearchRows(' ╶─ search • 1 source · "terminal rows"'),
+		grouped: cardRows(' ╶─ search • 1 source · "terminal rows"'),
 	},
 };
 
 const expandedSearch = [
-	" ╭─ ✓ search chatgpt-subscription • web_search",
+	' ╭─ ✓ search • 1 source · "terminal rows"',
+	" │ chatgpt-subscription",
 	" │ status: completed",
-	" │ queries:",
-	' │ - "terminal rows"',
-	' │ - "render padding"',
-	" │ 1 source",
+	' │ query: "render padding"',
 	" │ Terminal guide https://example.test/guide",
 	" │   A guide to rendering rows.",
 	" ╰─",

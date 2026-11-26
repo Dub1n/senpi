@@ -4,6 +4,7 @@ import type { DensityFold } from "./density-fold.ts";
 export type DensityMemberControls = {
 	readonly first: boolean;
 	readonly sections: readonly (number | undefined)[];
+	readonly terminalFoldedSection?: number;
 };
 
 type NestView = DensityCardStructuredView & { readonly memberControls: DensityMemberControls };
@@ -30,9 +31,12 @@ export function densityNestView(
 	const firstOpen = firstHasBody && isOpen(0, first);
 	const sections = firstOpen ? [...first.sections] : [];
 	const memberIndexes: (number | undefined)[] = sections.map(() => undefined);
+	let terminalFoldedSection: number | undefined;
 	for (const [index, view] of rest.entries()) {
 		const hasDetail = hasDensityMemberBody(view);
 		const open = hasDetail && isOpen(index + 1, view);
+		// Empty headings are not foldable members and must leave the shared cap intact.
+		if (hasDetail && index === rest.length - 1 && !open) terminalFoldedSection = sections.length;
 		memberIndexes.push(hasDetail ? index + 1 : undefined);
 		sections.push({
 			placement: "frame",
@@ -57,7 +61,11 @@ export function densityNestView(
 		expandedHeading: undefined,
 		body: firstOpen ? first.body : [],
 		sections,
-		memberControls: { first: firstHasBody, sections: memberIndexes },
+		memberControls: {
+			first: firstHasBody,
+			sections: memberIndexes,
+			...(terminalFoldedSection === undefined ? {} : { terminalFoldedSection }),
+		},
 	};
 }
 

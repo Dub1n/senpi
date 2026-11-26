@@ -1,13 +1,21 @@
 import type { AssistantMessage, ProviderNativeContent } from "@earendil-works/pi-ai";
 import {
 	type DensityCardStructuredView,
+	type DensityCardSpan,
+	type DensityCardText,
 	type DensityCardView,
 	nextRenderRevision,
 	Text,
 	truncateToWidth,
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
-import { formatProviderNativeBody, formatProviderNativeSummary } from "../../provider-native-rendering.ts";
+import {
+	formatProviderNativeBody,
+	formatProviderNativeSummary,
+	formatProviderNativeWebSearchBody,
+	getProviderNativeWebSearchDetails,
+	providerNativeWebSearchQueries,
+} from "../../provider-native-rendering.ts";
 import { theme } from "../theme/theme.ts";
 import type { AssistantRenderDescriptor } from "./assistant-render-descriptors.ts";
 import type { DensityCardSource } from "./tool-density-row.ts";
@@ -113,11 +121,16 @@ export class AssistantDensityCard implements DensityCardSource {
 			: [this.summary];
 	}
 
-	renderDensityCard(_width: number, { grouped }: { readonly grouped: boolean }): DensityCardView | undefined {
+	renderDensityCard(
+		width: number,
+		{ grouped, expanded = false }: { readonly grouped: boolean; readonly expanded?: boolean },
+	): DensityCardView | undefined {
 		const descriptor = this.descriptor;
 		if (descriptor.kind !== "provider-native" || descriptor.content.subtype !== "web_search_call") return undefined;
 
-		const providerStatus = this.status;
+		const search = getProviderNativeWebSearchDetails(descriptor.content.raw);
+		if (!search) return undefined;
+		const providerStatus = search.status;
 		const status =
 			providerStatus === "completed"
 				? "done"
@@ -126,16 +139,27 @@ export class AssistantDensityCard implements DensityCardSource {
 					: providerStatus === "in_progress" || providerStatus === "searching"
 						? "running"
 						: undefined;
-		const details = ["web_search"];
-		if (grouped && status === undefined && providerStatus) details.push(providerStatus);
+		const query = providerNativeWebSearchQueries(search)[0];
+		const sourceCount = search.sources.length;
+		const title: DensityCardSpan[] = [
+			...(sourceCount > 0 ? [{ text: `${sourceCount} ${sourceCount === 1 ? "source" : "sources"}` }] : []),
+			...(sourceCount > 0 && query ? [{ text: " · " }] : []),
+			...(query ? [{ text: JSON.stringify(query), role: "muted" as const, italic: true }] : []),
+			...(sourceCount === 0 && !query ? [{ text: "web_search" }] : []),
+		];
+		const titleText = `search • ${title.map((span) => span.text).join("")}`;
+		const statusGlyph = status === "done" ? "✓" : status === "failed" ? "✗" : status === "running" ? "○" : "";
+		const providerStatusDetail = grouped && status === undefined && providerStatus ? ` · ${providerStatus}` : "";
+		const fullTitle = `${statusGlyph ? `${statusGlyph} ` : ""}${titleText}${providerStatusDetail}`;
+		const includePrimaryQuery =
+			expanded && query !== undefined && truncateToWidth(fullTitle, Math.max(0, width - 4), "…") !== fullTitle;
+		const headingDetails: DensityCardText[] = [title];
+		if (grouped && status === undefined && providerStatus) headingDetails.push(providerStatus);
 		const foldedDetails = !grouped && providerStatus ? [theme.fg("muted", `status: ${providerStatus}`)] : undefined;
 		const view: DensityCardStructuredView = {
 			format: "structured",
 			kind: "search",
-			heading: {
-				...(descriptor.provider ? { identity: descriptor.provider } : {}),
-				details,
-			},
+			heading: { details: headingDetails },
 			...(status === undefined ? {} : { status }),
 			...(foldedDetails === undefined ? {} : { foldedDetails }),
 			body: [
@@ -143,7 +167,15 @@ export class AssistantDensityCard implements DensityCardSource {
 					type: "rich",
 					render: (width) =>
 						wrapTextWithAnsi(
-							theme.fg("dim", formatProviderNativeBody(descriptor.content, true).replaceAll("\t", "   ")),
+							theme.fg(
+								"dim",
+								(
+									formatProviderNativeWebSearchBody(descriptor.provider, search, {
+										expanded: true,
+										includePrimaryQuery,
+									}) ?? ""
+								).replaceAll("\t", "   "),
+							),
 							width,
 						),
 				},

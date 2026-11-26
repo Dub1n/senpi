@@ -21,7 +21,7 @@ import type {
 	ApplyPatchToolDetails,
 } from "../../../core/extensions/builtin/gpt-apply-patch/types.ts";
 import { normalizeApplyPatchArguments } from "../../../core/extensions/builtin/gpt-apply-patch/params.ts";
-import { AssistantMessageComponent } from "./assistant-message.ts";
+import { AssistantMessageComponent, getAssistantNativeSearchMetadata } from "./assistant-message.ts";
 import { PatchDensityCard, PatchDensityProjection } from "./patch-density-projection.ts";
 import { CustomEntryComponent } from "./custom-entry.ts";
 import { CustomMessageComponent } from "./custom-message.ts";
@@ -30,9 +30,12 @@ import { type DenseProjectRulesMember, DenseProjectRulesRun } from "./dense-proj
 import { DensityFolds } from "./density-fold.ts";
 import { denseBashProjection, DenseBashRun, type DenseBashMember } from "./dense-bash-run.ts";
 import { type DenseReadMember, denseReadProjection, DenseReadRun } from "./dense-read-run.ts";
+import { DenseSearchRun } from "./dense-search-run.ts";
+import { AssistantDensityCard } from "./assistant-density-card.ts";
 import { type ExplorationCall, explorationCall } from "./exploration-call.ts";
 import { ExplorationGroup } from "./exploration-group.ts";
 import { DenseWorkerModels } from "./omo-task-density.ts";
+import { NotificationCard } from "./notification-card.ts";
 import { projectRulesOfCall } from "./exploration-rules.ts";
 import {
 	ProgressiveTranscriptContainer,
@@ -49,7 +52,7 @@ import { TranscriptStatusText } from "./themed-text.ts";
 
 function isDefaultStatusRow(child: Component | undefined): boolean {
 	return (
-		child instanceof TranscriptStatusText ||
+		(child instanceof NotificationCard ? child.coalescesDefaultStatus : child instanceof TranscriptStatusText) ||
 		child instanceof SystemPromptStatus ||
 		(child instanceof TerminalBackgroundNotice && child.isRunningStatus)
 	);
@@ -78,6 +81,7 @@ export class ExplorationTranscriptContainer extends Container {
 	private readonly densityRows = new WeakMap<ToolExecutionComponent | DensityCardSource, ToolDensityRow>();
 	private denseBashRuns = new WeakMap<ToolExecutionComponent | TerminalBackgroundNotice, DenseBashRun>();
 	private denseReadRuns = new WeakMap<ToolExecutionComponent, DenseReadRun>();
+	private denseSearchRuns = new WeakMap<AssistantDensityCard, DenseSearchRun>();
 	private denseProjectRulesRuns = new WeakMap<CustomEntryComponent, DenseProjectRulesRun>();
 	private readonly patchDensityProjections = new WeakMap<ToolExecutionComponent, PatchDensityProjection>();
 	private patchDensityGroups = new WeakMap<ToolExecutionComponent, PatchDensityCard>();
@@ -131,6 +135,7 @@ export class ExplorationTranscriptContainer extends Container {
 		this.densitySessionId = sessionId;
 		const defaults = this.densityFolds.defaults;
 		this.densityFolds = new DensityFolds();
+		this.denseSearchRuns = new WeakMap();
 		this.densityFolds.setDefaults(defaults);
 	}
 
@@ -208,6 +213,30 @@ export class ExplorationTranscriptContainer extends Container {
 			projected.push(row ?? child);
 		};
 		let reads: DenseReadMember[] = [];
+		let searches: AssistantDensityCard[] = [];
+		let searchMetadata: NonNullable<ReturnType<typeof getAssistantNativeSearchMetadata>>[] = [];
+		let searchSpacers: Component[] = [];
+		const flushSearches = (): void => {
+			if (searches.length >= 2) {
+				let run = this.denseSearchRuns.get(searches[0]);
+				if (!run) {
+					run = new DenseSearchRun(this.densityFolds.forSource(searches[0], true));
+					this.denseSearchRuns.set(searches[0], run);
+				}
+				run.setMembers(
+					searches,
+					searchMetadata,
+					searches.map((card) => this.densityFolds.forSource(card)),
+				);
+				appendRow(run);
+			} else {
+				for (const card of searches) appendRow(card);
+			}
+			searches = [];
+			searchMetadata = [];
+			for (const spacer of searchSpacers) appendRow(spacer);
+			searchSpacers = [];
+		};
 		const flushReads = (): void => {
 			const [first, second] = reads;
 			if (!first) return;
@@ -299,6 +328,23 @@ export class ExplorationTranscriptContainer extends Container {
 		};
 		const models = new DenseWorkerModels();
 		const append = (child: Component): void => {
+			if (child instanceof AssistantDensityCard) {
+				const metadata = getAssistantNativeSearchMetadata(child);
+				if (metadata) {
+					flushBash();
+					flushReads();
+					flushPatches();
+					flushRuleNotices();
+					searches.push(child);
+					searchMetadata.push(metadata);
+					return;
+				}
+			}
+			if (child instanceof Spacer && searches.length > 0) {
+				searchSpacers.push(child);
+				return;
+			}
+			flushSearches();
 			if (child instanceof ToolExecutionComponent) {
 				const { name, details, pending, failed } = child.summarySnapshot;
 				child.setDenseEarlierModel(models.forTask(name, details));
@@ -407,7 +453,8 @@ export class ExplorationTranscriptContainer extends Container {
 			if (child instanceof Spacer && this.children[index + 1] instanceof TerminalBackgroundNotice) continue;
 			if (
 				child instanceof Spacer &&
-				(this.children[index + 1] instanceof TranscriptNotice ||
+				(this.children[index + 1] instanceof NotificationCard ||
+					this.children[index + 1] instanceof TranscriptNotice ||
 					this.children[index + 1] instanceof CompactionSummaryMessageComponent ||
 					(grouped && this.children[index + 1] instanceof SystemPromptStatus))
 			) {
@@ -423,6 +470,7 @@ export class ExplorationTranscriptContainer extends Container {
 			}
 		}
 		flushReads();
+		flushSearches();
 		flushPatches();
 		flushRuleNotices();
 		flushBash();

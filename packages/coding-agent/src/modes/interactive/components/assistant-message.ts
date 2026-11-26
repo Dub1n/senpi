@@ -17,6 +17,11 @@ import { AssistantDensityCard } from "./assistant-density-card.ts";
 import type { AssistantDensityCardDescriptor } from "./assistant-density-card.ts";
 import { createMarkdownTransform } from "./markdown-transform.ts";
 import { createBoundedRenderSignature } from "./render-signature.ts";
+import {
+	type ProviderNativeWebSearchDetails,
+	getProviderNativeWebSearchDetails,
+	providerNativeWebSearchQueries,
+} from "../../provider-native-rendering.ts";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
@@ -43,6 +48,20 @@ class SingleLine implements Component {
 	getRenderRevision(): number {
 		return this.revision;
 	}
+}
+
+export interface AssistantNativeSearchMetadata {
+	readonly details: ProviderNativeWebSearchDetails;
+	readonly queries: readonly string[];
+	readonly sourceCount: number;
+}
+
+const assistantNativeSearchMetadata = new WeakMap<AssistantDensityCard, AssistantNativeSearchMetadata>();
+
+export function getAssistantNativeSearchMetadata(
+	card: AssistantDensityCard,
+): AssistantNativeSearchMetadata | undefined {
+	return assistantNativeSearchMetadata.get(card);
 }
 
 export class AssistantMessageComponent extends Container {
@@ -181,6 +200,23 @@ export class AssistantMessageComponent extends Container {
 
 		const projected: Component[] = [];
 		const activeCards = new Set<string>();
+		const emptySearchIds = new Set<string>();
+		const nativeSearchById = new Map<string, AssistantNativeSearchMetadata>();
+		for (const descriptor of this.renderDescriptors) {
+			const cardDescriptor = descriptor.densityCard;
+			if (cardDescriptor?.kind !== "provider-native" || cardDescriptor.content.subtype !== "web_search_call")
+				continue;
+			const details = getProviderNativeWebSearchDetails(cardDescriptor.content.raw);
+			if (!details) continue;
+			const metadata = {
+				details,
+				queries: providerNativeWebSearchQueries(details),
+				sourceCount: details.sources.length,
+			};
+			nativeSearchById.set(cardDescriptor.id, metadata);
+			if (details.status === "completed" && metadata.queries.length === 0 && metadata.sourceCount === 0)
+				emptySearchIds.add(cardDescriptor.id);
+		}
 		for (let index = 0; index < this.renderDescriptors.length; index++) {
 			const descriptor = this.renderDescriptors[index];
 			const child = this.contentContainer.children[index];
@@ -191,6 +227,7 @@ export class AssistantMessageComponent extends Container {
 					projected.push(child);
 					continue;
 				}
+				if (emptySearchIds.has(cardDescriptor.id)) continue;
 				activeCards.add(cardDescriptor.id);
 				const expanded =
 					this.densityCardExpandedOverrides.get(cardDescriptor.id) ??
@@ -206,6 +243,9 @@ export class AssistantMessageComponent extends Container {
 					);
 					this.densityCards.set(cardDescriptor.id, card);
 				}
+				const nativeSearch = nativeSearchById.get(cardDescriptor.id);
+				if (nativeSearch) assistantNativeSearchMetadata.set(card, nativeSearch);
+				else assistantNativeSearchMetadata.delete(card);
 				projected.push(card);
 				continue;
 			}
@@ -224,6 +264,21 @@ export class AssistantMessageComponent extends Container {
 		}
 		for (const id of this.densityCards.keys()) {
 			if (!activeCards.has(id)) this.densityCards.delete(id);
+		}
+		if (emptySearchIds.size > 0) {
+			let previousWasSpacer = true;
+			const normalized: Component[] = [];
+			for (const child of projected) {
+				if (child instanceof Spacer) {
+					if (!previousWasSpacer) normalized.push(child);
+					previousWasSpacer = true;
+				} else {
+					normalized.push(child);
+					previousWasSpacer = false;
+				}
+			}
+			if (normalized.at(-1) instanceof Spacer) normalized.pop();
+			projected.splice(0, projected.length, ...normalized);
 		}
 		this.densityProjection = { revision: this.revision, grouped, children: projected };
 		return projected;

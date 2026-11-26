@@ -335,7 +335,8 @@ export class ToolDensityRow implements Component {
 							: style.sectionLabel(heading.label, heading.bold)
 						: renderStructuredHeading(heading, sectionStyle);
 				const headerStart = frame.length;
-				frame.push(...renderLabel(` ${style.frame("├─")} `, label));
+				const glyph = view.memberControls?.terminalFoldedSection === sectionIndex ? "╰─" : "├─";
+				frame.push(...renderLabel(` ${style.frame(glyph)} `, label));
 				const member = view.memberControls?.sections[sectionIndex];
 				if (member !== undefined) sectionHeaders.push({ start: headerStart, end: frame.length, member });
 				appendContent(bodyPrefix, renderBlocks(section.body, contentWidth, sectionStyle.bodyRole));
@@ -354,7 +355,9 @@ export class ToolDensityRow implements Component {
 				appendContent(bodyPrefix, section.render(contentWidth, this.grouped));
 			}
 		}
-		frame.push(...renderLabel(` ${style.frame("╰─")}`, ""));
+		if (view.memberControls?.terminalFoldedSection === undefined) {
+			frame.push(...renderLabel(` ${style.frame("╰─")}`, ""));
+		}
 		const blank = applyBackgroundToLine("", width, paint);
 		const rows = [
 			...frame,

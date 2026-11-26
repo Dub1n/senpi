@@ -281,8 +281,27 @@ describe("dense consecutive read projection", () => {
 					row(""),
 					row(" ╭─ ✓ read • a.ts"),
 					row(" │ first"),
+					row(" ╰─ ✓ read • b.ts"),
+					row(""),
+				]);
+				expect(click(surface, 4)?.handled).toBe(true);
+				expect(rows(surface)).toEqual([
+					"",
+					row(""),
+					row(" ╭─ ✓ read • a.ts"),
+					row(" │ first"),
 					row(" ├─ ✓ read • b.ts"),
+					row(" │ second"),
 					row(" ╰─"),
+					row(""),
+				]);
+				expect(click(surface, 4)?.handled).toBe(true);
+				expect(rows(surface)).toEqual([
+					"",
+					row(""),
+					row(" ╭─ ✓ read • a.ts"),
+					row(" │ first"),
+					row(" ╰─ ✓ read • b.ts"),
 					row(""),
 				]);
 				expect(click(surface, 2, 1)?.handled).toBe(true);

@@ -9,6 +9,12 @@ interface SearchSource {
 	status?: string;
 }
 
+export interface ProviderNativeWebSearchDetails {
+	readonly status?: string;
+	readonly queries: readonly string[];
+	readonly sources: readonly SearchSource[];
+}
+
 function isRecord(value: unknown): value is NativeRecord {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -50,6 +56,24 @@ function quoted(value: string): string {
 
 function unique(values: string[]): string[] {
 	return [...new Set(values)];
+}
+
+export function getProviderNativeWebSearchDetails(raw: unknown): ProviderNativeWebSearchDetails | undefined {
+	if (!isRecord(raw)) return undefined;
+
+	const action = readRecord(raw, "action");
+	const query = readString(action, "query");
+	const queries = [...(query ? [query] : []), ...readStringArray(action, "queries")];
+	const sources = readArray(action, "sources").flatMap((rawSource) => {
+		const source = sourceFromRecord(isRecord(rawSource) ? rawSource : undefined);
+		return source ? [source] : [];
+	});
+	const status = readString(raw, "status");
+	return { ...(status ? { status } : {}), queries, sources };
+}
+
+export function providerNativeWebSearchQueries(details: ProviderNativeWebSearchDetails): string[] {
+	return unique(details.queries.map((query) => query.trim()).filter((query) => query.length > 0));
 }
 
 function getWebSearchResults(raw: unknown): NativeRecord[] | undefined {
@@ -210,24 +234,27 @@ function formatAnthropicWebSearchResultBody(raw: unknown, expanded: boolean): st
 }
 
 function formatOpenAiWebSearchCallBody(raw: unknown, expanded: boolean): string | undefined {
-	const record = isRecord(raw) ? raw : undefined;
-	if (!record) return undefined;
-
-	const action = readRecord(record, "action");
-	const status = readString(record, "status");
-	const queries = [
-		...(readString(action, "query") ? [readString(action, "query") as string] : []),
-		...readStringArray(action, "queries"),
-	];
-	const sources = readArray(action, "sources").flatMap((rawSource) => {
-		const source = sourceFromRecord(isRecord(rawSource) ? rawSource : undefined);
-		return source ? [source] : [];
-	});
-
+	const details = getProviderNativeWebSearchDetails(raw);
+	if (!details) return undefined;
 	const lines = [
-		...(status ? [`status: ${status}`] : []),
-		...formatQueries(queries),
-		...formatSources(sources, "source", expanded),
+		...(details.status ? [`status: ${details.status}`] : []),
+		...formatQueries([...details.queries]),
+		...formatSources([...details.sources], "source", expanded),
+	];
+	return lines.length > 0 ? lines.join("\n") : undefined;
+}
+
+export function formatProviderNativeWebSearchBody(
+	provider: AssistantMessage["provider"],
+	details: ProviderNativeWebSearchDetails,
+	{ expanded, includePrimaryQuery }: { readonly expanded: boolean; readonly includePrimaryQuery: boolean },
+): string | undefined {
+	const queries = providerNativeWebSearchQueries(details);
+	const lines = [
+		...(provider ? [provider] : []),
+		...(details.status ? [`status: ${details.status}`] : []),
+		...formatQueries(includePrimaryQuery ? queries : queries.slice(1)),
+		...formatSources([...details.sources], "source", expanded).slice(1),
 	];
 	return lines.length > 0 ? lines.join("\n") : undefined;
 }

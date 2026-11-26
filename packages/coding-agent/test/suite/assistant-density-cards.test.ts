@@ -45,6 +45,22 @@ function click(y: number, width: number, height: number): TuiMouseEvent {
 	};
 }
 
+function press(y: number, width: number, height: number): TuiMouseEvent {
+	return {
+		type: "press",
+		button: "left",
+		x: 6,
+		y,
+		screenX: 6,
+		screenY: y,
+		width,
+		height,
+		shift: false,
+		alt: false,
+		ctrl: false,
+	};
+}
+
 describe("assistant density cards", () => {
 	it("reuses a grouped provider projection without inserting inter-card spacers", () => {
 		initTheme("dark");
@@ -86,7 +102,12 @@ describe("assistant density cards", () => {
 		const view = card.renderDensityCard(120, { grouped: true });
 		if (!view || view.format !== "structured") throw new Error("missing structured provider density card");
 		expect(view.kind).toBe("search");
-		expect(view.heading).toEqual({ identity: "faux", details: ["web_search", "incomplete"] });
+		expect(view.heading).toEqual({
+			details: [
+				[{ text: "1 source" }, { text: " · " }, { text: '"private search query"', role: "muted", italic: true }],
+				"incomplete",
+			],
+		});
 		expect(view.status).toBeUndefined();
 	});
 
@@ -101,12 +122,14 @@ describe("assistant density cards", () => {
 			transcript.addChild(new AssistantMessageComponent(fauxAssistantMessage([nativeSearch()])));
 			transcript.setToolDisplayDensity(density);
 			const collapsed = transcript.render(120);
-			const row = collapsed.findIndex((line) => line.includes("web_search"));
+			const collapsedText = collapsed.map(stripAnsi);
+			const row = collapsedText.findIndex((line) => line.includes("search •"));
 			expect(row).toBeGreaterThanOrEqual(0);
+			dispatchMouseEvent(transcript, press(row, 120, collapsed.length));
 			expect(dispatchMouseEvent(transcript, click(row, 120, collapsed.length))?.handled).toBe(true);
 
 			const expanded = transcript.render(120).map((line) => stripAnsi(line));
-			expect(expanded.find((line) => line.includes("web_search"))).toBeDefined();
+			expect(expanded.find((line) => line.includes("search •"))).toBeDefined();
 			expect(expanded.join("\n")).toContain("private search query");
 			expect(expanded.join("\n")).toContain("example.test/private");
 		} finally {

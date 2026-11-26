@@ -11,6 +11,7 @@ import todotoolsExtension from "../../src/core/extensions/builtin/todotools/inde
 import type { TodoToolDetails } from "../../src/core/extensions/builtin/todotools/todo-types.ts";
 import type { InlineExtension } from "../../src/index.ts";
 import { ExplorationTranscriptContainer } from "../../src/modes/interactive/components/exploration-transcript-container.ts";
+import { initTheme, theme } from "../../src/modes/interactive/theme/theme.ts";
 import {
 	densities,
 	type Density,
@@ -24,11 +25,18 @@ import { explorationSurface, invoke } from "./exploration-surface-harness.ts";
 
 type Replay = readonly (AssistantMessage | ToolResultMessage)[];
 type CardView = "folded" | "expanded";
+type SearchSourceFixture = { readonly title?: string; readonly url?: string; readonly snippet?: string };
+type SearchActionFixture = {
+	readonly query?: string;
+	readonly queries?: readonly string[];
+	readonly sources?: readonly SearchSourceFixture[];
+};
 
 async function visibleRows(
 	replay: Replay,
 	layout: { readonly density: Density | "default"; readonly view: CardView },
 	extensions: InlineExtension[] = [],
+	renderWidth = width,
 ): Promise<readonly string[]> {
 	const surface = await explorationSurface(true, extensions);
 	try {
@@ -38,7 +46,7 @@ async function visibleRows(
 		invoke(surface.mode, "renderSessionItems", replay);
 		surface.chat.setToolDisplayDensity(layout.density);
 		invoke(surface.mode, "setToolsExpanded", layout.view === "expanded");
-		return surface.chat.render(width).map(stripTerminalSequences);
+		return surface.chat.render(renderWidth).map(stripTerminalSequences);
 	} finally {
 		surface.cleanup();
 	}
@@ -121,7 +129,17 @@ it("keeps a successful Todo view and its checklist available in Default", async 
 	expect(visible.join("\n")).toContain("Verify the runtime");
 });
 
-function searchReplay(status?: string): Replay {
+function searchReplay(status?: string, action?: SearchActionFixture): Replay {
+	const searchAction = action ?? {
+		queries: ["terminal rows", "render padding"],
+		sources: [
+			{
+				title: "Terminal guide",
+				url: "https://example.test/guide",
+				snippet: "A guide to rendering rows.",
+			},
+		],
+	};
 	return [
 		{
 			...fauxAssistantMessage(
@@ -130,16 +148,7 @@ function searchReplay(status?: string): Replay {
 					subtype: "web_search_call",
 					raw: {
 						...(status === undefined ? {} : { status }),
-						action: {
-							queries: ["terminal rows", "render padding"],
-							sources: [
-								{
-									title: "Terminal guide",
-									url: "https://example.test/guide",
-									snippet: "A guide to rendering rows.",
-								},
-							],
-						},
+						action: searchAction,
 					},
 				},
 				{ timestamp: 0 },
@@ -179,9 +188,9 @@ describe.each(densities)("%s individual card goldens", (density) => {
 	});
 
 	it.each([
-		{ op: "done", status: "completed", italic: true },
-		{ op: "drop", status: "abandoned", italic: false },
-	] as const)("styles the $status Todo description in the folded heading", async ({ op, status, italic }) => {
+		{ op: "done", status: "completed", struck: true },
+		{ op: "drop", status: "abandoned", struck: false },
+	] as const)("styles the $status Todo description in the folded heading", async ({ op, status, struck }) => {
 		const details = {
 			...todoInitDetails,
 			op,
@@ -211,8 +220,8 @@ describe.each(densities)("%s individual card goldens", (density) => {
 			const column = stripTerminalSequences(rows[row] ?? "").indexOf("Verify the runtime");
 			const cell = terminal.buffer.active.getLine(row)?.getCell(column);
 			expect(cell).toBeDefined();
-			expect(Boolean(cell?.isStrikethrough())).toBe(true);
-			expect(Boolean(cell?.isItalic())).toBe(italic);
+			expect(Boolean(cell?.isStrikethrough())).toBe(struck);
+			expect(Boolean(cell?.isItalic())).toBe(false);
 		} finally {
 			terminal.dispose();
 			surface.cleanup();
@@ -254,5 +263,80 @@ describe.each(densities)("%s individual card goldens", (density) => {
 		expect(await visibleRows(searchReplay("completed"), { density, view: "expanded" })).toEqual(
 			expandedSearchGolden[density],
 		);
+	});
+
+	it("uses the query as the heading when a search has no sources", async () => {
+		const rows = await visibleRows(searchReplay("completed", { query: "native query", sources: [] }), {
+			density,
+			view: "expanded",
+		});
+		const rendered = rows.join("\n");
+		expect(rendered).toContain('search • "native query"');
+		expect(rendered).toContain("chatgpt-subscription");
+		expect(rendered).toContain("status: completed");
+		expect(rendered.split('"native query"')).toHaveLength(2);
+		expect(rendered).not.toContain("0 sources");
+	});
+
+	it.each([
+		{ name: "absent", action: { sources: [] } },
+		{ name: "empty", action: { query: "", queries: ["", "  "], sources: [] } },
+	])("uses a native search fallback when the query is $name", async ({ action }) => {
+		const rows = await visibleRows(searchReplay(undefined, action), { density, view: "expanded" });
+		const rendered = rows.join("\n");
+		expect(rendered).toContain("search • web_search");
+		expect(rendered).toContain("chatgpt-subscription");
+		expect(rendered).not.toContain("query:");
+		expect(rendered).not.toContain('""');
+	});
+
+	it("keeps only distinct non-promoted queries in the body", async () => {
+		const rows = await visibleRows(
+			searchReplay(undefined, { queries: ["first query", "first query", "second query"], sources: [] }),
+			{ density, view: "expanded" },
+		);
+		const rendered = rows.join("\n");
+		expect(rendered).toContain('search • "first query"');
+		expect(rendered).toContain('query: "second query"');
+		expect(rendered.split('"first query"')).toHaveLength(2);
+		expect(rendered.split('"second query"')).toHaveLength(2);
+	});
+
+	it("keeps the full promoted query in the body when a narrow expanded heading truncates it", async () => {
+		const rows = await visibleRows(
+			searchReplay("completed", { query: "terminal rows", sources: [] }),
+			{ density, view: "expanded" },
+			[],
+			28,
+		);
+		const heading = rows.find((line) => line.includes("search •"));
+		expect(heading).toContain("…");
+		expect(rows.join("\n")).toContain('query: "terminal rows"');
+	});
+
+	it("styles the promoted query as muted italic terminal text", async () => {
+		initTheme("dark");
+		const surface = await explorationSurface(true);
+		const terminal = new xterm.Terminal({ cols: width + 1, rows: 10, allowProposedApi: true });
+		const mutedTerminal = new xterm.Terminal({ cols: width + 1, rows: 1, allowProposedApi: true });
+		try {
+			if (!(surface.chat instanceof ExplorationTranscriptContainer)) throw new TypeError("Expected transcript");
+			invoke(surface.mode, "renderSessionItems", searchReplay("completed"));
+			surface.chat.setToolDisplayDensity(density);
+			const rows = surface.chat.render(width);
+			await new Promise<void>((resolve) => terminal.write(rows.join("\x1b[0m\r\n"), resolve));
+			await new Promise<void>((resolve) => mutedTerminal.write(theme.fg("muted", "M"), resolve));
+			const row = rows.findIndex((line) => stripTerminalSequences(line).includes('"terminal rows"'));
+			const column = stripTerminalSequences(rows[row] ?? "").indexOf('"terminal rows"');
+			const first = terminal.buffer.active.getLine(row)?.getCell(column);
+			const last = terminal.buffer.active.getLine(row)?.getCell(column + '"terminal rows"'.length - 1);
+			expect(Boolean(first?.isItalic())).toBe(true);
+			expect(Boolean(last?.isItalic())).toBe(true);
+			expect(first?.getFgColor()).toBe(mutedTerminal.buffer.active.getLine(0)?.getCell(0)?.getFgColor());
+		} finally {
+			mutedTerminal.dispose();
+			terminal.dispose();
+			surface.cleanup();
+		}
 	});
 });

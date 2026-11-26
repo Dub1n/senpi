@@ -170,6 +170,49 @@ describe.each(["compact", "grouped"] as const)("project rules in %s density", (d
 		}
 	});
 
+	it("keeps the final folded notice title clickable without an empty cap", async () => {
+		const surface = await denseSurface();
+		try {
+			const width = 34;
+			const entries = [
+				projectRules("first", ["AGENTS.md"], "plugin/skills/a.md"),
+				projectRules("second", ["src/AGENTS.md"], "plugin/skills/b.md"),
+			];
+			for (const entry of entries) await surface.event({ type: "entry_appended", entry });
+
+			const clickRow = (y: number) =>
+				surface.chat.handleMouse({
+					type: "click",
+					button: "left",
+					x: 6,
+					y,
+					screenX: 6,
+					screenY: y,
+					width,
+					height: surface.chat.render(width).length,
+					shift: false,
+					alt: false,
+					ctrl: false,
+				});
+			expect(expand(surface, width)).toContain("├─ ● project rules");
+			let output = surface.text(width).split("\n");
+			const heading = output.findIndex((line) => line.includes("├─ ● project rules"));
+			expect(output[heading + 1]).toContain("matched");
+			expect(clickRow(heading + 1)?.handled).toBe(true);
+			output = surface.text(width).split("\n");
+			expect(output.some((line) => line.includes("╰─ ● project rules"))).toBe(true);
+			expect(output).not.toContainEqual(expect.stringMatching(/^ ╰─\s*$/u));
+
+			const terminalHeading = output.findIndex((line) => line.includes("╰─ ● project rules"));
+			expect(clickRow(terminalHeading + 1)?.handled).toBe(true);
+			output = surface.text(width).split("\n");
+			expect(output.join("\n")).toContain("matched on: plugin/skills/b.md");
+			expect(output).toContainEqual(expect.stringMatching(/^ ╰─\s*$/u));
+		} finally {
+			surface.cleanup();
+		}
+	});
+
 	it("keeps one and two spaces distinct when rule and target paths wrap", async () => {
 		const surface = await denseSurface();
 		try {

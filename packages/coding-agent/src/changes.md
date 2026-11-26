@@ -1,3 +1,21 @@
+## 2026-11-26 - Share native web search details with dense cards
+
+### What changed
+
+- `packages/coding-agent/src/modes/provider-native-rendering.ts` exposes parsed search details and formats the dense expanded body without repeating information shown in the heading.
+
+### Why
+
+- Dense headings and expanded details use the same parsed queries and sources, while Default and print retain their existing output.
+
+### Why an extension could not handle it
+
+- Provider-native transcript formatting is owned by the built-in renderers.
+
+### Expected merge conflict zones
+
+- Provider-native web search parsing and body formatting.
+
 ## 2026-11-20 - Export semantic card types to tool extensions
 
 ### What changed

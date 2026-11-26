@@ -7923,6 +7923,10 @@
 			"class": "constant",
 			"reason": "lookup data literal; never written after load"
 		},
+		"packages/coding-agent/src/modes/interactive/components/assistant-message.ts#assistantNativeSearchMetadata": {
+			"class": "per-copy-safe",
+			"reason": "presentation metadata keyed by local assistant card instances"
+		},
 		"packages/coding-agent/src/modes/interactive/components/continuity-notice.ts#DEGRADATION_KINDS": {
 			"class": "constant",
 			"reason": "lookup collection filled at load; never written after load"
