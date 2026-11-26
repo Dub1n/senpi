@@ -46,13 +46,42 @@ export function createKillBashTool(ctx: TerminalToolContext) {
 			const monitorId = input.bash_id.startsWith("mon_") ? input.bash_id : ctx.manager.monitorIdOf?.(sessionId);
 			if ((await ctx.monitorRegistry?.stopFile(sessionId)) || ctx.monitorRegistry?.stopRpc(sessionId)) {
 				await dropStateDir(monitorId);
-				return textResult(`Killed ${input.bash_id}.`);
+				return textResult(`Killed ${input.bash_id}.`, {
+					details: { killBash: { sessionId: input.bash_id, target: "monitor", outcome: "killed" } },
+				});
 			}
 			const runtime = ctx.manager.get(sessionId);
-			if (!runtime) return errorResult(`No terminal session found with id: ${input.bash_id}`);
-			await ctx.manager.stop(sessionId);
-			await dropStateDir(monitorId);
-			return textResult(`Killed ${input.bash_id}.`);
+			if (!runtime)
+				return textResult(`No terminal session found with id: ${input.bash_id}`, {
+					isError: true,
+					details: {
+						killBash: {
+							sessionId: input.bash_id,
+							target: "bash",
+							outcome: "failed",
+							reason: "session-not-found",
+						},
+					},
+				});
+			const wasExited = runtime.exited;
+			const stopped = await ctx.manager.stop(sessionId);
+			const exit = runtime.exitResult;
+			const outcome = !runtime.exited
+				? "failed"
+				: !wasExited && exit?.cancelled && !exit.timedOut
+					? "killed"
+					: "already-exited";
+			if (outcome !== "failed") await dropStateDir(monitorId);
+			return textResult(`Killed ${input.bash_id}.`, {
+				details: {
+					killBash: {
+						sessionId: input.bash_id,
+						target: "bash",
+						outcome,
+						...(outcome === "failed" ? { reason: stopped ? "session-still-running" : "session-not-found" } : {}),
+					},
+				},
+			});
 		},
 		renderCall: renderKillBashCall,
 		renderResult: renderKillBashResult,

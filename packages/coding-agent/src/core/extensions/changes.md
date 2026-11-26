@@ -1,3 +1,21 @@
+## 2026-11-25 - Local presentation of terminal age notices
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/types.ts` defines the optional `ExtensionUIContext.notifyTerminalBackgroundAge` presenter for the terminal builtin's typed visible notices. Existing hosts continue to support plain notifications.
+
+### Why
+
+- The interactive transcript needs producer facts that are not recoverable reliably from text.
+
+### Why an extension could not handle it
+
+- The live UI binding must share the typed presentation contract with the builtin to avoid rendering a second notification.
+
+### Expected merge conflict zones
+
+- LOW: the optional `ExtensionUIContext` member next to `notify`.
+
 ## 2026-11-22 - Notices can supply a structured dense card
 
 ### What changed

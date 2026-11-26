@@ -274,7 +274,8 @@ import {
 	type StatusIndicator,
 	WorkingStatusIndicator,
 } from "./components/status-indicator.ts";
-import { ThemedText } from "./components/themed-text.ts";
+import { ThemedText, TranscriptStatusText } from "./components/themed-text.ts";
+import { TerminalBackgroundNotice } from "./components/terminal-background-notice.ts";
 import { ThinkingSelectorComponent } from "./components/thinking-selector.ts";
 import { ToolExecutionComponent } from "./components/tool-execution.ts";
 import { TreeSelectorComponent } from "./components/tree-selector.ts";
@@ -3857,6 +3858,18 @@ export class InteractiveMode {
 			question: (request, opts) =>
 				request.waitForAnswer ? this.showQuestionOverlay(request, opts) : this.showAsyncQuestion(request, opts),
 			notify: (message, type) => this.showExtensionNotify(message, type),
+			notifyTerminalBackgroundAge: (event, message) => {
+				const notice = new TerminalBackgroundNotice(event, message, this.toolOutputExpanded);
+				const children = this.chatContainer.children;
+				const streamingIndex = this.streamingComponent ? children.indexOf(this.streamingComponent) : -1;
+				if (streamingIndex < 0) {
+					this.chatContainer.addChild(new Spacer(1));
+					this.chatContainer.addChild(notice);
+				} else {
+					children.splice(streamingIndex, 0, new Spacer(1), notice);
+				}
+				this.ui.requestRender();
+			},
 			onTerminalInput: (handler) => this.addExtensionTerminalInputListener(handler),
 			// The host owns the lifecycle status; an extension cannot overwrite or clear it.
 			setStatus: (key, text) => {
@@ -6284,7 +6297,7 @@ export class InteractiveMode {
 		const text =
 			kind === "system-prompt"
 				? new SystemPromptStatus(message)
-				: new ThemedText(() => theme.fg("dim", message), 1, 0);
+				: new TranscriptStatusText(() => theme.fg("dim", message), 1, 0);
 
 		if (last && secondLast && last === this.lastStatusText && secondLast === this.lastStatusSpacer) {
 			children[end - 1] = text;

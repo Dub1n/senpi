@@ -1,11 +1,10 @@
 import { type Static, Type } from "typebox";
 import { getJobWidgetState } from "../../job-widgets/session-host.ts";
 import type { JobWidgetEntry } from "../../job-widgets/view-types.ts";
-import { formatTerminalToolOutput } from "../output-format.ts";
+import { formatTerminalToolOutput, sanitizeTerminalOutput } from "../output-format.ts";
 import type { TerminalRuntimeSession } from "../runtime-session.ts";
 import { safeRegExp, TERMINAL_OUTPUT_TOOL } from "../shared.ts";
 import {
-	errorResult,
 	noticedResult,
 	resolveTerminalId,
 	type TerminalToolContext,
@@ -67,7 +66,11 @@ export function createBashOutputTool(ctx: TerminalToolContext) {
 		async execute(_toolCallId: string, input: BashOutputInput): Promise<TerminalToolResult> {
 			const sessionId = resolveTerminalId(ctx.manager, input.bash_id);
 			const runtime = ctx.manager.get(sessionId);
-			if (!runtime) return errorResult(`No terminal session found with id: ${input.bash_id}`);
+			if (!runtime)
+				return textResult(`No terminal session found with id: ${input.bash_id}`, {
+					isError: true,
+					details: { bashOutputError: { kind: "session-not-found", bashId: input.bash_id } },
+				});
 
 			const monitorEntry = ctx.monitorRegistry?.snapshot().find((entry) => entry.id === sessionId);
 			const muted = monitorEntry?.paused === true;
@@ -85,7 +88,10 @@ export function createBashOutputTool(ctx: TerminalToolContext) {
 			const status = `status: ${processStatus}${exitCode === null ? "" : ` exit_code: ${exitCode}`}`;
 			const prefix = mutedNote ? `${mutedNote}\n` : "";
 			const header = `${prefix}${status}`;
-			const details = {
+			const pollNotices = {
+				...(muted ? { monitorMuted: { dropped: mutedDropped } } : {}),
+			};
+			const details: Record<string, unknown> = {
 				...(monitorEntry ? { monitorMuted: muted, mutedDropped } : {}),
 				...(jobWidget ? { jobWidget } : {}),
 				bashOutput: {
@@ -94,6 +100,8 @@ export function createBashOutputTool(ctx: TerminalToolContext) {
 					exitCode,
 					statusStart: prefix.length,
 					statusEnd: header.length,
+					view: input.view ?? "log",
+					poll: { notices: pollNotices },
 				},
 			};
 
@@ -102,9 +110,30 @@ export function createBashOutputTool(ctx: TerminalToolContext) {
 			}
 
 			const delta = runtime.readDelta();
-			const formatted = formatTerminalToolOutput(applyFilter(delta.text, input.filter));
+			const filteredText = applyFilter(delta.text, input.filter);
+			const formatted = formatTerminalToolOutput(filteredText);
 			const droppedNotice = delta.droppedChars > 0 ? `[${delta.droppedChars} earlier chars dropped]` : undefined;
 			const dropped = droppedNotice === undefined ? "" : `${droppedNotice}\n`;
+			const emptyPlaceholder =
+				formatted.body.length === 0
+					? filteredText !== delta.text && sanitizeTerminalOutput(delta.text).trimEnd().length > 0
+						? "filtered"
+						: "synthetic"
+					: formatted.body === "(no new output)"
+						? "literal"
+						: undefined;
+			const bashOutput = details.bashOutput as Record<string, unknown>;
+			details.bashOutput = {
+				...bashOutput,
+				poll: {
+					...(emptyPlaceholder === undefined ? {} : { emptyPlaceholder }),
+					notices: {
+						...pollNotices,
+						...(droppedNotice === undefined ? {} : { droppedOutput: { chars: delta.droppedChars } }),
+						...(formatted.marker === undefined ? {} : { truncated: formatted.marker }),
+					},
+				},
+			};
 			return noticedResult(
 				`${header}\n${dropped}${formatted.text || "(no new output)"}`,
 				[droppedNotice, formatted.marker],

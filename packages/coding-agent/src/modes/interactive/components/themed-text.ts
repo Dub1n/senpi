@@ -35,3 +35,6 @@ export class ThemedText extends Text {
 		return super.render(width);
 	}
 }
+
+/** Marks a plain status row that can be coalesced in the Default transcript. */
+export class TranscriptStatusText extends ThemedText {}

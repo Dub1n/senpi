@@ -13,6 +13,7 @@ import type { ToolMachine } from "../tools/machine.ts";
 import type { InputOrigin } from "../input-origin.ts";
 import type { LifecycleApi } from "../session-lifecycle-types.ts";
 import type { UploadRedaction, UploadRedactionOptions } from "../share/upload-redaction.ts";
+import type { TerminalBackgroundAgeEvent } from "./builtin/monitor-state-event.ts";
 import type { ContextEvent } from "./context-event.ts";
 import type { ExtensionRpcRequestHandler } from "./rpc-context.ts";
 
@@ -291,6 +292,9 @@ export interface ExtensionUIContext {
 
 	/** Show a notification to the user. */
 	notify(message: string, type?: "info" | "warning" | "error"): void;
+
+	/** Optional local transcript presentation for a built-in terminal age notice. */
+	notifyTerminalBackgroundAge?(event: TerminalBackgroundAgeEvent, message: string): void;
 
 	/** Listen to raw terminal input (interactive mode only). Returns an unsubscribe function. */
 	onTerminalInput(handler: TerminalInputHandler): () => void;

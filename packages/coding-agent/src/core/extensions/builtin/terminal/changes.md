@@ -1,3 +1,41 @@
+## 2026-11-25 - Preserve the terminal age event for dense presentation
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/terminal/extension-state.ts` sends typed background age and reap notices to the local transcript presenter when available, or uses the existing plain `ui.notify` route otherwise, including on a hand. It does not display the separate model notifier message.
+
+### Why
+
+- The UI can identify actual terminal notices without matching their wording or treating command output as a notice.
+
+### Why an extension could not handle it
+
+- The terminal builtin owns the event and the separate visible and model delivery paths.
+
+### Expected merge conflict zones
+
+- LOW: the visible delivery in `bundleSinks().onBackgroundAge`.
+
+## 2026-11-25 - Structured dense bash polling
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/terminal/tools/bash-output.ts`: records log/screen mode, whether an empty-output placeholder is synthetic (including output sanitized to empty), filtered, or literal, and typed monitor/drop/truncation notices without copying displayed output into result details; missing-session errors carry a short typed reason without changing their text.
+- `packages/coding-agent/src/core/extensions/builtin/terminal/tools/kill-bash.ts`: records typed single-target kill outcomes from the observed exit state (including retained natural exits) and not-found diagnostics without changing result text.
+- `packages/coding-agent/src/core/extensions/builtin/terminal/tools/render.ts`: exports `denseBashPoll(result, args)` for structured poll classification, recovers its body from visible result parts and producer status boundaries, and normalizes status glyphs and labels for log, screen, and trusted historical headers; lowercase kill acknowledgments are confined to density-card bodies.
+
+### Why
+
+- Dense terminal grouping needs producer-owned process and notice facts, while existing status boundaries recover output without persisting a second copy or mistaking model-only notices for body text.
+
+### Why an extension could not handle it
+
+- The terminal builtin owns the bash poll and kill result metadata and their density-card renderer; no runner or interactive component changes are needed.
+
+### Expected merge conflict zones
+
+- LOW: `tools/bash-output.ts` poll result construction, `tools/kill-bash.ts` single-target result construction, and `tools/render.ts` density-card projection.
+
 ## 2026-11-23 - Show single-session kill results as Bash cards
 
 ### What changed

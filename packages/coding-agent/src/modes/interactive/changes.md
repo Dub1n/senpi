@@ -1,3 +1,43 @@
+## 2026-11-25 - Frame background bash notices in dense transcripts
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts` inserts typed terminal-age notices before the streaming message. Default projects plain status or warning rows and coalesces adjacent running and ordinary status notices.
+- `packages/coding-agent/src/modes/interactive/components/themed-text.ts` marks plain status rows so the Default projection can coalesce them with terminal running notices across density switches.
+- `packages/coding-agent/src/modes/interactive/components/terminal-background-notice.ts` supplies `!` bash headings and framed multiline bodies from the terminal's running, auto-reap failed, and auto-reaped events.
+- `packages/coding-agent/src/modes/interactive/components/exploration-transcript-container.ts` and `packages/coding-agent/src/modes/interactive/components/dense-bash-run.ts` group adjacent warnings and eligible polls, deduplicate repeated notices within a run, and give `!` priority in a folded run without replacing the sections' individual glyphs.
+
+### Why
+
+- A background warning must stay discoverable when folded without mistaking shell output for a warning.
+
+### Why an extension could not handle it
+
+- The transcript host alone owns the ordering, density selection, and grouping of live notifications and tool results.
+
+### Expected merge conflict zones
+
+- LOW: extension UI context binding and dense transcript projection. Session history, model messages, and wake behavior are unchanged.
+
+## 2026-11-25 - Group dense bash output polls
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/exploration-transcript-container.ts` suppresses empty and duplicate log polls and projects adjacent visible polls as a single card in Compact and Grouped.
+- `packages/coding-agent/src/modes/interactive/components/dense-bash-run.ts` renders the ordered terminal IDs and shared outcome when folded, and a framed heading and output for each retained poll when expanded.
+
+### Why
+
+- Repeated polls should not obscure terminal output or the first observation of a process exit.
+
+### Why an extension could not handle it
+
+- Grouping and deduplication require the transcript host's ordered view of adjacent tool results.
+
+### Expected merge conflict zones
+
+- LOW: dense transcript projection. Default and persisted tool content are unchanged.
+
 ## 2026-11-25 - Match eval validation text to eval output
 
 ### What changed

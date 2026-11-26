@@ -1,3 +1,4 @@
+import { canonicalJson, toStoreValue } from "@earendil-works/pi-agent-core";
 import {
 	type Component,
 	Container,
@@ -20,6 +21,7 @@ import { CustomEntryComponent } from "./custom-entry.ts";
 import { CustomMessageComponent } from "./custom-message.ts";
 import { CompactionSummaryMessageComponent } from "./compaction-summary-message.ts";
 import { type DenseProjectRulesMember, DenseProjectRulesRun } from "./dense-project-rules.ts";
+import { denseBashProjection, DenseBashRun, type DenseBashMember } from "./dense-bash-run.ts";
 import { type DenseReadMember, denseReadProjection, DenseReadRun } from "./dense-read-run.ts";
 import { type ExplorationCall, explorationCall } from "./exploration-call.ts";
 import { ExplorationGroup } from "./exploration-group.ts";
@@ -30,10 +32,20 @@ import {
 	type ProgressiveTranscriptOptions,
 } from "./progressive-transcript-container.ts";
 import { type DensityCardSource, isDensityCardSource, ToolDensityRow } from "./tool-density-row.ts";
+import { TerminalBackgroundNotice } from "./terminal-background-notice.ts";
 import { ToolExecutionComponent } from "./tool-execution.ts";
 import { theme } from "../theme/theme.ts";
 import { TranscriptNotice } from "./transcript-notice.ts";
 import { SystemPromptStatus } from "./system-prompt-status.ts";
+import { TranscriptStatusText } from "./themed-text.ts";
+
+function isDefaultStatusRow(child: Component | undefined): boolean {
+	return (
+		child instanceof TranscriptStatusText ||
+		child instanceof SystemPromptStatus ||
+		(child instanceof TerminalBackgroundNotice && child.isRunningStatus)
+	);
+}
 
 /**
  * Original children remain the lifecycle/ID/anchor model. A non-owning projection groups their
@@ -46,6 +58,7 @@ export class ExplorationTranscriptContainer extends Container {
 	private density: ToolDisplayDensity = "default";
 	private densityColors: ToolDisplayColors = { colorFrames: false, colorNames: false, colorIcons: false };
 	private readonly densityRows = new WeakMap<ToolExecutionComponent | DensityCardSource, ToolDensityRow>();
+	private readonly denseBashRuns = new WeakMap<ToolExecutionComponent | TerminalBackgroundNotice, DenseBashRun>();
 	private readonly denseReadRuns = new WeakMap<ToolExecutionComponent, DenseReadRun>();
 	private readonly denseProjectRulesRuns = new WeakMap<CustomEntryComponent, DenseProjectRulesRun>();
 	private patchDensityProjections = new WeakMap<ToolExecutionComponent, PatchDensityProjection>();
@@ -73,6 +86,10 @@ export class ExplorationTranscriptContainer extends Container {
 		super();
 		this.display = new ProgressiveTranscriptContainer(options);
 		this.requestRender = options.requestRender;
+	}
+
+	get toolDisplayDensity(): ToolDisplayDensity {
+		return this.density;
 	}
 
 	/** Select the collapsed transcript presentation. */
@@ -112,6 +129,10 @@ export class ExplorationTranscriptContainer extends Container {
 		let previous: ToolDensityRow | undefined;
 		let previousFirst = true;
 		let patchRun: { readonly owner: ToolExecutionComponent; readonly files: PatchDensityCard[] }[] = [];
+		let bashRun: DenseBashMember[] = [];
+		const lastBashStatus = new Map<string, string>();
+		const lastBashPolls = new Map<string, Set<string>>();
+		const seenBashWarnings = new Set<string>();
 		const appendRow = (child: Component): void => {
 			const row =
 				child instanceof SystemPromptStatus && !grouped
@@ -159,6 +180,21 @@ export class ExplorationTranscriptContainer extends Container {
 			}
 			patchRun = [];
 		};
+		const flushBash = (): void => {
+			const [first] = bashRun;
+			if (first) {
+				let run = this.denseBashRuns.get(first.card);
+				if (!run) {
+					run = new DenseBashRun();
+					this.denseBashRuns.set(first.card, run);
+				}
+				run.setMembers(bashRun);
+				appendRow(run);
+			}
+			bashRun = [];
+			lastBashPolls.clear();
+			seenBashWarnings.clear();
+		};
 		let ruleNotices: DenseProjectRulesMember[] = [];
 		const flushRuleNotices = (): void => {
 			const [first, second] = ruleNotices;
@@ -187,12 +223,68 @@ export class ExplorationTranscriptContainer extends Container {
 				if (sender) child.setDenseSenderModel(models.forSession(sender));
 			}
 			if (child instanceof CustomEntryComponent && child.projectRulesNotice) {
+				flushBash();
 				flushReads();
 				flushPatches();
 				ruleNotices.push({ card: child, notice: child.projectRulesNotice });
 				return;
 			}
 			flushRuleNotices();
+			if (child instanceof TerminalBackgroundNotice) {
+				flushReads();
+				flushPatches();
+				if (seenBashWarnings.has(child.dedupKey)) return;
+				seenBashWarnings.add(child.dedupKey);
+				bashRun.push({
+					kind: "warning",
+					card: child,
+					sourceRevision: child.getRenderRevision(),
+					view: child.renderDensityCard(),
+					statusGlyph: "!",
+				});
+				return;
+			}
+			if (child instanceof ToolExecutionComponent && child.summarySnapshot.name === "bash_output") {
+				flushReads();
+				flushPatches();
+				const member = denseBashProjection(child);
+				if (member) {
+					const { poll } = member;
+					const state = `${poll.processStatus}\0${poll.exitKey}\0${poll.exitCode ?? ""}`;
+					const previous = lastBashStatus.get(poll.sessionId);
+					const changed = previous !== state;
+					lastBashStatus.set(poll.sessionId, state);
+					if (changed) lastBashPolls.delete(poll.sessionId);
+					const empty = poll.emptyPlaceholder !== undefined && poll.emptyPlaceholder !== "literal";
+					const details = child.presentationSnapshot.state.result?.details;
+					const widget = isRecord(details) && isRecord(details.jobWidget) ? details.jobWidget : undefined;
+					const hasExtra = widget !== undefined || poll.notices.length > 0;
+					if (empty && !hasExtra && (poll.status === "running" || !changed)) return;
+					// A widget refresh only matters when its presentation changes, not when its clock advances.
+					const widgetKey =
+						widget === undefined ? undefined : canonicalJson(toStoreValue([widget.state, widget.view]));
+					const signature = JSON.stringify([
+						state,
+						poll.bodyFingerprint,
+						poll.notices,
+						member.view.heading,
+						widgetKey,
+					]);
+					let seen = lastBashPolls.get(poll.sessionId);
+					if (!seen) {
+						seen = new Set();
+						lastBashPolls.set(poll.sessionId, seen);
+					}
+					if (seen.has(signature)) return;
+					seen.add(signature);
+					bashRun.push(member);
+					return;
+				}
+				flushBash();
+				appendRow(child);
+				return;
+			}
+			flushBash();
 			if (child instanceof ToolExecutionComponent && child.summarySnapshot.name === "apply_patch") {
 				flushReads();
 				const patch = this.applyPatchProjectionOf(child);
@@ -220,13 +312,16 @@ export class ExplorationTranscriptContainer extends Container {
 		};
 		for (const [index, child] of this.children.entries()) {
 			// The density card supplies the outer spacing for a transcript notice.
+			if (child instanceof Spacer && this.children[index + 1] instanceof TerminalBackgroundNotice) continue;
 			if (
 				child instanceof Spacer &&
 				(this.children[index + 1] instanceof TranscriptNotice ||
 					this.children[index + 1] instanceof CompactionSummaryMessageComponent ||
 					(grouped && this.children[index + 1] instanceof SystemPromptStatus))
-			)
+			) {
+				flushBash();
 				continue;
+			}
 			if (child instanceof AssistantMessageComponent) {
 				child.setSuppressCompletedThinkingLabel(true);
 				if (!child.hasTranscriptRows) continue;
@@ -238,6 +333,7 @@ export class ExplorationTranscriptContainer extends Container {
 		flushReads();
 		flushPatches();
 		flushRuleNotices();
+		flushBash();
 		previous?.setLayout(grouped, previousFirst, true);
 		this.densityProjection = { source: [...this.children], projected, clock: currentRenderRevision() };
 		return projected;
@@ -294,7 +390,23 @@ export class ExplorationTranscriptContainer extends Container {
 			group?.setMembers(members, calls, rules);
 			group = undefined;
 		};
-		for (const child of this.children) {
+		for (let index = 0; index < this.children.length; index++) {
+			const child = this.children[index];
+			if (child instanceof Spacer) {
+				const notice = this.children[index + 1];
+				const nextNotice = this.children[index + 3];
+				if (
+					isDefaultStatusRow(notice) &&
+					this.children[index + 2] instanceof Spacer &&
+					isDefaultStatusRow(nextNotice) &&
+					(notice instanceof TerminalBackgroundNotice || nextNotice instanceof TerminalBackgroundNotice)
+				) {
+					// Match the legacy status row replacement only in this projection.
+					closeGroup();
+					index++; // Skip the older status text with its spacer.
+					continue;
+				}
+			}
 			if (child instanceof AssistantMessageComponent) child.setSuppressCompletedThinkingLabel(false);
 			const call = child instanceof ToolExecutionComponent ? this.explorationCallOf(child) : undefined;
 			if (child instanceof ToolExecutionComponent && call) {

@@ -8,6 +8,7 @@ import { createPtyBashTool } from "../../src/core/extensions/builtin/terminal/to
 import { createBashInputTool } from "../../src/core/extensions/builtin/terminal/tools/bash-input.ts";
 import { createBashOutputTool } from "../../src/core/extensions/builtin/terminal/tools/bash-output.ts";
 import { createBashResizeTool } from "../../src/core/extensions/builtin/terminal/tools/bash-resize.ts";
+import { denseBashPoll } from "../../src/core/extensions/builtin/terminal/tools/render.ts";
 import type {
 	TerminalToolContext,
 	TerminalToolResult,
@@ -171,11 +172,36 @@ describe("terminal builtin extension — real session execution (pipe fallback)"
 
 		const killed = await kill.execute("call-kill", { bash_id: bashId });
 		expect(firstText(killed)).toContain(`Killed ${bashId}`);
+		expect(killed.details?.killBash).toMatchObject({ sessionId: bashId, target: "bash", outcome: "killed" });
 
 		// After teardown-on-stop the entry is swept; a follow-up read reports it gone.
 		await manager.stop(bashId);
 		const readBack = await output.execute("call-read", { bash_id: bashId });
 		expect(firstText(readBack)).toMatch(/status: |No terminal session/);
+	});
+
+	it("reports a retained natural exit as already exited", async () => {
+		const bash = createPtyBashTool(ctx);
+		const kill = createKillBashTool(ctx);
+		const started = await bash.execute(
+			"call-natural-exit",
+			{ command: "printf NATURAL_EXIT", run_in_background: true },
+			undefined,
+		);
+		const bashId = /ID: (bash_\d+)/.exec(firstText(started))?.[1];
+		if (!bashId) throw new Error("Background bash did not return an id");
+		const runtime = manager.get(bashId);
+		if (!runtime) throw new Error(`No terminal session found with id: ${bashId}`);
+		if (!runtime.exited) await new Promise<void>((resolve) => runtime.session.onExit(resolve));
+
+		const result = await kill.execute("call-kill-exited", { bash_id: bashId });
+
+		expect(firstText(result)).toBe(`Killed ${bashId}.`);
+		expect(result.details?.killBash).toMatchObject({
+			sessionId: bashId,
+			target: "bash",
+			outcome: "already-exited",
+		});
 	});
 
 	it("rejects input to a missing session and reports pipe-fallback resize", async () => {
@@ -279,6 +305,99 @@ describe("terminal builtin extension — bash_output robustness", () => {
 		const statusCheck = await output.execute("call-status-check", { bash_id: bashId });
 		expect(firstText(statusCheck)).toContain("status: running");
 		await manager.stop(bashId);
+	});
+
+	it("records typed log, screen, and empty-placeholder poll facts", async () => {
+		const bash = createPtyBashTool(ctx);
+		const output = createBashOutputTool(ctx);
+
+		const start = async (command: string) => {
+			const result = await bash.execute("call-poll-facts", { command, run_in_background: true }, undefined);
+			const bashId = /ID: (bash_\d+)/.exec(firstText(result))?.[1];
+			if (!bashId) throw new Error("Background bash did not return an id");
+			const runtime = manager.get(bashId);
+			if (!runtime) throw new Error(`No terminal session found with id: ${bashId}`);
+			return { bashId, runtime };
+		};
+		const waitForOutput = async (bashId: string, marker: string) => {
+			const runtime = manager.get(bashId);
+			if (!runtime) throw new Error(`No terminal session found with id: ${bashId}`);
+			if (runtime.fullOutput().includes(marker)) return;
+			await new Promise<void>((resolve) => {
+				const unsubscribe = runtime.onOutput((chunk) => {
+					if (!chunk.includes(marker) && !runtime.fullOutput().includes(marker)) return;
+					unsubscribe();
+					resolve();
+				});
+				if (runtime.fullOutput().includes(marker)) {
+					unsubscribe();
+					resolve();
+				}
+			});
+		};
+
+		const silent = await start("sleep 30");
+		const empty = await output.execute("call-empty-poll", { bash_id: silent.bashId });
+		const emptyFacts = denseBashPoll(empty, { bash_id: silent.bashId });
+		expect(emptyFacts).toMatchObject({
+			sessionId: silent.bashId,
+			status: "running",
+			emptyPlaceholder: "synthetic",
+			body: "(no new output)",
+		});
+
+		const filteredSession = await start("sleep 0.5; printf 'FILTER_SOURCE\\n'; sleep 30");
+		await waitForOutput(filteredSession.bashId, "FILTER_SOURCE");
+		const filtered = await output.execute("call-filtered-poll", {
+			bash_id: filteredSession.bashId,
+			filter: "NO_MATCH",
+		});
+		expect(denseBashPoll(filtered, { bash_id: filteredSession.bashId, filter: "NO_MATCH" })).toMatchObject({
+			emptyPlaceholder: "filtered",
+			body: "(no matching output)",
+		});
+
+		const hiddenOutputSession = await start("sleep 0.5; printf '\\033[31m\\033[0m   \\n'; sleep 30");
+		await waitForOutput(hiddenOutputSession.bashId, "\x1b[31m");
+		const hiddenOutput = await output.execute("call-hidden-output-poll", {
+			bash_id: hiddenOutputSession.bashId,
+		});
+		expect(firstText(hiddenOutput)).toBe("status: running\n(no new output)");
+		expect(denseBashPoll(hiddenOutput, { bash_id: hiddenOutputSession.bashId })).toMatchObject({
+			emptyPlaceholder: "synthetic",
+			body: "(no new output)",
+		});
+
+		const literalSession = await start("sleep 0.5; printf '(no new output)\\n'; sleep 30");
+		await waitForOutput(literalSession.bashId, "(no new output)");
+		const literal = await output.execute("call-literal-poll", { bash_id: literalSession.bashId });
+		expect(denseBashPoll(literal, { bash_id: literalSession.bashId })).toMatchObject({
+			emptyPlaceholder: "literal",
+			body: "(no new output)",
+			bodyFingerprint: "(no new output)",
+		});
+		const literalDetails = literal.details?.bashOutput;
+		if (literalDetails === null || typeof literalDetails !== "object" || !("poll" in literalDetails))
+			throw new Error("Literal poll details were not recorded");
+		const literalPoll = literalDetails.poll;
+		if (literalPoll === null || typeof literalPoll !== "object")
+			throw new Error("Literal poll facts were not recorded");
+		expect(literalPoll).not.toHaveProperty("body");
+		expect(literalPoll).not.toHaveProperty("bodyFingerprint");
+
+		const screen = await output.execute("call-screen-poll", { bash_id: literalSession.bashId, view: "screen" });
+		expect(denseBashPoll(screen, { bash_id: literalSession.bashId, view: "screen" })).toBeUndefined();
+		const missing = await output.execute("call-missing-poll", { bash_id: "bash_999" });
+		expect(missing.details?.bashOutputError).toEqual({ kind: "session-not-found", bashId: "bash_999" });
+		expect(denseBashPoll(missing, { bash_id: "bash_999" })).toBeUndefined();
+
+		const longSession = await start("sleep 0.5; printf '%060000d' 0; sleep 30");
+		await waitForOutput(longSession.bashId, "0000000000");
+		const truncated = await output.execute("call-truncated-poll", { bash_id: longSession.bashId });
+		const truncatedFacts = denseBashPoll(truncated, { bash_id: longSession.bashId });
+		expect(truncatedFacts?.notices).toContain("output truncated");
+		expect(truncatedFacts?.body).toHaveLength(50 * 1024);
+		expect(truncatedFacts?.body).toMatch(/^0+$/);
 	});
 });
 

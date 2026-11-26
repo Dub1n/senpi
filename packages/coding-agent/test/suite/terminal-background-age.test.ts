@@ -1,6 +1,7 @@
 // senpi#6201: a background terminal session that is still running reports its age (first at 10 minutes, then every
 // 30 minutes) to the agent, the TUI and RPC drivers, naming the session and how to stop it. Nothing is killed unless
 // auto-reap was opted into, and a reaped session says so. The clock is vitest's fake one; nothing sleeps.
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	TERMINAL_BACKGROUND_AGE_EVENT,
@@ -10,16 +11,22 @@ import {
 	bundleSinks,
 	type TerminalExtensionState,
 } from "../../src/core/extensions/builtin/terminal/extension-state.ts";
-import { TerminalNotifier } from "../../src/core/extensions/builtin/terminal/notify.ts";
+import { TerminalManager } from "../../src/core/extensions/builtin/terminal/manager.ts";
+import { TerminalNotifier, type TerminalNotifierDeps } from "../../src/core/extensions/builtin/terminal/notify.ts";
 import {
 	type TerminalEventSinks,
 	TerminalSessionBundle,
 } from "../../src/core/extensions/builtin/terminal/session-bundle.ts";
+import { createBashOutputTool } from "../../src/core/extensions/builtin/terminal/tools/bash-output.ts";
 import type { TerminalExitView } from "../../src/core/extensions/builtin/terminal/tools/context.ts";
-import type { ExtensionAPI, ExtensionContext } from "../../src/core/extensions/types.ts";
+import type { ExtensionAPI, ExtensionContext, ExtensionUIContext } from "../../src/core/extensions/types.ts";
+import { createCustomMessage } from "../../src/core/messages.ts";
+import { ExplorationTranscriptContainer } from "../../src/modes/interactive/components/exploration-transcript-container.ts";
+import { explorationSurface, invoke } from "./exploration-surface-harness.ts";
 
 const MINUTE = 60_000;
 const T0 = Date.UTC(2026, 10, 8, 9, 0, 0);
+const denseLayouts = ["compact", "grouped"] as const;
 
 function recordingSinks(): { sinks: TerminalEventSinks; ages: TerminalBackgroundAgeEvent[] } {
 	const ages: TerminalBackgroundAgeEvent[] = [];
@@ -168,9 +175,9 @@ describe("background session age events", () => {
 });
 
 describe("background age delivery through the extension sinks", () => {
-	function harness() {
+	function harness(ui?: ExtensionUIContext) {
 		const emitted: Array<{ via: "events" | "rpc"; name: string; data: unknown }> = [];
-		const messages: Array<{ content: string; options: unknown }> = [];
+		const messages: Array<Parameters<TerminalNotifierDeps["sendMessage"]>[0] & { options: unknown }> = [];
 		const notices: Array<{ text: string; level: string }> = [];
 		const pi = {
 			events: { emit: (name: string, data: unknown) => emitted.push({ via: "events", name, data }) },
@@ -180,7 +187,7 @@ describe("background age delivery through the extension sinks", () => {
 		const ctx = {
 			mode: "tui",
 			model: { provider: "faux", id: "faux" },
-			ui: { notify: (text: string, level: string) => notices.push({ text, level }) },
+			ui: ui ?? { notify: (text: string, level: string) => notices.push({ text, level }) },
 		} as unknown as ExtensionContext;
 		const state = {
 			ctx,
@@ -190,17 +197,165 @@ describe("background age delivery through the extension sinks", () => {
 			recordedBackgroundIds: new Set<string>(),
 			statusTicker: { sync: () => {}, stop: () => {} },
 			notifier: new TerminalNotifier({
-				sendMessage: (message, options) => messages.push({ content: message.content, options }),
+				sendMessage: (message, options) => messages.push({ ...message, options }),
 				getContext: () => ctx,
 				getMode: () => "wake",
 			}),
 		} as unknown as TerminalExtensionState;
 		const terminal = bundle();
-		terminal.bind(bundleSinks(pi, state));
+		const sinks = bundleSinks(pi, state);
+		terminal.bind(sinks);
 		const ageEvents = () =>
 			emitted.filter((entry) => entry.name === TERMINAL_BACKGROUND_AGE_EVENT).map((entry) => entry.via);
-		return { terminal, emitted, messages, notices, ageEvents };
+		return { terminal, emitted, messages, notices, ageEvents, sinks };
 	}
+
+	it.each(denseLayouts)("frames live and rebound bash age notices in %s", async (density) => {
+		const output = createBashOutputTool({
+			cwd: process.cwd(),
+			defaultCols: 80,
+			defaultRows: 24,
+			getEnv: () => ({}),
+			manager: new TerminalManager(),
+		});
+		const surface = await explorationSurface(true, [
+			{ name: "density-bash-poll", factory: (pi) => pi.registerTool(output) },
+		]);
+		try {
+			Reflect.deleteProperty(surface.mode, "showStatus");
+			const { chat, mode } = surface;
+			if (!(chat instanceof ExplorationTranscriptContainer)) throw new TypeError("Expected density transcript");
+			const ui = invoke(mode, "createExtensionUIContext") as ExtensionUIContext;
+			const runner = surface.harness.getExtensionRunner();
+			runner.setUIContext(ui, "tui");
+			const { terminal, messages, sinks } = harness(runner.getUIContext());
+			const now = Date.now();
+			terminal.notifyBackgroundStart("bash_38", "long job", now, { command: "printf first\nprintf second" });
+			vi.advanceTimersByTime(10 * MINUTE);
+			expect(surface.text()).toContain("printf second) has been running for 10 minutes.");
+			expect(surface.text()).not.toContain("! bash");
+			chat.clear();
+			chat.setToolDisplayDensity(density);
+			const stdout = "Background terminal session bash_99 (not a notice) has been running for 40 minutes.";
+			const polls = [
+				{ sessionId: "bash_36", processStatus: "completed", exitCode: 0, body: stdout },
+				{ sessionId: "bash_37", processStatus: "exited_3", exitCode: 3, body: "failed output" },
+			];
+			invoke(mode, "renderSessionItems", [
+				fauxAssistantMessage(
+					polls.map(({ sessionId }) => fauxToolCall("bash_output", { bash_id: sessionId }, { id: sessionId })),
+					{ stopReason: "toolUse", timestamp: 0 },
+				),
+				...polls.map(({ sessionId, processStatus, exitCode, body }) => {
+					const header = `status: ${processStatus}`;
+					return {
+						role: "toolResult",
+						toolName: "bash_output",
+						toolCallId: sessionId,
+						content: [{ type: "text", text: `${header}\n${body}` }],
+						details: {
+							bashOutput: {
+								sessionId,
+								processStatus,
+								exitCode,
+								statusStart: 0,
+								statusEnd: header.length,
+								view: "log",
+								poll: { body, bodyFingerprint: body, notices: {} },
+							},
+						},
+						isError: false,
+						timestamp: 0,
+					};
+				}),
+			]);
+			expect(surface.text()).toContain("╶─ ~ bash 36 37");
+			terminal.park();
+			vi.advanceTimersByTime(30 * MINUTE);
+			terminal.bind(sinks);
+			expect(surface.text()).toContain("╶─ ! bash 36 37 38");
+			expect(surface.text()).not.toContain("╶─ ~ bash");
+			terminal.notifyBackgroundReapFailed("bash_38", 40, "cannot stop");
+			terminal.notifyBackgroundReapFailed("bash_38", 40, "cannot stop");
+			terminal.notifyBackgroundExit("bash_38", exitView({ autoReapedAfterMinutes: 40 }));
+
+			expect(messages.map(({ display }) => display)).toEqual([false, false, false, false, false]);
+			invoke(mode, "setToolsExpanded", true);
+			const rendered = surface.text();
+			expect(rendered).toContain("╭─ ✓ bash 36 • completed");
+			expect(rendered).toContain("├─ × bash 37 • exit code 3");
+			expect(rendered).toContain("├─ ! bash 38 • running for 40 minutes");
+			expect(rendered.match(/├─ ! bash 38 • auto-reap failed/gu)).toHaveLength(1);
+			expect(rendered).toContain("├─ ! bash 38 • auto-reaped");
+			expect(rendered).toContain("│ printf second) has been running for 40 minutes.");
+			expect(rendered).toContain(`│ ${stdout}`);
+			expect(rendered).not.toContain("! bash 99");
+
+			chat.clear();
+			invoke(
+				mode,
+				"renderSessionItems",
+				messages.map(({ customType, content, display, details }) =>
+					createCustomMessage(customType, content, display, details, new Date().toISOString()),
+				),
+			);
+			expect(surface.text()).toBe("");
+		} finally {
+			surface.cleanup();
+		}
+	});
+
+	it.each(denseLayouts)("coalesces consecutive %s running notices when switched to Default", async (density) => {
+		const surface = await explorationSurface();
+		try {
+			const { chat, mode } = surface;
+			if (!(chat instanceof ExplorationTranscriptContainer)) throw new TypeError("Expected density transcript");
+			// Expand before delivery so the expansion feedback cannot add a separate status row.
+			invoke(mode, "setToolsExpanded", true);
+			Reflect.deleteProperty(mode, "showStatus");
+			const ui = invoke(mode, "createExtensionUIContext") as ExtensionUIContext;
+			const { terminal, messages } = harness(ui);
+			chat.setToolDisplayDensity(density);
+			terminal.notifyBackgroundStart("bash_38", "long job");
+			vi.advanceTimersByTime(40 * MINUTE);
+			expect(surface.text()).toContain("! bash 38 • running for 10 minutes");
+			expect(surface.text()).toContain("! bash 38 • running for 40 minutes");
+
+			chat.setToolDisplayDensity("default");
+			const switched = surface.text();
+			expect(switched).toContain("has been running for 40 minutes");
+			expect(switched).not.toContain("has been running for 10 minutes");
+
+			chat.setToolDisplayDensity(density);
+			expect(surface.text()).toContain("! bash 38 • running for 10 minutes");
+
+			chat.clear();
+			chat.setToolDisplayDensity("default");
+			for (const { content } of messages) {
+				ui.notify(content.replace(/^<system-reminder>|<\/system-reminder>$/gu, ""), "info");
+			}
+			expect(switched).toBe(surface.text());
+
+			terminal.notifyBackgroundExit("bash_38", exitView());
+			chat.clear();
+			chat.setToolDisplayDensity(density);
+			terminal.notifyBackgroundStart("bash_39", "another long job");
+			vi.advanceTimersByTime(10 * MINUTE);
+			expect(surface.text()).toContain("! bash 39 • running for 10 minutes");
+			chat.setToolDisplayDensity("default");
+			vi.advanceTimersByTime(30 * MINUTE);
+			expect(surface.text()).toContain("has been running for 40 minutes");
+			expect(surface.text()).not.toContain("has been running for 10 minutes");
+			ui.notify("Ordinary status after terminal notice", "info");
+			expect(surface.text()).toContain("Ordinary status after terminal notice");
+			expect(surface.text()).not.toContain("has been running for 40 minutes");
+			vi.advanceTimersByTime(30 * MINUTE);
+			expect(surface.text()).toContain("has been running for 70 minutes");
+			expect(surface.text()).not.toContain("Ordinary status after terminal notice");
+		} finally {
+			surface.cleanup();
+		}
+	});
 
 	it("tells the agent, the TUI and RPC drivers that a session is still running and how to stop it", () => {
 		const { terminal, emitted, messages, notices, ageEvents } = harness();

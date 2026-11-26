@@ -22,6 +22,27 @@ type BashOutputViewDetails = {
 	readonly statusStart: number;
 	readonly statusEnd: number;
 };
+export type DenseBashPollArgs = {
+	readonly bash_id?: string;
+	readonly view?: "log" | "screen";
+	readonly filter?: string;
+};
+type DenseBashPollResult = {
+	readonly content?: unknown;
+	readonly details?: unknown;
+	readonly isError?: unknown;
+};
+export type DenseBashPollView = {
+	readonly sessionId: string;
+	readonly processStatus: string;
+	readonly exitCode: number | null;
+	readonly status: "running" | "done" | "failed" | "cancelled";
+	readonly exitKey: string;
+	readonly body: string;
+	readonly bodyFingerprint: string;
+	readonly emptyPlaceholder?: "synthetic" | "filtered" | "literal";
+	readonly notices: readonly string[];
+};
 type BashOutputToolDefinition = ToolDefinition<typeof bashOutputSchema, BashOutputDetails>;
 type MonitorToolDefinition = ToolDefinition<typeof monitorSchema, BashOutputDetails>;
 type KillBashToolDefinition = ToolDefinition<typeof killBashSchema, BashOutputDetails>;
@@ -61,6 +82,143 @@ function bashOutputOf(details: BashOutputDetails): BashOutputViewDetails | undef
 		return undefined;
 	const { sessionId, processStatus, exitCode, statusStart, statusEnd } = value;
 	return { sessionId, processStatus, exitCode, statusStart, statusEnd };
+}
+
+function visibleResultText(content: readonly unknown[]): string {
+	return content
+		.flatMap((part) =>
+			typeof part === "object" &&
+			part !== null &&
+			"type" in part &&
+			part.type === "text" &&
+			"text" in part &&
+			typeof part.text === "string" &&
+			!isModelOnlyText(part)
+				? [part.text]
+				: [],
+		)
+		.join("\n");
+}
+
+function bodyAfterStatus(text: string, view: BashOutputViewDetails): string | undefined {
+	const hasBoundary =
+		(view.statusEnd === text.length || text[view.statusEnd] === "\n") &&
+		(view.statusStart === 0 || text[view.statusStart - 1] === "\n");
+	return hasBoundary ? (view.statusEnd === text.length ? "" : text.slice(view.statusEnd + 1)).trimEnd() : undefined;
+}
+
+function pollNoticeLabels(value: unknown): string[] {
+	if (value === null || typeof value !== "object") return [];
+	const notices: string[] = [];
+	const monitor = "monitorMuted" in value ? value.monitorMuted : undefined;
+	if (monitor !== null && typeof monitor === "object" && "dropped" in monitor) {
+		const dropped = monitor.dropped;
+		notices.push(
+			typeof dropped === "number" && dropped > 0 ? `monitor muted; ${dropped} lines dropped` : "monitor muted",
+		);
+	}
+	const dropped = "droppedOutput" in value ? value.droppedOutput : undefined;
+	if (dropped !== null && typeof dropped === "object" && "chars" in dropped) {
+		notices.push(
+			typeof dropped.chars === "number" ? `${dropped.chars} earlier chars dropped` : "earlier output dropped",
+		);
+	}
+	if ("truncated" in value && value.truncated !== undefined) notices.push("output truncated");
+	return notices;
+}
+
+function processStatusDetail(view: Pick<BashOutputViewDetails, "processStatus" | "exitCode">): {
+	statusGlyph: string;
+	detail: string;
+} {
+	if (view.processStatus === "running") return { statusGlyph: "✓", detail: "running" };
+	if (view.processStatus === "killed") return { statusGlyph: "×", detail: "killed" };
+	if (view.processStatus === "timed_out") return { statusGlyph: "×", detail: "timed out" };
+	if (view.processStatus.startsWith("signal_"))
+		return { statusGlyph: "×", detail: `signal ${view.processStatus.slice("signal_".length)}` };
+	if (view.exitCode !== null && view.exitCode !== 0) return { statusGlyph: "×", detail: `exit code ${view.exitCode}` };
+	if (view.processStatus === "completed" || view.exitCode === 0) return { statusGlyph: "✓", detail: "completed" };
+	const exitedCode = /^exited_(-?\d+)$/.exec(view.processStatus)?.[1];
+	return {
+		statusGlyph: "×",
+		detail:
+			exitedCode === undefined ? sanitizeTerminalLabel(view.processStatus) || "exited" : `exit code ${exitedCode}`,
+	};
+}
+
+/**
+ * Classify a stored bash_output result for dense presentation without parsing model-facing output.
+ * Returns undefined when the result is an error, screen snapshot, or lacks trusted poll metadata.
+ */
+export function denseBashPoll(result: unknown, args: DenseBashPollArgs): DenseBashPollView | undefined {
+	if (result === null || typeof result !== "object") return undefined;
+	const stored = result as DenseBashPollResult;
+	if (stored.isError === true || !Array.isArray(stored.content)) return undefined;
+	const details =
+		stored.details !== null && typeof stored.details === "object"
+			? (stored.details as Record<string, unknown>)
+			: undefined;
+	const nested = details?.bashOutput;
+	if (nested === null || typeof nested !== "object") return undefined;
+	const value = nested as Record<string, unknown>;
+	const sessionId = typeof value.sessionId === "string" ? value.sessionId : args.bash_id;
+	if (!sessionId || args.view === "screen" || value.view === "screen") return undefined;
+	const metadata = bashOutputOf(details);
+	if (!metadata) return undefined;
+	const poll = value.poll;
+	if (poll === null || typeof poll !== "object") return undefined;
+	const pollFacts = poll as Record<string, unknown>;
+	if (
+		pollFacts.emptyPlaceholder !== undefined &&
+		pollFacts.emptyPlaceholder !== "synthetic" &&
+		pollFacts.emptyPlaceholder !== "filtered" &&
+		pollFacts.emptyPlaceholder !== "literal"
+	)
+		return undefined;
+	const recoveredBody = bodyAfterStatus(visibleResultText(stored.content), metadata);
+	if (recoveredBody === undefined) return undefined;
+	const emptyPlaceholder = pollFacts.emptyPlaceholder;
+	if (emptyPlaceholder !== undefined && recoveredBody !== "(no new output)") return undefined;
+	const body =
+		emptyPlaceholder === "synthetic"
+			? "(no new output)"
+			: emptyPlaceholder === "filtered"
+				? "(no matching output)"
+				: recoveredBody;
+	const processStatus = metadata.processStatus;
+	const exitCode = metadata.exitCode;
+	const exitKey =
+		processStatus === "running" ||
+		processStatus === "completed" ||
+		processStatus === "killed" ||
+		processStatus === "timed_out"
+			? processStatus
+			: processStatus.startsWith("signal_")
+				? processStatus
+				: exitCode !== null && exitCode !== 0
+					? `exit_code:${exitCode}`
+					: processStatus;
+	const status =
+		processStatus === "running"
+			? "running"
+			: processStatus === "killed"
+				? "cancelled"
+				: processStatus === "completed" && (exitCode === null || exitCode === 0)
+					? "done"
+					: "failed";
+	return {
+		sessionId: metadata.sessionId,
+		processStatus,
+		exitCode,
+		status,
+		exitKey,
+		body,
+		bodyFingerprint: body,
+		...(emptyPlaceholder === undefined
+			? {}
+			: { emptyPlaceholder: emptyPlaceholder as DenseBashPollView["emptyPlaceholder"] }),
+		notices: pollNoticeLabels(pollFacts.notices),
+	};
 }
 
 function bashHeading(sessionId: string | undefined, details: readonly string[] = []) {
@@ -125,6 +283,7 @@ class KillBashResultComponent extends Text implements DensityCardSource {
 	#sessionId = "";
 	#status: "running" | "done" | "failed" = "running";
 	#detail = "killing";
+	#outcome: string | undefined;
 
 	setResult(
 		result: AgentToolResult<BashOutputDetails>,
@@ -136,28 +295,61 @@ class KillBashResultComponent extends Text implements DensityCardSource {
 		this.#text = getTextOutput(result, context.showImages);
 		this.setText(theme.fg("toolOutput", this.#text));
 		this.#sessionId = sessionId;
-		this.#status = context.isError ? "failed" : options.isPartial ? "running" : "done";
-		this.#detail = context.isError ? "failed" : options.isPartial ? "killing" : "killed";
+		const killBash = result.details?.killBash;
+		this.#outcome =
+			killBash !== null &&
+			typeof killBash === "object" &&
+			"sessionId" in killBash &&
+			killBash.sessionId === sessionId &&
+			"outcome" in killBash &&
+			typeof killBash.outcome === "string"
+				? killBash.outcome
+				: undefined;
 		const lines = this.#text.split("\n").filter((line) => line.trim() !== `bash_id: ${sessionId}`);
-		if (context.isError) {
-			this.#bodyText = lines.join("\n");
+		const alreadyExited =
+			this.#outcome === "already-exited" ||
+			(context.isError && lines.join("\n") === `Could not kill ${sessionId}: session already exited.`);
+		const notFound = context.isError && lines.join("\n") === `No terminal session found with id: ${sessionId}`;
+		this.#status =
+			context.isError || this.#outcome === "failed" || alreadyExited
+				? "failed"
+				: options.isPartial
+					? "running"
+					: "done";
+		this.#detail = alreadyExited
+			? "already exited"
+			: notFound
+				? "session not found"
+				: this.#status === "failed"
+					? "failed"
+					: options.isPartial
+						? "killing"
+						: "killed";
+		if (this.#status === "failed") {
+			this.#bodyText =
+				this.#outcome === "already-exited"
+					? `Could not kill ${sessionId}: session already exited.`
+					: lines.join("\n");
 			return;
 		}
-		const output = lines.filter((line) => line.trim() !== `Killed ${sessionId}.`);
-		this.#bodyText = output.some((line) => line.trim().length > 0)
-			? output.join("\n")
-			: this.#status === "done"
-				? `Killed ${sessionId}.`
-				: "";
+		this.#bodyText = lines.filter((line) => line.trim() !== `Killed ${sessionId}.`).join("\n");
 	}
 
 	renderDensityCard(): DensityCardStructuredView {
+		const legacyAcknowledgment = this.#text.split("\n").includes(`Killed ${this.#sessionId}.`);
+		const bodyText =
+			this.#status === "done" &&
+			(this.#outcome === "killed" || (legacyAcknowledgment && this.#bodyText.length === 0))
+				? [`killed ${this.#sessionId}.`, ...(this.#bodyText.length > 0 ? this.#bodyText.split("\n") : [])].join(
+						"\n",
+					)
+				: this.#bodyText;
 		return {
 			format: "structured",
 			kind: "bash-output",
 			heading: bashHeading(this.#sessionId, [this.#detail]),
 			status: this.#status,
-			body: this.#bodyText.length > 0 ? [{ type: "text", lines: this.#bodyText.split("\n") }] : [],
+			body: bodyText.length > 0 ? [{ type: "text", lines: bodyText.split("\n") }] : [],
 			sections: [],
 		};
 	}
@@ -172,56 +364,84 @@ class BashOutputResultComponent implements DensityCardSource {
 	#isError = false;
 	#sessionId: string | undefined;
 	#bashOutput: BashOutputViewDetails | undefined;
+	#densePoll: DenseBashPollView | undefined;
+	#pollNotices: readonly string[] = [];
+	#lookupLabel: string | undefined;
 
 	setResult(
 		result: AgentToolResult<BashOutputDetails>,
 		options: RenderResultOptions,
 		style: JobWidgetLineStyle,
 		isError: boolean,
-		sessionId: string | undefined,
+		args: BashOutputInput | undefined,
 	): void {
 		this.#jobWidget = jobWidgetOf(result.details);
 		this.#style = style;
-		this.#text = result.content
-			.filter((content) => content.type === "text" && !isModelOnlyText(content))
-			.map((content) => (content.type === "text" ? content.text : ""))
-			.join("\n");
+		this.#text = visibleResultText(result.content);
 		this.#isPartial = options.isPartial;
 		this.#expanded = options.expanded;
 		this.#isError = isError;
-		this.#sessionId = sessionId;
+		this.#sessionId = args?.bash_id;
+		const bashOutput = result.details?.bashOutput;
+		const poll =
+			bashOutput !== null && typeof bashOutput === "object" && "poll" in bashOutput ? bashOutput.poll : undefined;
+		const pollNotices = poll !== null && typeof poll === "object" && "notices" in poll ? poll.notices : undefined;
+		this.#pollNotices = pollNoticeLabels(
+			pollNotices ??
+				(result.details?.monitorMuted === true
+					? { monitorMuted: { dropped: result.details.mutedDropped } }
+					: undefined),
+		);
+		const outputError = result.details?.bashOutputError;
+		this.#lookupLabel =
+			outputError !== null &&
+			typeof outputError === "object" &&
+			"kind" in outputError &&
+			outputError.kind === "session-not-found"
+				? "session not found"
+				: undefined;
 		this.#bashOutput =
 			bashOutputOf(result.details) ??
-			(!isError && sessionId
-				? legacyProcessHeader(this.#text, sessionId, result.details?.monitorMuted === true)
+			(!isError && args?.bash_id
+				? legacyProcessHeader(this.#text, args.bash_id, result.details?.monitorMuted === true)
 				: undefined);
+		this.#densePoll = denseBashPoll(result, args ?? {});
 	}
 
 	renderDensityCard(): DensityCardStructuredView {
+		const densePoll = this.#densePoll;
+		if (densePoll) {
+			const status = processStatusDetail(densePoll);
+			return {
+				format: "structured",
+				kind: "bash-output",
+				heading: bashHeading(densePoll.sessionId, [status.detail, ...densePoll.notices]),
+				...(this.#isPartial ? { status: "running" as const } : { statusGlyph: status.statusGlyph }),
+				body: [
+					...(this.#jobWidget && this.#style
+						? [{ type: "rich" as const, render: (width: number) => this.renderWidget(width) }]
+						: []),
+					...(densePoll.body.length > 0
+						? [{ type: "text" as const, lines: densePoll.body.split("\n"), role: "muted" as const }]
+						: []),
+				],
+				sections: [],
+			};
+		}
 		const view = this.#bashOutput;
-		const status = this.#isError ? "failed" : this.#isPartial ? "running" : view ? "done" : undefined;
-		const details =
-			view && !this.#isError
-				? [
-						sanitizeTerminalLabel(view.processStatus),
-						...(view.exitCode === null ? [] : [`exit_code: ${view.exitCode}`]),
-					]
-				: [];
-		// Hide only the status line by its producer-owned boundaries. The visible result still
-		// owns the output, so history does not persist another copy or restore model-only notices.
-		const hasBoundary =
-			view &&
-			(view.statusEnd === this.#text.length || this.#text[view.statusEnd] === "\n") &&
-			(view.statusStart === 0 || this.#text[view.statusStart - 1] === "\n");
-		const output = hasBoundary
-			? this.#text.slice(0, view.statusStart) + this.#text.slice(view.statusEnd + 1)
-			: this.#text;
+		const status = view ? processStatusDetail(view) : undefined;
+		const details = status
+			? [status.detail, ...this.#pollNotices]
+			: [...(this.#lookupLabel === undefined ? [] : [this.#lookupLabel]), ...this.#pollNotices];
+		const output = view ? (bodyAfterStatus(this.#text, view) ?? this.#text) : this.#text;
 
 		return {
 			format: "structured",
 			kind: "bash-output",
 			heading: bashHeading(view?.sessionId ?? this.#sessionId, details),
-			...(status === undefined ? { statusGlyph: "❯" } : { status }),
+			...(this.#isPartial && !this.#isError
+				? { status: "running" as const }
+				: { statusGlyph: this.#isError || this.#lookupLabel !== undefined ? "✗" : (status?.statusGlyph ?? "❯") }),
 			body: [
 				...(this.#jobWidget && this.#style
 					? [{ type: "rich" as const, render: (width: number) => this.renderWidget(width) }]
@@ -311,6 +531,6 @@ export function renderBashOutputResult(
 ): BashOutputResultComponent {
 	const component =
 		(context.lastComponent as BashOutputResultComponent | undefined) ?? new BashOutputResultComponent();
-	component.setResult(result, options, jobWidgetLineStyle(theme), context.isError, context.args?.bash_id);
+	component.setResult(result, options, jobWidgetLineStyle(theme), context.isError, context.args);
 	return component;
 }

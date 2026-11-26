@@ -131,10 +131,15 @@ export function bundleSinks(pi: ExtensionAPI, state: TerminalExtensionState): Te
 		onBackgroundAge: (event) => {
 			pi.events?.emit(TERMINAL_BACKGROUND_AGE_EVENT, event);
 			pi.rpc?.emit(TERMINAL_BACKGROUND_AGE_EVENT, event);
-			withTerminalContext(
-				() => state.ctx?.ui?.notify?.(describeBackgroundAge(event), event.kind === "running" ? "info" : "warning"),
-				retire,
-			);
+			withTerminalContext(() => {
+				const ui = state.ctx?.ui;
+				const message = describeBackgroundAge(event);
+				if (ui?.notifyTerminalBackgroundAge && pi.isLoopRemote?.() !== true) {
+					ui.notifyTerminalBackgroundAge(event, message);
+				} else {
+					ui?.notify?.(message, event.kind === "running" ? "info" : "warning");
+				}
+			}, retire);
 			// A reap reaches the model through the session's completion notice, which names the reap.
 			if (event.kind !== "reaped") state.notifier?.notifyAge(event);
 		},
