@@ -28,7 +28,8 @@ import { CustomMessageComponent } from "./custom-message.ts";
 import { CompactionSummaryMessageComponent } from "./compaction-summary-message.ts";
 import { type DenseProjectRulesMember, DenseProjectRulesRun } from "./dense-project-rules.ts";
 import { DensityFolds } from "./density-fold.ts";
-import { denseBashProjection, DenseBashRun, type DenseBashMember } from "./dense-bash-run.ts";
+import { denseBashMemberSessionId, denseBashProjection, type DenseBashMember } from "./dense-bash-projection.ts";
+import { DenseBashRun } from "./dense-bash-run.ts";
 import { type DenseReadMember, denseReadProjection, DenseReadRun } from "./dense-read-run.ts";
 import { DenseSearchRun } from "./dense-search-run.ts";
 import { AssistantDensityCard } from "./assistant-density-card.ts";
@@ -42,9 +43,10 @@ import {
 	type ProgressiveTranscriptOptions,
 } from "./progressive-transcript-container.ts";
 import { type DensityCardSource, isDensityCardSource, ToolDensityRow } from "./tool-density-row.ts";
-import { TerminalBackgroundNotice } from "./terminal-background-notice.ts";
+import { displayBashSessionId, TerminalBackgroundNotice } from "./terminal-background-notice.ts";
 import { TerminalTestCompletion } from "./terminal-test-completion.ts";
 import { ToolExecutionComponent } from "./tool-execution.ts";
+import { toolDensityKind } from "./tool-density-summary.ts";
 import { theme } from "../theme/theme.ts";
 import { TranscriptNotice } from "./transcript-notice.ts";
 import { SystemPromptStatus } from "./system-prompt-status.ts";
@@ -79,7 +81,10 @@ export class ExplorationTranscriptContainer extends Container {
 	private pressedDensityRow: ToolDensityRow | undefined;
 	private densityColors: ToolDisplayColors = { colorFrames: false, colorNames: false, colorIcons: false };
 	private readonly densityRows = new WeakMap<ToolExecutionComponent | DensityCardSource, ToolDensityRow>();
-	private denseBashRuns = new WeakMap<ToolExecutionComponent | TerminalBackgroundNotice, DenseBashRun>();
+	private denseBashRuns = new WeakMap<
+		ToolExecutionComponent | TerminalBackgroundNotice | TerminalTestCompletion,
+		DenseBashRun
+	>();
 	private denseReadRuns = new WeakMap<ToolExecutionComponent, DenseReadRun>();
 	private denseSearchRuns = new WeakMap<AssistantDensityCard, DenseSearchRun>();
 	private denseProjectRulesRuns = new WeakMap<CustomEntryComponent, DenseProjectRulesRun>();
@@ -288,7 +293,7 @@ export class ExplorationTranscriptContainer extends Container {
 				let run = this.denseBashRuns.get(first.card);
 				if (!run) {
 					run = new DenseBashRun(
-						first.kind === "poll"
+						first.card instanceof ToolExecutionComponent
 							? this.densityFolds.forNest("bashOutput", first.card.toolCallId)
 							: this.densityFolds.forSource(first.card, true),
 					);
@@ -366,26 +371,45 @@ export class ExplorationTranscriptContainer extends Container {
 				flushPatches();
 				if (seenBashWarnings.has(child.dedupKey)) return;
 				seenBashWarnings.add(child.dedupKey);
-				bashRun.push({
-					kind: "warning",
-					card: child,
-					sourceRevision: child.getRenderRevision(),
-					view: child.renderDensityCard(),
-					statusGlyph: "!",
-				});
+				const member = denseBashProjection(child);
+				if (member) bashRun.push(member);
 				return;
 			}
-			if (child instanceof ToolExecutionComponent && child.summarySnapshot.name === "bash_output") {
+			if (child instanceof TerminalTestCompletion) {
+				const member = denseBashProjection(child);
+				const completionId = member?.view.heading.identity;
+				if (
+					member &&
+					completionId &&
+					bashRun.some((candidate) => {
+						const sessionId = denseBashMemberSessionId(candidate);
+						return sessionId !== undefined && displayBashSessionId(sessionId) === completionId;
+					})
+				)
+					bashRun.push(member);
+				else {
+					flushBash();
+					appendRow(child);
+				}
+				return;
+			}
+			if (
+				child instanceof ToolExecutionComponent &&
+				(toolDensityKind(child.summarySnapshot.name) === "shell" ||
+					toolDensityKind(child.summarySnapshot.name) === "bash-output")
+			) {
+				const member = denseBashProjection(child);
+				if (!member) return;
 				flushReads();
 				flushPatches();
-				const member = denseBashProjection(child);
-				if (member) {
+				if (member.kind === "poll") {
 					const { poll } = member;
 					const state = `${poll.processStatus}\0${poll.exitKey}\0${poll.exitCode ?? ""}`;
-					const previous = lastBashStatus.get(poll.sessionId);
+					const sessionId = displayBashSessionId(poll.sessionId);
+					const previous = lastBashStatus.get(sessionId);
 					const changed = previous !== state;
-					lastBashStatus.set(poll.sessionId, state);
-					if (changed) lastBashPolls.delete(poll.sessionId);
+					lastBashStatus.set(sessionId, state);
+					if (changed) lastBashPolls.delete(sessionId);
 					const empty = poll.emptyPlaceholder !== undefined && poll.emptyPlaceholder !== "literal";
 					const details = child.presentationSnapshot.state.result?.details;
 					const widget = isRecord(details) && isRecord(details.jobWidget) ? details.jobWidget : undefined;
@@ -401,25 +425,17 @@ export class ExplorationTranscriptContainer extends Container {
 						member.view.heading,
 						widgetKey,
 					]);
-					let seen = lastBashPolls.get(poll.sessionId);
+					let seen = lastBashPolls.get(sessionId);
 					if (!seen) {
 						seen = new Set();
-						lastBashPolls.set(poll.sessionId, seen);
+						lastBashPolls.set(sessionId, seen);
 					}
 					if (seen.has(signature)) return;
 					seen.add(signature);
-					// A test count names one invocation, not the combined set of bash ids.
-					if (poll.testLabel !== undefined) {
-						flushBash();
-						lastBashPolls.set(poll.sessionId, seen);
-						appendRow(child);
-					} else {
-						bashRun.push(member);
-					}
+					bashRun.push(member);
 					return;
 				}
-				flushBash();
-				appendRow(child);
+				bashRun.push(member);
 				return;
 			}
 			flushBash();

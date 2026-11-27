@@ -1,3 +1,23 @@
+## 2026-11-27 - Nest consecutive Bash variants and color eval subtitles
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/dense-bash-run.ts` and `packages/coding-agent/src/modes/interactive/components/exploration-transcript-container.ts` let consecutive visible Bash cards share a nest even when a card has no structured poll metadata. Distinct output and diagnostics keep their own member folds; metadata controls safe omission and the parent summary.
+- `packages/coding-agent/src/modes/interactive/components/dense-bash-projection.ts` adapts Bash variants without requiring poll metadata for membership.
+- `packages/coding-agent/src/modes/interactive/components/density-card-style.ts` makes the shared card formatter apply eval's title-name color to its section subtitles regardless of label text.
+
+### Why
+
+- Saved output and other Bash variants should not break a run just because they cannot be deduplicated. Eval subtitles should match the title without requiring each producer to assign its own colors.
+
+### Why an extension could not handle it
+
+- The interactive transcript owns the order-aware nesting projection and the shared tool card palette.
+
+### Expected merge conflict zones
+
+- Dense Bash projection and structured section rendering. Default mode is unchanged.
+
 ## 2026-11-26 - Fold plain transcript notifications in dense views
 
 ### What changed

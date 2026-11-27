@@ -6,9 +6,10 @@ import { VirtualTerminal } from "../../../tui/test/virtual-terminal.ts";
 import { createCustomMessage } from "../../src/core/messages.ts";
 import { AssistantMessageComponent } from "../../src/modes/interactive/components/assistant-message.ts";
 import { ExplorationTranscriptContainer } from "../../src/modes/interactive/components/exploration-transcript-container.ts";
+import { TerminalTestCompletion } from "../../src/modes/interactive/components/terminal-test-completion.ts";
 import { ToolExecutionComponent } from "../../src/modes/interactive/components/tool-execution.ts";
 import { theme } from "../../src/modes/interactive/theme/theme.ts";
-import { explorationSurface, invoke } from "./exploration-surface-harness.ts";
+import { explorationSurface, invoke, runTool } from "./exploration-surface-harness.ts";
 
 const failedCommand = "command failed independently of the terminal";
 const longSummary = "確認する".repeat(35);
@@ -107,19 +108,144 @@ describe("tool display density", () => {
 				]);
 				surface.chat.setToolDisplayDensity(density);
 				const folded = surface.text(100);
-				expect(folded).toContain("1 failed, 2 passed, 3 skipped");
+				expect(folded).not.toContain("1 failed, 2 passed, 3 skipped");
 				expect(folded).toContain("4 passed");
 				expect(folded).not.toContain("99 failed");
 				expect(folded).not.toContain("RAW_TEST_DIAGNOSTIC");
 				for (const child of surface.chat.children) {
 					if (child instanceof ToolExecutionComponent) child.setExpanded(true);
 				}
-				expect(surface.text(100)).toContain("RAW_TEST_DIAGNOSTIC");
+				const expanded = surface.text(100);
+				expect(expanded).toContain("RAW_TEST_DIAGNOSTIC");
+				expect(expanded).toContain("1 failed, 2 passed, 3 skipped");
 				surface.chat.setToolDisplayDensity("default");
 				const normal = surface.text(100);
 				expect(normal).toContain("RAW_TEST_DIAGNOSTIC");
 				expect(normal).not.toContain("1 failed, 2 passed, 3 skipped");
 				expect(normal).not.toContain("BACKGROUND_OUTPUT");
+			} finally {
+				surface.cleanup();
+			}
+		},
+	);
+
+	it.each(["compact", "grouped"] as const)("nests adjacent shell controls in %s", async (density) => {
+		const surface = await explorationSurface();
+		try {
+			if (!(surface.chat instanceof ExplorationTranscriptContainer)) throw new TypeError("Expected the transcript");
+			await runTool(surface, { id: "shell-command", toolName: "bash", args: { command: "echo fixture" } });
+			await runTool(surface, {
+				id: "shell-input",
+				toolName: "bash_input",
+				args: { bash_id: "bash_1", input: "continue" },
+			});
+			await runTool(surface, {
+				id: "shell-resize",
+				toolName: "bash_resize",
+				args: { bash_id: "bash_1", cols: 80, rows: 24 },
+			});
+			await runTool(surface, { id: "shell-kill", toolName: "kill_bash", args: { bash_id: "bash_1" } });
+			surface.chat.setToolDisplayDensity(density);
+
+			expect(rowIndices(surface.text(100).split("\n"))).toHaveLength(1);
+		} finally {
+			surface.cleanup();
+		}
+	});
+
+	it.each(["compact", "grouped"] as const)(
+		"nests persisted Bash output fallbacks and matching counts in %s",
+		async (density) => {
+			const surface = await explorationSurface();
+			try {
+				if (!(surface.chat instanceof ExplorationTranscriptContainer))
+					throw new TypeError("Expected the transcript");
+				const addOutput = async (
+					id: string,
+					view: "log" | "screen",
+					processStatus: string,
+					exitCode: number | null,
+					output: string,
+					isError = false,
+				) => {
+					await surface.event({
+						type: "tool_execution_start",
+						toolName: "bash_output",
+						toolCallId: id,
+						args: { bash_id: "bash_42", view },
+					});
+					await surface.event({
+						type: "tool_execution_end",
+						toolName: "bash_output",
+						toolCallId: id,
+						isError,
+						result: {
+							content: [{ type: "text", text: `status: ${processStatus}\n${output}` }],
+							details: {
+								bashOutput: {
+									sessionId: "bash_42",
+									processStatus,
+									exitCode,
+									statusStart: 0,
+									statusEnd: `status: ${processStatus}`.length,
+									...(view === "screen" ? { view: "screen" } : {}),
+								},
+							},
+						},
+					});
+				};
+				await addOutput("screen", "screen", "running", null, "SCREEN_BODY");
+				await addOutput("legacy", "log", "running", null, "LEGACY_BODY");
+				await addOutput("error", "log", "exited_1", 1, "ERROR_BODY", true);
+				const completion = TerminalTestCompletion.from(
+					createCustomMessage(
+						"senpi-terminal:notification",
+						"TEST_COMPLETION_BODY",
+						false,
+						{
+							terminalTestCompletion: {
+								id: "bash_42",
+								testSummary: { version: 1, runner: "vitest", passed: 2, failed: 1, skipped: 0 },
+							},
+						},
+						"2026-11-26T00:00:00.000Z",
+					),
+					false,
+				);
+				if (completion) surface.chat.addChild(completion);
+				surface.chat.setToolDisplayDensity(density);
+
+				const width = 32;
+				const collapsed = surface.text(width).split("\n");
+				const rows = rowIndices(collapsed);
+				expect(rows).toHaveLength(1);
+				expect(visibleWidth(collapsed[rows[0]])).toBeLessThanOrEqual(width);
+				expect(collapsed[rows[0]]).not.toContain("2 passed");
+
+				surface.chat.handleMouse({
+					type: "click",
+					button: "left",
+					x: 6,
+					y: rows[0],
+					screenX: 6,
+					screenY: rows[0],
+					width,
+					height: collapsed.length,
+					shift: false,
+					alt: false,
+					ctrl: false,
+				});
+				const expanded = surface.text(100);
+				expect(expanded).toContain("SCREEN_BODY");
+				expect(expanded).toContain("LEGACY_BODY");
+				expect(expanded).toContain("ERROR_BODY");
+				expect(expanded).toContain("1 failed, 2 passed");
+				const narrow = surface.text(width);
+				expect(narrow).toContain("failed, 2 passed");
+				expect(narrow).toContain("SCREEN_BODY");
+				expect(narrow).toContain("LEGACY_BODY");
+				expect(narrow).toContain("ERROR_BODY");
+				expect(narrow.split("\n").every((line) => visibleWidth(line) <= width)).toBe(true);
 			} finally {
 				surface.cleanup();
 			}

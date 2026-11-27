@@ -100,6 +100,72 @@ describe("semantic density card styling", () => {
 		},
 	);
 
+	it.each([
+		{ colorNames: false },
+		{ colorNames: true },
+		{ colorNames: false, override: "#7cbddb" },
+		{ colorNames: true, override: "#7cbddb" },
+	])(
+		"matches every eval subtitle to its title (names=$colorNames, override=$override)",
+		async ({ colorNames, override }) => {
+			const subtitles = [
+				{ label: "status" },
+				{ label: "previously unseen" },
+				{ label: "explicit title role", role: "title" as const },
+			];
+			const card = {
+				densityExpanded: true,
+				setExpanded() {},
+				getBackgroundPainter: () => undefined,
+				renderDensitySummary: () => [],
+				renderDensityCard: (): DensityCardStructuredView => ({
+					format: "structured",
+					kind: "eval",
+					heading: { identity: "eval js" },
+					status: "done",
+					body: [],
+					sections: subtitles.map((heading) => ({
+						heading,
+						placement: "frame",
+						body: [{ type: "text" as const, lines: ["section body"], role: "muted" as const }],
+					})),
+				}),
+				render: () => [],
+				invalidate() {},
+			};
+			const row = new ToolDensityRow(
+				card,
+				() => {},
+				() => ({
+					colorFrames: true,
+					colorNames,
+					colorIcons: true,
+					...(override ? { overrides: new Map([["eval", parseColor(override)]]) } : {}),
+				}),
+			);
+			const rows = row.render(width);
+			const plain = rows.map(stripTerminalSequences);
+			const titleRow = plain.findIndex((line) => line.includes("eval js"));
+			const statusRow = plain.findIndex((line) => line.includes("status"));
+			const unknownRow = plain.findIndex((line) => line.includes("previously unseen"));
+			const explicitTitleRow = plain.findIndex((line) => line.includes("explicit title role"));
+			using rendered = await terminalRows(rows);
+			using muted = await terminalRows([theme.fg("muted", "M")]);
+			expect(cellOf(rendered, statusRow, plain[statusRow].indexOf("status")).color).toEqual(
+				cellOf(rendered, titleRow, plain[titleRow].indexOf("eval js")).color,
+			);
+			expect(cellOf(rendered, unknownRow, plain[unknownRow].indexOf("previously unseen")).color).toEqual(
+				cellOf(rendered, titleRow, plain[titleRow].indexOf("eval js")).color,
+			);
+			expect(
+				cellOf(rendered, explicitTitleRow, plain[explicitTitleRow].indexOf("explicit title role")).color,
+			).toEqual(cellOf(rendered, titleRow, plain[titleRow].indexOf("eval js")).color);
+			expect(cellOf(rendered, statusRow + 1, plain[statusRow + 1].indexOf("section body")).color).toEqual(
+				cellOf(muted, 0, 0).color,
+			);
+		},
+	);
+
 	describe.each(["compact", "grouped"] as const)("%s", (density) => {
 		it.each([
 			{ op: "drop", status: "abandoned", glyph: "×", strike: false },

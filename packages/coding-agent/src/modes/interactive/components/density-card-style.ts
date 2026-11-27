@@ -35,7 +35,7 @@ const cardRegistry = {
 		accent: "syntaxType",
 		frame: "muted",
 		body: "muted",
-		section: "muted",
+		section: "title",
 		identityPlacement: "name",
 	},
 	shell: { name: "bash", accent: bashAccent, frame: "accent", body: "text", section: "muted" },
