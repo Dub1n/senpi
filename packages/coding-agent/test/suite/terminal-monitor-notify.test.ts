@@ -140,15 +140,24 @@ describe("terminal monitor event delivery", () => {
 		expect(sent[5]?.message.content).toContain("resumed");
 	});
 
-	it("delivers an exit summary even when the injection queue is full", () => {
+	it("delivers attributed test completion metadata even when the injection queue is full", () => {
 		const { notifier, scheduler, sent } = createNotifier({
 			settings: { coalesceWindowMs: 10, rateLimitMs: 5000, maxLinesPerInjection: 1, wakeBudget: 5 },
 		});
 		notifier.notifyEvent(line("A", "noisy", "busy"));
-		notifier.notifyEvent(summary("B", "done-b", "watcher completed (exit code 0)"));
+		const testSummary = { version: 1, runner: "vitest", passed: 2, failed: 1, skipped: 0 } as const;
+		notifier.notifyEvent({
+			type: "summary",
+			id: "bash_2",
+			description: "tests",
+			summary: "watcher exited_1 (exit code 1)",
+			testSummary,
+		});
 		scheduler.advanceBy(10);
 
-		expect(sent.some(({ message }) => message.content.includes("watcher completed (exit code 0)"))).toBe(true);
+		expect(sent.find(({ message }) => message.content.includes("watcher exited_1"))?.message).toMatchObject({
+			details: { terminalTestCompletions: [{ id: "bash_2", testSummary, body: "watcher exited_1 (exit code 1)" }] },
+		});
 	});
 
 	it("delivers a summary that arrives while its own monitor is rate-limited and the queue is full", () => {

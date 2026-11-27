@@ -8,7 +8,8 @@ export const renderLoopGuardNotice: MessageRenderer<LoopGuardDetection> = notice
 	if (details === undefined) return undefined;
 	const summary = detectionSummary(details);
 	return {
-		title: `⚠ Loop guard · ${summary}`,
+		defaultIconGlyph: "⚠",
+		title: `Loop guard · ${summary}`,
 		why: whyLine(details),
 		expandedLine: expandedLine(details),
 		densityCard: { kind: "loop-guard", statusGlyph: "!", heading: { details: [summary] } },
@@ -21,7 +22,8 @@ export const renderLoopGuardEscalation: MessageRenderer<LoopGuardEscalationDetai
 		if (details === undefined) return undefined;
 		const summary = `turn interrupted (${details.toolName})`;
 		return {
-			title: `! Loop guard · ${summary}`,
+			defaultIconGlyph: "!",
+			title: `Loop guard · ${summary}`,
 			tone: "error",
 			why: `The agent ignored two warnings and repeated ${details.blockedCallCount} calls after blocking began.`,
 			expandedLine: "A user-role recovery message was queued and the active turn was stopped by a system abort.",

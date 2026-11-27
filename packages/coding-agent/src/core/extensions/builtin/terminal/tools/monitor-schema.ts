@@ -1,5 +1,6 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import { type Static, Type } from "typebox";
+import { testRunnerInputSchema } from "./test-runner-input.ts";
 
 export const DEFAULT_MONITOR_TIMEOUT_MS = 300_000;
 export const MAX_MONITOR_TIMEOUT_MS = 3_600_000;
@@ -51,6 +52,7 @@ export const monitorSchema = Type.Object({
 				"Create, command branch (XOR path): shell command to run and watch in a PTY-backed monitor session.",
 		}),
 	),
+	test_runner: Type.Optional(testRunnerInputSchema),
 	path: Type.Optional(
 		Type.String({
 			minLength: 1,
@@ -101,7 +103,7 @@ export const monitorSchema = Type.Object({
 });
 export type MonitorInput = Static<typeof monitorSchema>;
 
-export type MonitorCreateInput = MonitorInput & { description: string; command: string };
+export type MonitorCreateInput = MonitorInput & { description: string };
 export type FileMonitorCreateInput = MonitorInput & { description: string; path: string };
 
 export function isFileCreateInput(input: MonitorInput): input is FileMonitorCreateInput {
@@ -117,8 +119,7 @@ export function isCreateInput(input: MonitorInput): input is MonitorCreateInput 
 	return (
 		typeof input.description === "string" &&
 		input.description.length > 0 &&
-		typeof input.command === "string" &&
-		input.command.length > 0
+		((typeof input.command === "string" && input.command.length > 0) || input.test_runner !== undefined)
 	);
 }
 

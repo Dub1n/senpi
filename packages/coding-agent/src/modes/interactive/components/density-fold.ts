@@ -94,6 +94,10 @@ export class DensityFolds {
 		return this.get(JSON.stringify(["tool", id]));
 	}
 
+	forTaskWorker(id: string, index: number): DensityFold {
+		return this.get(JSON.stringify(["task-worker", id, index]));
+	}
+
 	forEntry(id: string): DensityFold {
 		return this.get(JSON.stringify(["entry", id]));
 	}

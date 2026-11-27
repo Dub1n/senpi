@@ -165,6 +165,7 @@ When this value is anything other than `"auto"`, it overrides any model-level `p
 | `toolDisplayColorNames` | boolean | `false` | **Color tool names** in `/settings`. Color the bold item name by type in Compact and Grouped. Title separators and ordinary details stay dim; eval summaries, agent identities and models, and newly added todo items retain their normal contrast. Does not affect Default. |
 | `toolDisplayColorIcons` | boolean | `false` | **Color tool icons** in `/settings`. Make the title icon use the item type's name color in Compact and Grouped, even if name coloring is off. With the switch off the icon is neutral. Does not affect Default. |
 | `toolDisplayColorOverrides` | object | `{}` | Override the accent for individual card types in Compact and Grouped. The name, frame, and icon switches still control where the accent appears. |
+| `toolCardIconOverrides` | object | `{}` | Set icon characters for card types and variants. Explicit overrides apply in all three display densities. |
 | `autocompleteMaxVisible` | number | `5` | Max visible items in autocomplete dropdown (3-20) |
 | `showHardwareCursor` | boolean | `false` | Show the terminal cursor while TUI positions it for IME support |
 | `tuiMode` | string | `"regular"` | Interactive TUI mode: `"regular"` or experimental `"fullscreen"`. Changes from `/settings` apply immediately; `--tui-mode` overrides this setting at startup |
@@ -202,6 +203,14 @@ In `/settings`, open **Tool card colors** to set or clear a global override. You
 Values can be basic CSS color names (case-insensitive, including `purple`, `magenta`, `pink`, and `lavender`), `#RGB` or `#RRGGBB` hex, or ANSI palette indexes from `0` through `255` (numbers or digit strings). Indexes use the terminal's palette. Invalid values fall back to the built-in accent. Use the names shown in **Tool card colors**, including `remembered`, `compacted`, `peek`, `from`, and `messaged`. The two `bash` variants have separate entries: `bash` for commands and `bash (output)` for reading their output. Cards with dynamic titles, such as eval summaries, use their base entry (`eval`). Rename old override keys such as `memory` and `edit` to `remembered` and `edited`, respectively. Overrides apply on settings reload and do not change file text or diff content colors.
 
 Use `edited` for both `edit` and `edited` cards and for writes before their outcome is known. A successful new-file write uses `added`. An unresolved `apply_patch` uses `patched` until its file operations are known.
+
+### Tool card icons
+
+Open **Tool card icons** in `/settings` to change a heading icon. Cards with several variants, like Todo, list those variants in a submenu. **Tool failed** supplies one icon for failures across tools.
+
+An empty editor shows the dense default glyph as a muted hint. Saving an empty field restores each view's own default. Typing and saving the same glyph as the hint is an explicit override, which also applies in Default view.
+
+Enter one printable glyph that Senpi measures as one or two terminal columns. In Compact and Grouped a two-column glyph uses the usual gap after the icon, so the title stays in the same column. If your terminal displays the glyph at a different width, choose another symbol.
 
 ### Telemetry and update checks
 

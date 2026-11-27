@@ -1,5 +1,23 @@
 # loop-guard changes
 
+## 2026-11-27 - Honor explicit Loop Guard icons in Default
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/loop-guard/renderer.ts` supplies the detection and escalation glyphs separately from their titles.
+
+### Why
+
+- A configured Loop Guard glyph replaces the original marker without changing the rest of the notice or its Dense status.
+
+### Why an extension could not handle it
+
+- The Loop Guard builtin is the extension that owns these two title builders.
+
+### Expected merge conflict zones
+
+- LOW: notice title construction only.
+
 ## 2026-11-23 - Format Loop guard as a structured dense notice
 
 ### What changed

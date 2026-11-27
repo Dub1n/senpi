@@ -190,6 +190,99 @@ describe("SettingsSelectorComponent", () => {
 		expect(onOverrideChange).toHaveBeenCalledWith("remembered", undefined);
 	});
 
+	it("edits single-role tool card icons and persists an explicit default glyph", () => {
+		const onToolCardIconOverrideChange = vi.fn();
+		const config = {
+			toolCardIconOverrides: {},
+			toolDisplayColorOverrides: {},
+			warnings: {},
+			availableThinkingLevels: [],
+			availableThemes: [],
+			currentTheme: "dark",
+			terminalTheme: "dark",
+		} as unknown as SettingsConfig;
+		const callbacks = { onToolCardIconOverrideChange, onCancel: () => {} } as unknown as SettingsCallbacks;
+		const list = new SettingsSelectorComponent(config, callbacks).getSettingsList();
+		list.selectItem("tool-card-icon-overrides");
+		list.handleInput("\r");
+		list.handleInput("Added");
+		expect(stripAnsi(list.render(120).join("\n"))).toContain("Added");
+		list.handleInput("\r");
+
+		expect(stripAnsi(list.render(120).join("\n"))).toContain("✓");
+		list.handleInput("✓");
+		list.handleInput("\r");
+
+		expect(onToolCardIconOverrideChange).toHaveBeenCalledWith("added", "✓");
+	});
+
+	it("groups icon variants under their registry label", () => {
+		const config = {
+			toolCardIconOverrides: {},
+			toolDisplayColorOverrides: {},
+			warnings: {},
+			availableThinkingLevels: [],
+			availableThemes: [],
+			currentTheme: "dark",
+			terminalTheme: "dark",
+		} as unknown as SettingsConfig;
+		const callbacks = { onToolCardIconOverrideChange: vi.fn(), onCancel: () => {} } as unknown as SettingsCallbacks;
+		const list = new SettingsSelectorComponent(config, callbacks).getSettingsList();
+		list.selectItem("tool-card-icon-overrides");
+		list.handleInput("\r");
+		list.handleInput("Bash");
+		list.handleInput("\r");
+
+		const output = stripAnsi(list.render(120).join("\n"));
+		expect(output).toContain("Bash");
+		expect(output).toContain("Command");
+		expect(output).toContain("Output");
+	});
+
+	it("rejects invalid tool card icons, preserves cancellation, and removes blank overrides", () => {
+		const onToolCardIconOverrideChange = vi.fn();
+		const config = {
+			toolCardIconOverrides: { shell: "!" },
+			toolDisplayColorOverrides: {},
+			warnings: {},
+			availableThinkingLevels: [],
+			availableThemes: [],
+			currentTheme: "dark",
+			terminalTheme: "dark",
+		} as unknown as SettingsConfig;
+		const callbacks = { onToolCardIconOverrideChange, onCancel: () => {} } as unknown as SettingsCallbacks;
+		const list = new SettingsSelectorComponent(config, callbacks).getSettingsList();
+		const openCommandIcon = () => {
+			list.selectItem("tool-card-icon-overrides");
+			list.handleInput("\r");
+			list.handleInput("Bash");
+			list.handleInput("\r");
+			list.handleInput("Command");
+			list.handleInput("\r");
+		};
+
+		openCommandIcon();
+		list.handleInput("ab");
+		list.handleInput("\r");
+		expect(stripAnsi(list.render(120).join("\n"))).toContain("Invalid icon");
+		list.handleInput("\x1b");
+		expect(onToolCardIconOverrideChange).not.toHaveBeenCalled();
+		list.handleInput("\x1b");
+		list.handleInput("\x1b");
+
+		openCommandIcon();
+		list.handleInput("\x7f");
+		list.handleInput("\r");
+		expect(onToolCardIconOverrideChange).toHaveBeenCalledWith("shell", undefined);
+		list.handleInput("\x1b");
+		list.handleInput("\x1b");
+
+		openCommandIcon();
+		list.handleInput("界");
+		list.handleInput("\r");
+		expect(onToolCardIconOverrideChange).toHaveBeenLastCalledWith("shell", "界");
+	});
+
 	it("cancels the color editor and submenu without saving", () => {
 		const onOverrideChange = vi.fn();
 		const onCancel = vi.fn();

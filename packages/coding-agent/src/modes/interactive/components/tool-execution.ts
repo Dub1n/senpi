@@ -9,6 +9,7 @@ import {
 	type TUI,
 } from "@earendil-works/pi-tui";
 import { isModelOnlyText } from "../../../core/tools/model-only-text.ts";
+import type { ToolCardIconOverrides } from "../../../core/tool-card-icons.ts";
 import { questionDensityCard } from "../../../core/extensions/builtin/ask-user/render.ts";
 import { formatTestSummary, readTestSummary } from "../../../core/extensions/builtin/terminal/tools/test-summary.ts";
 import { getTextOutput } from "../../../core/tools/render-utils.ts";
@@ -163,6 +164,7 @@ export class ToolExecutionComponent extends Container {
 
 	/** Compact rows need lifecycle state and metadata without walking the original result content. */
 	get summarySnapshot() {
+		const hasImages = this.result?.content.some((part) => part.type === "image") === true;
 		return {
 			name: this.identity.toolName,
 			label: this.identity.toolDefinition?.label,
@@ -172,7 +174,9 @@ export class ToolExecutionComponent extends Container {
 			started: this.executionStarted,
 			failed: this.result?.isError ?? false,
 			expanded: this.expanded,
-			hasVisibleImages: this.showImages && this.result?.content.some((part) => part.type === "image") === true,
+			hasImages,
+			hasVisibleImages: this.showImages && hasImages,
+			stockReadImage: this.renderer?.isStockReadRenderer === true && hasImages,
 			contentInset: this.renderer?.getDensityContentInset() ?? 0,
 		};
 	}
@@ -188,7 +192,8 @@ export class ToolExecutionComponent extends Container {
 			typeof optionsOrGrouped === "boolean"
 				? { grouped: optionsOrGrouped, expanded: legacyExpanded }
 				: { grouped: optionsOrGrouped.grouped, expanded: optionsOrGrouped.expanded ?? false };
-		if (this.showImages && this.result?.content.some((part) => part.type === "image")) return undefined;
+		const summary = this.summarySnapshot;
+		if (summary.hasVisibleImages && !summary.stockReadImage) return undefined;
 		const questionView = questionDensityCard(
 			this.identity.toolName,
 			this.result ? { ...this.result, details: this.result.details } : undefined,
@@ -225,6 +230,17 @@ export class ToolExecutionComponent extends Container {
 			this.restoreReleasedContent();
 			view = this.renderer?.renderDensityCard(width, options);
 			if (view !== undefined && !options.expanded) this.invalidate();
+		}
+		if (
+			view?.format === "structured" &&
+			view.kind === "viewed" &&
+			options.expanded &&
+			this.summarySnapshot.stockReadImage
+		) {
+			view = {
+				...view,
+				body: [...view.body, { type: "rich", render: (available) => this.images?.render(available) ?? [] }],
+			};
 		}
 		if (view === undefined && this.isPartial && options.expanded && this.renderer?.hasRendererDefinition === false) {
 			const state = this.createRenderState();
@@ -320,6 +336,10 @@ export class ToolExecutionComponent extends Container {
 	setImageWidthCells(width: number): void {
 		this.imageWidthCells = Math.max(1, Math.floor(width));
 		this.updateDisplay();
+	}
+
+	setToolCardIconOverrides(overrides: ToolCardIconOverrides | undefined): void {
+		if (this.renderer?.setToolCardIconOverrides(overrides)) this.invalidateRenderCache();
 	}
 
 	/**
@@ -433,10 +453,15 @@ export class ToolExecutionComponent extends Container {
 				? { ...state, result: collapseFallbackResult(state.result, state.showImages, state.expanded) }
 				: state;
 		renderer.update(renderState);
+		const readImageMimeType =
+			renderer.isStockReadRenderer && state.showImages && !state.result?.isError
+				? state.result?.content.find((part) => part.type === "image")?.mimeType
+				: undefined;
 		this.images!.updateOptions({
 			showImages: state.showImages,
 			maxWidthCells: this.imageWidthCells,
 			showRendererFallback: renderer.hasResultRenderer,
+			...(readImageMimeType === undefined ? {} : { readImageMimeType }),
 		});
 	}
 

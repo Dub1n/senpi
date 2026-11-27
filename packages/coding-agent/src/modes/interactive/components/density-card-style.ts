@@ -2,6 +2,7 @@ import {
 	type Color,
 	type DensityCardHeading,
 	type DensityCardKind,
+	type DensityCardStatus,
 	type DensityCardText,
 	extractAnsiCode,
 	getCapabilities,
@@ -9,8 +10,10 @@ import {
 	parseColor,
 	stripTerminalSequences,
 	styleText,
+	visibleWidth,
 } from "@earendil-works/pi-tui";
 import type { ToolDisplayColors } from "../../../core/settings-manager.ts";
+import { type ToolCardIconOverrides, toolCardIconOverride } from "../../../core/tool-card-icons.ts";
 import { theme, type ThemeColor } from "../theme/theme.ts";
 
 type CardAccent = ThemeColor | Readonly<Record<"dark" | "light", Color>>;
@@ -45,6 +48,7 @@ const cardRegistry = {
 	wait: { name: "wait", accent: "syntaxFunction", frame: "accent", body: "text", section: "muted" },
 	wake: { name: "wake", accent: "syntaxFunction", frame: "accent", body: "text", section: "muted" },
 	read: { name: "read", accent: "syntaxVariable", frame: "accent", body: "muted", section: "muted" },
+	viewed: { name: "viewed", accent: "syntaxVariable", frame: "accent", body: "muted", section: "muted" },
 	todo: { name: "todo", accent: todoAccent, frame: "accent", body: "text", section: "muted" },
 	question: { name: "question", accent: "toolTitle", frame: "muted", body: "text", section: "muted" },
 	goal: { name: "goal", accent: "mdHeading", frame: "accent", body: "text", section: "muted" },
@@ -140,10 +144,13 @@ type DensityTitle = {
 	readonly name?: string | undefined;
 	readonly detail: string;
 	readonly glyph?: string | undefined;
+	readonly status?: DensityCardStatus | undefined;
 };
 
+export type DensityCardDisplay = ToolDisplayColors & { readonly icons?: ToolCardIconOverrides };
+
 /** Paint dense card chrome without inheriting any color from status or body text. */
-export function densityCardStyle(colors: ToolDisplayColors, kind?: DensityCardKind, accentKind = kind) {
+export function densityCardStyle(colors: DensityCardDisplay, kind?: DensityCardKind, accentKind = kind) {
 	const palette: DensityCardPalette | undefined = kind === undefined ? undefined : cardRegistry[kind];
 	const chrome = accentKind === undefined ? undefined : cardRegistry[cardColorKind(accentKind)];
 	const configured = accentKind === undefined ? undefined : colors.overrides?.get(cardColorName(accentKind));
@@ -159,18 +166,25 @@ export function densityCardStyle(colors: ToolDisplayColors, kind?: DensityCardKi
 			.map((part) => paint(part, part === "•" || part === "·" ? "dim" : nameColor, true))
 			.join("");
 	// Compatibility producers may still pass ANSI. A renderer cannot override the glyph policy.
-	const icon = (glyph: string) => paint(stripTerminalSequences(glyph), colors.colorIcons ? frameColor : "text");
+	const iconPrefix = (glyph: string, status?: DensityCardStatus) => {
+		const original = stripTerminalSequences(glyph);
+		const override = toolCardIconOverride(colors.icons, kind, original, status);
+		const resolved = override ?? original;
+		if (!resolved) return "";
+		const spacing = " ".repeat(Math.max(0, 2 - visibleWidth(resolved)));
+		return paint(resolved, colors.colorIcons ? frameColor : "text") + spacing;
+	};
 	return {
 		frame: (gutter: string) => paint(gutter, colors.colorFrames ? frameColor : "borderMuted"),
-		icon,
+		iconPrefix,
 		label: paintName,
 		description: (label: string) => titleText(label, kind === "eval" ? "toolTitle" : "dim"),
 		titleSection: paintName,
 		sectionLabel: (label: string, bold?: boolean) => titleText(label, "muted", undefined, undefined, bold),
 		bodyRole: palette?.body ?? "text",
 		sectionRole: palette?.section ?? "muted",
-		title: ({ name, detail, glyph }: DensityTitle) => {
-			const marker = glyph ? `${icon(glyph)} ` : "";
+		title: ({ name, detail, glyph, status }: DensityTitle) => {
+			const marker = glyph === undefined && status === undefined ? "" : iconPrefix(glyph ?? "", status);
 			if (name === undefined)
 				return marker + (kind === undefined || kind === "eval" ? detail : neutralDetail(detail));
 			const painted = paintName(name);

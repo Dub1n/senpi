@@ -8,9 +8,12 @@ import {
 	Spacer,
 	Text,
 } from "@earendil-works/pi-tui";
+import { prefixToolCardTitle } from "../../../core/default-tool-card-title.ts";
 import type { CompactionSummaryMessage } from "../../../core/messages.ts";
+import { type ToolCardIconOverrides, toolCardIconOverride } from "../../../core/tool-card-icons.ts";
 import { sharedMarkdownTheme, theme } from "../theme/theme.ts";
 import { keyText } from "./keybinding-hints.ts";
+import { ThemedText } from "./themed-text.ts";
 
 const TERMINAL_ESCAPE_SEQUENCE =
 	/(?:\u001B\]|\u009D)[\s\S]*?(?:\u0007|\u001B\\|\u009C)|(?:\u001B\[|\u009B)[0-?]*[ -/]*[@-~]/g;
@@ -57,6 +60,12 @@ export class CompactionSummaryMessageComponent extends Box {
 	private expanded = false;
 	private message: CompactionSummaryMessage;
 	private markdownTheme: MarkdownTheme;
+	private defaultIcon: string | undefined;
+	private readonly defaultTitle = new ThemedText(
+		() => theme.fg("customMessageLabel", `\x1b[1m${prefixToolCardTitle("[compaction]", this.defaultIcon)}\x1b[22m`),
+		0,
+		0,
+	);
 
 	constructor(message: CompactionSummaryMessage, markdownTheme: MarkdownTheme = sharedMarkdownTheme()) {
 		super(1, 1, (t) => theme.bg("customMessageBg", t));
@@ -68,6 +77,13 @@ export class CompactionSummaryMessageComponent extends Box {
 	/** Rendered entirely by children that this class rebuilds on every state change. */
 	override getRenderRevision(): number | undefined {
 		return this.childRenderRevision();
+	}
+
+	setToolCardIconOverrides(overrides: ToolCardIconOverrides | undefined): void {
+		const icon = toolCardIconOverride(overrides, "compaction", "✓");
+		if (icon === this.defaultIcon) return;
+		this.defaultIcon = icon;
+		this.defaultTitle.invalidate();
 	}
 
 	setExpanded(expanded: boolean): void {
@@ -166,8 +182,7 @@ export class CompactionSummaryMessageComponent extends Box {
 
 		const tokenStr = this.message.tokensBefore.toLocaleString();
 		const details = formatCompactionDetails(this.message.details);
-		const label = theme.fg("customMessageLabel", `\x1b[1m[compaction]\x1b[22m`);
-		content.addChild(new Text(label, 0, 0));
+		content.addChild(this.defaultTitle);
 		content.addChild(new Spacer(1));
 
 		if (this.expanded) {

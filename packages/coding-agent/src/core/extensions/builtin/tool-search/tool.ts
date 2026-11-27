@@ -6,6 +6,7 @@ import {
 	Text,
 } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
+import { defaultToolCardTitle } from "../../../default-tool-card-title.ts";
 import type { ToolDefinition } from "../../types.ts";
 import type { Bm25Result } from "./engine/bm25.ts";
 import type { ToolSearchSource } from "./engine/document.ts";
@@ -106,7 +107,10 @@ export function createToolSearchTool(service: ToolSearchService): ToolSearchTool
 			const source = args.source === undefined ? "" : ` source:${args.source}`;
 			const group = args.group === undefined ? "" : ` @${args.group}`;
 			return new ToolSearchCard(
-				theme.fg("toolTitle", theme.bold(`${TOOL_SEARCH_TOOL_NAME} "${args.query}"${source}${group}`)),
+				theme.fg(
+					"toolTitle",
+					theme.bold(defaultToolCardTitle(`${TOOL_SEARCH_TOOL_NAME} "${args.query}"${source}${group}`, context)),
+				),
 				{
 					format: "structured",
 					kind: "tool",

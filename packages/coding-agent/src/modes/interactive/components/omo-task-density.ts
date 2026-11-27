@@ -7,25 +7,61 @@ import {
 
 type RecordValue = Record<string, unknown>;
 type OmoCard = DensityCardStructuredView;
-
-/** Project recognized stock OmO tool results into dense cards without changing their default renderer. */
-export function omoTaskDensityCard(input: {
+type OmoTaskDensityInput = {
 	readonly toolName: string;
 	readonly args: unknown;
 	readonly result: { readonly details?: unknown; readonly isError: boolean } | undefined;
 	readonly earlierModel?: string;
-}): DensityCardView | undefined {
+};
+type OmoTaskDensityMember = Omit<OmoCard, "kind"> & { readonly kind: "task" };
+
+export type OmoTaskDensityProjection =
+	| { readonly type: "card"; readonly card: OmoCard }
+	| {
+			readonly type: "members";
+			readonly summary: OmoCard;
+			readonly members: readonly OmoTaskDensityMember[];
+	  };
+
+/** Project recognized stock OmO tool results into dense cards without changing their default renderer. */
+export function omoTaskDensityCard(input: OmoTaskDensityInput): DensityCardView | undefined {
+	const projection = omoTaskDensityProjection(input);
+	if (!projection) return undefined;
+	if (projection.type === "card") return projection.card;
+	const [first, ...rest] = projection.members;
+	return {
+		...projection.summary,
+		...(first ? { expandedHeading: first.heading, body: first.body } : {}),
+		sections: rest.map((member) => ({
+			placement: "frame",
+			heading: {
+				kind: member.kind,
+				heading: member.heading,
+				...(member.statusGlyph === undefined ? {} : { statusGlyph: member.statusGlyph }),
+				...(member.status === undefined ? {} : { status: member.status }),
+			},
+			body: member.body,
+		})),
+	};
+}
+
+/** Project recognized OmO tool results before structured Task items become display sections. */
+export function omoTaskDensityProjection(input: OmoTaskDensityInput): OmoTaskDensityProjection | undefined {
 	if (!input.result || !isRecord(input.args) || !isRecord(input.result.details)) return undefined;
 	switch (input.toolName) {
 		case "task_send":
-			return messageCard(input.args, input.result.details, input.result.isError, input.earlierModel);
+			return cardProjection(messageCard(input.args, input.result.details, input.result.isError, input.earlierModel));
 		case "task_output":
-			return outputCard(input.args, input.result.details, input.result.isError, input.earlierModel);
+			return cardProjection(outputCard(input.args, input.result.details, input.result.isError, input.earlierModel));
 		case "task":
 			return taskCard(input.args, input.result.details, input.result.isError);
 		default:
 			return undefined;
 	}
+}
+
+function cardProjection(card: OmoCard | undefined): OmoTaskDensityProjection | undefined {
+	return card ? { type: "card", card } : undefined;
 }
 
 function isRecord(value: unknown): value is RecordValue {
@@ -337,7 +373,7 @@ function outputCard(
 	);
 }
 
-function taskCard(args: RecordValue, details: RecordValue, isError: boolean): OmoCard | undefined {
+function taskCard(args: RecordValue, details: RecordValue, isError: boolean): OmoTaskDensityProjection | undefined {
 	if (details.mode !== "spawn" || typeof details.task_id !== "string" || !text(details.status)) return undefined;
 	const status = text(details.status);
 	const items = Array.isArray(details.items) ? details.items : undefined;
@@ -409,7 +445,6 @@ function taskCard(args: RecordValue, details: RecordValue, isError: boolean): Om
 	let heading: DensityCardText[];
 	let expandedHeading: DensityCardText[];
 	let body: OmoCard["body"];
-	const sections: DensityCardStructuredView["sections"][number][] = [];
 	if (items) {
 		const workers = items.map((item, index) => {
 			if (typeof item.task_id !== "string" || !text(item.status)) return undefined;
@@ -425,33 +460,44 @@ function taskCard(args: RecordValue, details: RecordValue, isError: boolean): Om
 					...(model ? [{ text: ` (${label(model)})`, role: "dim" as const }] : []),
 				])
 			: [span(taskIdentity(details))];
-		const first = resolvedWorkers[0];
-		expandedHeading = first ? expandedDetails(first.item, first.index) : [span(label(id ?? "task"))];
-		body = first ? workerBody(first.item, first.index, false) : [];
-		for (const worker of resolvedWorkers.slice(1)) {
-			sections.push({
-				placement: "frame",
-				heading: {
-					kind: "task",
-					heading: { details: expandedDetails(worker.item, worker.index) },
-					statusGlyph: taskStatusGlyph(text(worker.item.status) ?? ""),
-				},
-				body: workerBody(worker.item, worker.index, false),
-			});
-		}
+		const members: OmoTaskDensityMember[] = resolvedWorkers.map(({ item, index }) => ({
+			format: "structured",
+			kind: "task",
+			heading: { details: expandedDetails(item, index) },
+			statusGlyph: taskStatusGlyph(text(item.status) ?? ""),
+			body: workerBody(item, index, false),
+			sections: [],
+		}));
+		const summary: OmoCard = {
+			format: "structured",
+			kind: "task",
+			heading: { details: heading },
+			statusGlyph: members[0]?.statusGlyph ?? (failed ? "✗" : id ? "+" : "○"),
+			body: [],
+			sections: [],
+		};
+		if (members.length > 1) return { type: "members", summary, members };
+		const [member] = members;
+		return {
+			type: "card",
+			card: {
+				...summary,
+				expandedHeading: member?.heading ?? { details: [span(label(id ?? "task"))] },
+				body: member?.body ?? [],
+			},
+		};
 	} else {
 		heading = expandedDetails(details, 0);
 		expandedHeading = heading;
 		body = workerBody(details, 0, details.run_in_background === true);
 	}
-	const firstStatus = items?.[0] && text(items[0].status);
-	return {
+	return cardProjection({
 		format: "structured",
 		kind: "task",
 		heading: { details: heading },
 		expandedHeading: { details: expandedHeading },
-		statusGlyph: firstStatus ? taskStatusGlyph(firstStatus) : failed ? "✗" : id ? "+" : "○",
+		statusGlyph: failed ? "✗" : id ? "+" : "○",
 		body,
-		sections,
-	};
+		sections: [],
+	});
 }

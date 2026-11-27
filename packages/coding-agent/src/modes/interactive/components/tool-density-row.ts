@@ -26,7 +26,12 @@ import {
 } from "@earendil-works/pi-tui";
 import type { ToolDisplayColors } from "../../../core/settings-manager.ts";
 import { theme } from "../theme/theme.ts";
-import { densityCardHeading, densityCardStyle, densityCardText } from "./density-card-style.ts";
+import {
+	type DensityCardDisplay,
+	densityCardHeading,
+	densityCardStyle,
+	densityCardText,
+} from "./density-card-style.ts";
 import type { DensityFold } from "./density-fold.ts";
 import type { DensityMemberControls } from "./density-nest.ts";
 import { toolDensityKind, toolDensitySummary } from "./tool-density-summary.ts";
@@ -85,7 +90,7 @@ function contentBounds(lines: readonly string[]): { start: number; end: number }
 export class ToolDensityRow implements Component {
 	private readonly card: ToolExecutionComponent | DensityCardSource;
 	private readonly requestRender: () => void;
-	private readonly getColors: () => ToolDisplayColors;
+	private readonly getColors: () => DensityCardDisplay;
 	private readonly options: ToolDensityRowOptions;
 	private grouped = false;
 	private first = true;
@@ -114,7 +119,7 @@ export class ToolDensityRow implements Component {
 	constructor(
 		card: ToolExecutionComponent | DensityCardSource,
 		requestRender: () => void,
-		getColors: () => ToolDisplayColors = () => defaultColors,
+		getColors: () => DensityCardDisplay = () => defaultColors,
 		options: ToolDensityRowOptions = {},
 	) {
 		this.card = card;
@@ -183,7 +188,12 @@ export class ToolDensityRow implements Component {
 	}
 
 	private densityCard(width: number, expanded = this.expanded): DensityCardView | undefined {
-		if ("summarySnapshot" in this.card && this.card.summarySnapshot.hasVisibleImages) return undefined;
+		if (
+			"summarySnapshot" in this.card &&
+			this.card.summarySnapshot.hasVisibleImages &&
+			!this.card.summarySnapshot.stockReadImage
+		)
+			return undefined;
 		return isSemanticDensityCardSource(this.card)
 			? this.card.renderDensityCard(width, { grouped: this.grouped, expanded })
 			: undefined;
@@ -265,7 +275,8 @@ export class ToolDensityRow implements Component {
 		const frame = renderLabel(` ${style.frame("╭─")} `, title);
 		const sectionHeaders: { start: number; end: number; member: number }[] = [];
 		const livePreview = "summarySnapshot" in this.card && this.card.summarySnapshot.pending;
-		const appendContent = (prefix: string, content: readonly string[]): void => {
+		const frameImages = "summarySnapshot" in this.card && this.card.summarySnapshot.stockReadImage;
+		const appendContent = (prefix: string, content: readonly string[], frameImageLines = false): void => {
 			const skipped = livePreview && !content.some(isImageLine) ? Math.max(0, content.length - livePreviewLines) : 0;
 			if (skipped) frame.push(...renderLabel(prefix, theme.fg("muted", `… ${skipped} earlier lines`)));
 			const offset = frame.length;
@@ -274,7 +285,9 @@ export class ToolDensityRow implements Component {
 					.slice(skipped)
 					.map((line) =>
 						isImageLine(line)
-							? line
+							? frameImageLines
+								? prefix + line
+								: line
 							: applyBackgroundToLine(prefix + line, width, paint, this.grouped ? "replace" : "fill"),
 					),
 			);
@@ -306,7 +319,7 @@ export class ToolDensityRow implements Component {
 			return lines;
 		};
 		if (view.format === "structured") {
-			appendContent(bodyPrefix, renderBlocks(view.body, contentWidth, style.bodyRole));
+			appendContent(bodyPrefix, renderBlocks(view.body, contentWidth, style.bodyRole), frameImages);
 		} else {
 			if (view.renderMetadata !== undefined) appendContent(bodyPrefix, view.renderMetadata(contentWidth));
 			else if (view.metadata !== undefined) frame.push(...renderLabel(bodyPrefix, view.metadata));
@@ -490,7 +503,7 @@ function renderToolSummary(
 		name: summary.name,
 		detail: summary.name === undefined ? theme.fg("text", summary.detail) : summary.detail,
 	});
-	const marker = `${style.icon(rawDensityStatusGlyph(summary.status))} `;
+	const marker = style.iconPrefix(rawDensityStatusGlyph(summary.status), summary.status);
 	const label = densityStatusLabel(summary.status);
 	const color =
 		summary.status === "pending" || summary.status === "queued"
@@ -519,6 +532,7 @@ function renderDensityCardSummary(
 		name: view.name,
 		detail: expanded ? (view.expandedTitle ?? view.title) : view.title,
 		glyph: view.statusGlyph ?? rawDensityStatusGlyph(view.status),
+		status: view.status,
 	});
 	const status = densityStatusLabel(view.status);
 	return title + (status ? `${theme.fg("dim", " · ")}${theme.fg("muted", status)}` : "");
@@ -536,7 +550,7 @@ function renderStructuredHeading(
 	);
 	const separator = view.heading.description !== undefined || hasDetails ? " · " : " • ";
 	return (
-		(glyph ? `${style.icon(glyph)} ` : "") +
+		style.iconPrefix(glyph, view.status) +
 		title +
 		(label ? `${theme.fg("dim", separator)}${theme.fg("muted", label)}` : "")
 	);

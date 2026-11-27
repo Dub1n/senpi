@@ -1,5 +1,43 @@
 # core/tools/renderers changes
 
+## 2026-11-27 - Render image reads without redundant metadata
+
+### What changed
+
+- `packages/coding-agent/src/core/tools/renderers/read.ts` renders one image label when the terminal cannot show the preview and omits that label when a preview is available. Other Read diagnostics remain visible.
+
+### Why
+
+- Image reads should show either the image or a useful fallback, not both.
+
+### Why an extension could not handle it
+
+- The stock Read result renderer owns the display of the tool's result metadata.
+
+### Expected merge conflict zones
+
+- Read result formatting and terminal image capability handling.
+
+## 2026-11-27 - Apply explicit Default tool title icons
+
+### What changed
+
+- `packages/coding-agent/src/core/tools/renderers/bash.ts` uses the configured shell glyph in place of the built-in prompt marker.
+- `packages/coding-agent/src/core/tools/renderers/read.ts` replaces the memory-read glyph or prefixes an icon-free read heading when configured.
+- `packages/coding-agent/src/core/tools/renderers/edit.ts`, `packages/coding-agent/src/core/tools/renderers/write.ts`, `packages/coding-agent/src/core/tools/renderers/find.ts`, `packages/coding-agent/src/core/tools/renderers/grep.ts`, and `packages/coding-agent/src/core/tools/renderers/ls.ts` apply icons at title construction without rewriting the rendered card.
+
+### Why
+
+- Explicit icons should work in Default, while unset icons should leave its title, placement, and wrapping unchanged.
+
+### Why an extension could not handle it
+
+- The stock renderers own their title strings and pass them to the existing width-aware TUI layout.
+
+### Expected merge conflict zones
+
+- Default call title arguments and formatting in the stock renderers.
+
 ## 2026-11-24 - Match plain dense file text to the neutral icon foreground
 
 ### What changed

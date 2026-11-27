@@ -9,9 +9,11 @@ import {
 	Spacer,
 	Text,
 } from "@earendil-works/pi-tui";
+import { applyDefaultToolCardIconOverrides } from "../../../core/default-tool-card-title.ts";
 import type { MessageRenderer } from "../../../core/extensions/types.ts";
 import { sessionControlSenderOf } from "../../../core/extensions/session-control-types.ts";
 import type { CustomMessage } from "../../../core/messages.ts";
+import type { ToolCardIconOverrides } from "../../../core/tool-card-icons.ts";
 import { sharedMarkdownTheme, theme } from "../theme/theme.ts";
 import {
 	isNoticeBox,
@@ -44,6 +46,7 @@ export class CustomMessageComponent extends Container {
 	private customRenderer?: MessageRenderer;
 	private box: Box;
 	private customComponent?: Component;
+	private defaultIcons: ToolCardIconOverrides | undefined;
 	private markdownTheme: MarkdownTheme;
 	private _expanded = false;
 	private outputPad: number;
@@ -111,6 +114,12 @@ export class CustomMessageComponent extends Container {
 		return kind === undefined ? undefined : renderNamedNoticeCard(this.customComponent, kind);
 	}
 
+	setToolCardIconOverrides(overrides: ToolCardIconOverrides | undefined): void {
+		if (this.defaultIcons === overrides) return;
+		this.defaultIcons = overrides;
+		applyDefaultToolCardIconOverrides(this.customComponent, overrides);
+	}
+
 	setExpanded(expanded: boolean): void {
 		if (this._expanded !== expanded) {
 			this._expanded = expanded;
@@ -149,6 +158,7 @@ export class CustomMessageComponent extends Container {
 				if (component) {
 					// Custom renderer provides its own styled component
 					this.customComponent = component;
+					applyDefaultToolCardIconOverrides(component, this.defaultIcons);
 					this.addChild(component);
 					return;
 				}

@@ -12,6 +12,7 @@ import {
 	spinner,
 	style,
 } from "./render-blocks.ts";
+import { cellHeadingIcon } from "./render-icons.ts";
 import { formatThroughputBadge } from "./render-status.ts";
 import { cellOutputSection, cellStatusSection } from "./render-tail.ts";
 import { formatRuntimeBadge } from "./runtime-label.ts";
@@ -167,10 +168,11 @@ export function cellHeader(cell: EvalCellResult, environment: RenderEnvironment,
 		badges.streaming === true
 			? { label: "streaming", icon: spinner(spinnerFrame), color: "warning" as const }
 			: cellPresentation(cell.status, spinnerFrame);
+	const icon = cellHeadingIcon(environment.resolveIcon, cell.status, presentation.icon);
 	const runtimeBadge = cell.runtime === undefined ? "" : ` (${formatRuntimeBadge(cell.language, cell.runtime)})`;
 	const base = leadsWithHeadline(cell.status)
 		? `eval ${cell.language} ${presentation.label}`
-		: `eval ${cell.language} ${presentation.label} ${presentation.icon}`;
+		: `eval ${cell.language} ${presentation.label} ${icon}`;
 	const segments: string[] = [];
 	// The runtime badge is droppable like any badge (review MEDIUM-2): it sits after
 	// queued-behind/throughput so those drop first. Elapsed is passed separately as the
@@ -187,7 +189,7 @@ export function cellHeader(cell: EvalCellResult, environment: RenderEnvironment,
 	const elapsedMs = badges.throughput?.wallDurationMs ?? cellElapsedMs(cell, environment);
 	const protectedTail = elapsedMs === undefined ? undefined : formatDuration(elapsedMs);
 	const header = leadsWithHeadline(cell.status)
-		? headlined(presentation.icon, cell.summary, cell.code, joinSegments(base, segments), environment, {
+		? headlined(icon, cell.summary, cell.code, joinSegments(base, segments), environment, {
 				protectedTail,
 			})
 		: joinSegments(base, protectedTail === undefined ? segments : [...segments, protectedTail]);

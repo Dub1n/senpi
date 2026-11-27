@@ -14,6 +14,7 @@ Preferred harness-based coverage for `AgentSession` / `AgentSessionRuntime`, bui
 | Prompt presets / model rules | `prompt-presets-*.test.ts`, `recommended-models-harness.ts` |
 | TTSR activation asserts | `ttsr-activation-assertions.ts` (`expectTtsrActivation`) |
 | Terminal monitor notifications | `terminal-monitor-notify-harness.ts` |
+| Compact/grouped transcript cards | `tool-display-density.test.ts`, `dense-*-golden.test.ts`, `*-density*.test.ts` |
 | Issue regressions | `regressions/` — see its own AGENTS.md |
 
 Local `README.md` carries the same harness/faux-provider rules; keep both in sync.

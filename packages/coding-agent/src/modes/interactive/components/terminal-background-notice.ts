@@ -1,10 +1,14 @@
 import { type DensityCardStructuredView, nextRenderRevision, sanitizeTerminalLabel } from "@earendil-works/pi-tui";
+import { prefixToolCardTitle } from "../../../core/default-tool-card-title.ts";
 import type { TerminalBackgroundAgeEvent } from "../../../core/extensions/builtin/monitor-state-event.ts";
+import { type ToolCardIconOverrides, toolCardIconOverride } from "../../../core/tool-card-icons.ts";
 import { stripAnsi } from "../../../utils/ansi.ts";
 import { theme } from "../theme/theme.ts";
 import { densityCardHeading, densityCardStyle } from "./density-card-style.ts";
 import { ThemedText } from "./themed-text.ts";
 import type { DensityCardSource } from "./tool-density-row.ts";
+
+const ATTENTION_GLYPH = "!";
 
 export function displayBashSessionId(sessionId: string): string {
 	const id = sanitizeTerminalLabel(sessionId);
@@ -39,22 +43,21 @@ export class TerminalBackgroundNotice extends ThemedText implements DensityCardS
 	private readonly view: DensityCardStructuredView;
 	private expanded: boolean;
 	private densityRevision = nextRenderRevision();
+	private defaultIcon: string | undefined;
 
 	constructor(event: TerminalBackgroundAgeEvent, message: string, expanded: boolean) {
-		super(
-			() => (event.kind === "running" ? theme.fg("dim", message) : theme.fg("warning", `Warning: ${message}`)),
-			1,
-			0,
-		);
+		const running = event.kind === "running";
+		const title = running ? message : `Warning: ${message}`;
+		super(() => theme.fg(running ? "dim" : "warning", prefixToolCardTitle(title, this.defaultIcon)), 1, 0);
 		this.sessionId = event.id;
 		this.dedupKey = JSON.stringify([event.id, event.startedAtMs, event.kind, event.ageMinutes, message]);
-		this.isRunningStatus = event.kind === "running";
+		this.isRunningStatus = running;
 		this.expanded = expanded;
 		this.view = {
 			format: "structured",
 			kind: "bash-output",
 			heading: { identity: displayBashSessionId(event.id), details: [ageTitle(event)] },
-			statusGlyph: "!",
+			statusGlyph: ATTENTION_GLYPH,
 			body: [
 				{
 					type: "text",
@@ -67,6 +70,13 @@ export class TerminalBackgroundNotice extends ThemedText implements DensityCardS
 			],
 			sections: [],
 		};
+	}
+
+	setToolCardIconOverrides(overrides: ToolCardIconOverrides | undefined): void {
+		const icon = toolCardIconOverride(overrides, "bash-output", ATTENTION_GLYPH);
+		if (icon === this.defaultIcon) return;
+		this.defaultIcon = icon;
+		this.invalidate();
 	}
 
 	get densityExpanded(): boolean {
@@ -89,7 +99,7 @@ export class TerminalBackgroundNotice extends ThemedText implements DensityCardS
 
 	renderDensitySummary(): string[] {
 		const style = densityCardStyle({ colorFrames: false, colorNames: false, colorIcons: false }, this.view.kind);
-		return [`${style.icon("!")} ${densityCardHeading(this.view.kind, this.view.heading, style)}`];
+		return [style.iconPrefix(ATTENTION_GLYPH) + densityCardHeading(this.view.kind, this.view.heading, style)];
 	}
 
 	getBackgroundPainter(): (text: string) => string {

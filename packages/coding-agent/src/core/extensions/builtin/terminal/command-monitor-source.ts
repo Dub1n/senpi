@@ -217,6 +217,7 @@ export class CommandMonitorSource {
 		const status = describeExit(record.runtime) ?? "exited";
 		const code = exit?.exitCode;
 		const codeText = code === null || code === undefined ? "" : ` (exit code ${code})`;
+		const testSummary = record.runtime.testSummary;
 		this.#host.emit(record, {
 			type: "summary",
 			id: record.id,
@@ -226,6 +227,7 @@ export class CommandMonitorSource {
 			// deliberately omitted in this branch: a killed child's code is noise, and
 			// "killed at deadline" names the cause instead.
 			summary: exit?.timedOut ? `watcher killed at deadline (${status})` : `watcher ${status}${codeText}`,
+			...(testSummary === undefined ? {} : { testSummary }),
 		});
 		this.#host.ended(record, exit?.timedOut ? "timeout" : exit?.cancelled ? "killed" : "exit", code ?? null);
 	}

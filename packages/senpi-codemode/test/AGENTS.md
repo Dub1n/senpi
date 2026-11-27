@@ -8,7 +8,7 @@ Earned by score 15 — contract layer and fixture hub (95 code files, ~12k LOC).
 | Task | Path |
 | --- | --- |
 | Shared fakes, fixtures | `eval/fakes.ts` (`FakeKernel`, `FakeManager`), `eval-render-fixtures.ts` |
-| Render contracts | `eval-render*.test.ts` family, `json-tree.test.ts`, `tool-widgets.test.ts` |
+| Render contracts, including semantic eval cards and nested tool calls | `eval-render*.test.ts` family, `json-tree.test.ts`, `tool-widgets.test.ts` |
 | Kernel contracts | `js-kernel*.test.ts`, `py-kernel*.test.ts`, `rb-kernel.test.ts`, `kernels/rb/`, `jl-kernel.test.ts` |
 | Detach, interrupt, timeouts | `eval-detach*.test.ts`, `eval-tool-interrupt.test.ts`, `timeouts.test.ts`, `eval-hard-limit.test.ts` |
 | Bridge protocol, servers | `bridge-protocol.test.ts`, `bridge-server*.test.ts`, `agent-bridge.test.ts`, `schema-bridge.test.ts` |

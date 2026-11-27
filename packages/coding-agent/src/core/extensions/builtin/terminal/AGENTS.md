@@ -59,6 +59,7 @@ terminal/
 | Task | File |
 |---|---|
 | Change PTY spawn/exec behavior | `tools/bash.ts`, `tools/spawn.ts` |
+| Change attributed Vitest test counts | `tools/test-runner.ts`, `tools/test-runner-contract.ts`, `tools/test-summary.ts`; `scripts/run-tests.mjs` owns package-script quarantine |
 | Change auto-detach window (~60s foreground) | `tools/foreground-detach.ts`, `tools/foreground-window.ts` |
 | Add/change a monitor condition | `tools/monitor.ts` + `monitor-registry.ts` |
 | Change how monitor wakes the session | `monitor-notify.ts` |
@@ -76,6 +77,7 @@ terminal/
 ## CONVENTIONS
 
 - **Monitor is the wait mechanism.** Observable state changes are delivered as events that wake the session; `bash_output` is for peeking, not waiting.
+- **Test counts come from the adapter receipt, never stdout.** `bash` and one-shot `monitor` accept `test_runner: { runner: "vitest", args: [...] }`. Use `launcher: "bun-script"` with the package `cwd` to run a supported repository test script without skipping its cleanup. One-shot command monitors also recognize a plain `vitest run` or verified `bun run … test` invocation; shell compositions stay ordinary commands.
 - **Companion tools stay active together** with `bash` and are synchronized with extension lifecycle and session-reload bundles — a companion tool without a live PTY is a bug.
 - Tool output is capped at 2,000 lines / 50 KiB and sanitized before it reaches the model; monitor status refreshes on a 1-second unref'd interval.
 - TypeBox schemas are **flat root objects, never root unions** (`tools/monitor.ts` is the reference) — several provider conversions rebuild schemas from top-level `properties` and a root `anyOf` arrives empty.

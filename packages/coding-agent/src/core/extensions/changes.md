@@ -1,3 +1,39 @@
+## 2026-11-27 - Keep source-owned Default notice icons separate from titles
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/notice/spec.ts` and `packages/coding-agent/src/core/extensions/notice/box.ts` let notice producers separate an existing Default glyph from their title text and use the notice's structured kind when applying an override.
+
+### Why
+
+- Replacing a glyph at title construction leaves the notice body and structured density view untouched.
+
+### Why an extension could not handle it
+
+- The shared notice box builds the title and owns its wrapping.
+
+### Expected merge conflict zones
+
+- LOW: the optional notice-spec member and shared title renderer.
+
+## 2026-11-27 - Supply an optional Default tool icon resolver
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/types.ts` adds an optional `ToolRenderContext.resolveDefaultToolCardIcon` callback. It takes the semantic status of a renderer-owned title and returns only an explicitly configured glyph.
+
+### Why
+
+- The separately packaged codemode extension owns Eval titles and has no access to the interactive settings map. An absent callback preserves behavior on older hosts.
+
+### Why an extension could not handle it
+
+- The transcript host owns the icon settings and shared status precedence.
+
+### Expected merge conflict zones
+
+- LOW: one optional member on `ToolRenderContext`.
+
 ## 2026-11-25 - Local presentation of terminal age notices
 
 ### What changed

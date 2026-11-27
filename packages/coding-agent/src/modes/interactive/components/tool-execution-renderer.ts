@@ -13,8 +13,14 @@ import {
 	type DensityCardView,
 } from "@earendil-works/pi-tui";
 import type { ToolRenderContext } from "../../../core/extensions/types.ts";
+import {
+	type DefaultToolCardIconQuery,
+	setDefaultToolCardPresentation,
+} from "../../../core/default-tool-card-title.ts";
+import { type ToolCardIconOverrides, toolCardIconOverride } from "../../../core/tool-card-icons.ts";
 import { createAllToolDefinitions, type ToolName } from "../../../core/tools/index.ts";
 import { theme } from "../theme/theme.ts";
+import { toolDensityKind } from "./tool-density-summary.ts";
 import { formatToolProgressLine, readToolProgress } from "../tool-progress.ts";
 import {
 	createToolCallFallback,
@@ -81,6 +87,8 @@ export class ToolExecutionRenderer extends Container implements DensityCardSourc
 	private readonly onInvalidate: () => void;
 	private readonly onToggleExpanded: (() => boolean) | undefined;
 	private state: ToolExecutionRenderState;
+	private iconOverrides: ToolCardIconOverrides | undefined;
+	private iconsDirty = false;
 	private callRendererComponent?: Component;
 	private resultRendererComponent?: Component;
 
@@ -123,6 +131,15 @@ export class ToolExecutionRenderer extends Container implements DensityCardSourc
 
 	get hasResultRenderer(): boolean {
 		return this.getResultRenderer() !== undefined;
+	}
+
+	get isStockReadRenderer(): boolean {
+		return (
+			this.identity.toolName === "read" &&
+			this.builtInDefinition !== undefined &&
+			this.getCallRenderer() === this.builtInDefinition?.renderCall &&
+			this.getResultRenderer() === this.builtInDefinition?.renderResult
+		);
 	}
 
 	get renderShell(): "default" | "self" {
@@ -169,7 +186,20 @@ export class ToolExecutionRenderer extends Container implements DensityCardSourc
 		return component instanceof ToolRendererBoundary ? component.getDensityContentInset() : 0;
 	}
 
+	setToolCardIconOverrides(overrides: ToolCardIconOverrides | undefined): boolean {
+		if (this.iconOverrides === overrides) return false;
+		this.iconOverrides = overrides;
+		this.iconsDirty = true;
+		return true;
+	}
+
+	override render(width: number): string[] {
+		if (this.iconsDirty) this.update(this.state);
+		return super.render(width);
+	}
+
 	update(state: ToolExecutionRenderState): void {
+		this.iconsDirty = false;
 		forgetDensityCardSummary(this);
 		this.state = state;
 		const background = state.isPartial
@@ -181,7 +211,13 @@ export class ToolExecutionRenderer extends Container implements DensityCardSourc
 		const progress = state.isPartial ? readToolProgress(state.result?.details) : undefined;
 		if (!this.hasRendererDefinition) {
 			this.contentText.setCustomBgFn(background);
-			let text = formatToolExecutionFallback(this.identity.toolName, state.args, state.result, state.showImages);
+			let text = formatToolExecutionFallback(
+				this.identity.toolName,
+				state.args,
+				state.result,
+				state.showImages,
+				this.resolveDefaultIcon(),
+			);
 			if (progress) text += `\n${formatToolProgressLine(progress, Date.now(), state.spinnerFrame)}`;
 			this.contentText.setText(text);
 			return;
@@ -211,6 +247,7 @@ export class ToolExecutionRenderer extends Container implements DensityCardSourc
 		// The last render state held its own filtered copy of the result (about 2 KB per card); the card keeps the
 		// original and passes a fresh state to `update` when it is painted again (#2537).
 		this.state = RELEASED_STATE;
+		this.iconsDirty = false;
 	}
 
 	private getCallRenderer(): ToolRenderers["renderCall"] {
@@ -222,7 +259,7 @@ export class ToolExecutionRenderer extends Container implements DensityCardSourc
 	}
 
 	private getRenderContext(lastComponent: Component | undefined): ToolRenderContext<Record<string, unknown>, unknown> {
-		return {
+		const context: ToolRenderContext<Record<string, unknown>, unknown> = {
 			args: this.state.args,
 			toolCallId: this.identity.toolCallId,
 			invalidate: this.onInvalidate,
@@ -239,10 +276,35 @@ export class ToolExecutionRenderer extends Container implements DensityCardSourc
 			hasResult: this.state.result !== undefined,
 			spinnerFrame: this.state.spinnerFrame,
 		};
+		if (this.iconOverrides) {
+			context.resolveDefaultToolCardIcon = (status) =>
+				this.resolveDefaultIcon({ status: context.isError ? "failed" : status });
+			setDefaultToolCardPresentation(context, {
+				icon: (query) => this.resolveDefaultIcon(query),
+				resultDetails: this.state.result?.details,
+			});
+		}
+		return context;
+	}
+
+	private resolveDefaultIcon(query?: DefaultToolCardIconQuery): string | undefined {
+		if (!this.iconOverrides) return undefined;
+		const { isPartial, result, executionStarted } = this.state;
+		const status =
+			query?.status ??
+			(result?.isError ? "failed" : isPartial ? (executionStarted ? "running" : "pending") : "done");
+		const kind = query?.kind ?? toolDensityKind(this.identity.toolName);
+		const glyph = query?.glyph ?? (kind === "task" ? "+" : "✓");
+		return toolCardIconOverride(this.iconOverrides, kind, glyph, status);
 	}
 
 	private renderCall(container: RenderContainer): void {
-		const fallback = createToolCallFallback(this.identity.toolName, this.state.args, this.state.expanded);
+		const fallback = createToolCallFallback(
+			this.identity.toolName,
+			this.state.args,
+			this.state.expanded,
+			this.resolveDefaultIcon(),
+		);
 		const renderer = this.getCallRenderer();
 		if (!renderer) {
 			container.addChild(this.clickToExpand(fallback));

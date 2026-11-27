@@ -1,3 +1,47 @@
+## 2026-11-27 - Customize tool card glyphs
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/components/settings-selector.ts` exposes Tool card icons next to Tool card colors. Named variants have their own submenu; Tool failed is shared.
+- `packages/coding-agent/src/modes/interactive/components/density-card-style.ts` and `packages/coding-agent/src/modes/interactive/components/tool-density-row.ts` use the existing icon-and-space columns for one- or two-column glyphs.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts` and `packages/coding-agent/src/modes/interactive/components/exploration-transcript-container.ts` apply explicit overrides to the transcript on startup, reload, and settings edits. An unset override leaves Default view unchanged.
+- `packages/coding-agent/src/modes/interactive/components/tool-execution-renderer.ts` exposes the existing icon resolver to renderer-owned Default titles, including codemode's Eval frames, without changing Dense heading data.
+- `packages/coding-agent/src/modes/interactive/components/custom-entry.ts` and `packages/coding-agent/src/modes/interactive/components/custom-message.ts` forward Default icon settings only to opted-in title owners. `packages/coding-agent/src/modes/interactive/components/remote-delivery-message.ts` applies the incoming icon once to the leading heading of a typed agent delivery.
+- `packages/coding-agent/src/modes/interactive/components/omo-task-density.ts` projects Task batch workers directly from structured result items. `packages/coding-agent/src/modes/interactive/components/dense-task-batch.ts` gives each worker an independent fold within the original invocation's outer fold.
+- `packages/coding-agent/src/modes/interactive/components/dense-project-rules.ts` and `packages/coding-agent/src/modes/interactive/components/project-rules-density-projection.ts` expose individually foldable rule matches inside a project-rule notice.
+
+### Why
+
+- Users can distinguish cards with their own glyphs without moving the dense title or changing the existing Default presentation. They can inspect a single worker without opening every worker's details.
+
+### Why an extension could not handle it
+
+- The host owns settings overlays, shared fold hit targets, and built-in card chrome.
+
+### Expected merge conflict zones
+
+- Tool display settings and the shared card heading formatter.
+
+## 2026-11-27 - Coalesce high-reasoning warning statuses in dense modes
+
+### What changed
+
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts` passes the model and effort separately to the notice component.
+- `packages/coding-agent/src/modes/interactive/components/transcript-notice.ts` renders the warning with `!` and an equally colored model summary in dense modes; Default keeps the full notice.
+- `packages/coding-agent/src/modes/interactive/components/exploration-transcript-container.ts` replaces adjacent thinking/status updates and high-reasoning warnings in the dense projection without removing Default history.
+
+### Why
+
+- Changes to thinking effort should leave only the latest adjacent status in Compact and Grouped.
+
+### Why an extension could not handle it
+
+- The host owns the warning event and transcript projection.
+
+### Expected merge conflict zones
+
+- Interactive notice construction and dense transcript projection.
+
 ## 2026-11-27 - Nest consecutive Bash variants and color eval subtitles
 
 ### What changed

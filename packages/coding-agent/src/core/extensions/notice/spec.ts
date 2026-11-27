@@ -16,6 +16,8 @@ export interface NoticeLine {
 export interface NoticeSpec {
 	/** Optional structured view exposed to density-card consumers. */
 	readonly densityCard?: Omit<DensityCardStructuredView, "format" | "body" | "sections">;
+	/** Default title's original glyph, when the producer keeps it separate from `title`. */
+	readonly defaultIconGlyph?: string;
 	readonly title: string;
 	/** Title tone; defaults to "accent". */
 	readonly tone?: NoticeTone;

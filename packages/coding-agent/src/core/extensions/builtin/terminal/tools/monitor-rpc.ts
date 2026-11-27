@@ -16,7 +16,10 @@ export type MonitorSource = "command" | "path" | "rpc";
 /** Which source a create call names; an error when it names none, several, or contradicts `type`. */
 export function monitorSourceOf(input: MonitorInput): MonitorSource | { readonly error: string } {
 	const given: MonitorSource[] = [];
+	if (input.command !== undefined && input.test_runner !== undefined)
+		return { error: "Specify exactly one of command or test_runner." };
 	if (typeof input.command === "string" && input.command.length > 0) given.push("command");
+	if (input.test_runner !== undefined) given.push("command");
 	if (typeof input.path === "string" && input.path.length > 0) given.push("path");
 	if (typeof input.target === "string" && input.target.length > 0) given.push("rpc");
 	if (given.length > 1) return { error: `monitor takes one source; this call names ${given.join(" and ")}.` };

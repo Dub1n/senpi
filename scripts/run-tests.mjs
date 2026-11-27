@@ -4,6 +4,8 @@ import { appendFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { readVitestReporterHandoff } from "../packages/coding-agent/src/core/extensions/builtin/terminal/tools/test-runner-contract.ts";
 import { signalGroup } from "./package-manager.mjs";
 import { quarantineAgentDirEnv } from "./test-agent-dir.mjs";
 import { reportTempLeaks, tempEntries } from "./test-temp-guard.mjs";
@@ -16,6 +18,7 @@ const entry =
 		: undefined;
 const parent = tmpdir();
 const before = process.env.SENPI_TEST_TEMP_GUARD === "1" ? tempEntries(parent) : undefined;
+const reporterHandoff = readVitestReporterHandoff(process.env);
 // Vitest constructs its core _tmpDir before globalSetup. cacheDir/server.deps do not
 // control forks' makeTmpCopies, so the environment must be scoped before loading Vitest.
 // Keep a run's fallback TUI socket inside its root, even under a long inherited
@@ -26,6 +29,7 @@ const root = mkdtempSync(join(rootParent, "st-"));
 if (before) console.log(`[test-temp] owned root: ${JSON.stringify(basename(root))}`);
 let child;
 let forwarded;
+let cancelVitestRun;
 const pendingSignals = [];
 const handlers = new Map(
 	["SIGINT", "SIGTERM", "SIGHUP"].map((signal) => [
@@ -33,6 +37,7 @@ const handlers = new Map(
 		() => {
 			forwarded = signal;
 			if (child) pendingSignals.push(signalGroup(child, signal));
+			else if (cancelVitestRun) pendingSignals.push(cancelVitestRun());
 		},
 	]),
 );
@@ -42,21 +47,62 @@ try {
 	if (process.env.SENPI_TEST_TEMP_REGISTRY) {
 		appendFileSync(process.env.SENPI_TEST_TEMP_REGISTRY, `${JSON.stringify(root)}\n`);
 	}
-	child = spawn(entry ? process.execPath : runner, entry ? [entry, ...args] : args, {
-		stdio: "inherit",
-		detached: process.platform !== "win32",
-		env: {
+	if (reporterHandoff && runner === "vitest") {
+		const scopedEnv = {
 			...quarantineAgentDirEnv(process.env, root),
 			TMPDIR: root,
 			TEMP: root,
 			TMP: root,
 			JITI_RESPECT_TMPDIR_ENV: "1",
-		},
-	});
-	process.exitCode = await new Promise((resolve, reject) => {
-		child.once("error", reject);
-		child.once("close", (code) => resolve(code ?? 1));
-	});
+		};
+		// Unlike spawn({ env }), updating process.env does not remove omitted lanes.
+		for (const key of Object.keys(process.env)) {
+			if (!Object.hasOwn(scopedEnv, key)) delete process.env[key];
+		}
+		for (const [key, value] of Object.entries(scopedEnv)) {
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
+		delete process.env.SENPI_TEST_RUN_ID;
+		delete process.env.SENPI_TEST_RUN_RECEIPT;
+		delete process.env.SENPI_TEST_RUN_REPORTER;
+		const require = createRequire(join(process.cwd(), "package.json"));
+		const vitestPath = require.resolve("vitest/node");
+		const { createVitest, parseCLI, TestsNotFoundError } = await import(pathToFileURL(vitestPath).href);
+		const { createSenpiReporter } = await import(pathToFileURL(reporterHandoff.reporterPath).href);
+		const parsed = parseCLI(["vitest", ...args]);
+		const vitest = await createVitest(parsed.options);
+		cancelVitestRun = () => vitest.cancelCurrentRun("keyboard-input");
+		if (forwarded) pendingSignals.push(cancelVitestRun());
+		vitest.reporters.push(
+			createSenpiReporter({ runId: reporterHandoff.runId, receiptPath: reporterHandoff.receiptPath }),
+		);
+		try {
+			try {
+				await vitest.start(parsed.filter);
+			} catch (error) {
+				if (!(error instanceof TestsNotFoundError)) throw error;
+			}
+		} finally {
+			await vitest.close();
+		}
+	} else {
+		child = spawn(entry ? process.execPath : runner, entry ? [entry, ...args] : args, {
+			stdio: "inherit",
+			detached: process.platform !== "win32",
+			env: {
+				...quarantineAgentDirEnv(process.env, root),
+				TMPDIR: root,
+				TEMP: root,
+				TMP: root,
+				JITI_RESPECT_TMPDIR_ENV: "1",
+			},
+		});
+		process.exitCode = await new Promise((resolve, reject) => {
+			child.once("error", reject);
+			child.once("close", (code) => resolve(code ?? 1));
+		});
+	}
 } finally {
 	await Promise.all(pendingSignals);
 	// Runs on success, test failure, spawn error, worker SIGKILL and catchable interrupts.

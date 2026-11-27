@@ -8,6 +8,7 @@ import {
 	truncateToVisualLines,
 } from "@code-yeongyu/senpi";
 import type { TruncationMeta } from "../output/output-meta.ts";
+import type { EvalIconResolver } from "./render-icons.ts";
 import { codePointPrefix } from "./tool-widgets.ts";
 import type { EvalInputSchema, EvalResultDetails, EvalToolInput, EvalToolRequest } from "./types.ts";
 
@@ -61,6 +62,8 @@ export type RenderEnvironment = {
 	readonly meta: TruncationMeta | undefined;
 	/** Render-time clock, injected so elapsed time is deterministic under test. */
 	readonly now: number;
+	/** Only supplied for the component-owned Default frame, never structured density output. */
+	readonly resolveIcon?: EvalIconResolver | undefined;
 	/** Repaints the row once a background-formatted code preview is ready; absent while args stream. */
 	readonly repaint?: () => void;
 };

@@ -54,6 +54,45 @@ function mouse(
 
 describe.each(cases)("$density live tool folds at $width columns", (config) => {
 	const { width } = config;
+	it("folds both workers independently inside a Task batch", async () => {
+		const surface = await explorationSurface();
+		try {
+			const chat = denseChat(surface, config);
+			chat.setDenseCardPreferences({ task: "unfolded" }, toolCardNestingDefaults);
+			const call = {
+				toolName: "task",
+				toolCallId: "batch-live",
+				args: { tasks: [{ prompt: "first worker body" }, { prompt: "second worker body" }] },
+			};
+			await surface.event({ type: "tool_execution_start", ...call });
+			await surface.event({
+				type: "tool_execution_end",
+				...call,
+				isError: false,
+				result: textResult("spawned two workers", {
+					mode: "spawn",
+					task_id: "st_first",
+					status: "running",
+					items: [
+						{ task_id: "st_first", nickname: "FirstWorker", status: "running" },
+						{ task_id: "st_second", nickname: "SecondWorker", status: "running" },
+					],
+				}),
+			});
+			expect(surface.text(width)).toMatch(/first worker body[\s\S]+second worker body/u);
+			expect(mouse(surface, { tool: "FirstWorker", width })?.handled).toBe(true);
+			expect(surface.text(width)).not.toContain("first worker body");
+			expect(surface.text(width)).toContain("second worker body");
+			expect(mouse(surface, { tool: "SecondWorker", width })?.handled).toBe(true);
+			expect(surface.text(width)).not.toContain("second worker body");
+			expect(mouse(surface, { tool: "FirstWorker", width })?.handled).toBe(true);
+			expect(surface.text(width)).toContain("first worker body");
+			expect(surface.text(width)).not.toContain("second worker body");
+		} finally {
+			surface.cleanup();
+		}
+	});
+
 	it.each([false, true])(
 		"uses the settled write name unless the running card was manually opened (%s)",
 		async (manual) => {

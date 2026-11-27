@@ -16,6 +16,7 @@ import {
 	style,
 } from "./render-blocks.ts";
 import { renderCell, summaryBlock } from "./render-cell.ts";
+import { evalHeadingIcon, prefixEvalHeading } from "./render-icons.ts";
 import { headlined, LIVE_LINE_PREFIX } from "./render-live.ts";
 import type { EvalCellResult, EvalToolInput, EvalToolRequest } from "./types.ts";
 
@@ -44,6 +45,8 @@ export function renderEvalCall(
 		component.setBlocks([]);
 		return component;
 	}
+	const status = context.executionStarted ? "running" : "pending";
+	const resolveIcon = context.resolveDefaultToolCardIcon;
 	if (!isEvalRunInput(args)) {
 		// While a peek/stop call streams in, `cell_id` can still be missing; the title is the action alone until it arrives.
 		const cellId = "cell_id" in args ? args.cell_id : undefined;
@@ -52,12 +55,17 @@ export function renderEvalCall(
 			format: "structured",
 			kind: "eval",
 			heading: { identity: title },
-			status: context.executionStarted ? "running" : "pending",
+			status,
 			body: [],
 			sections: [],
 		});
 		component.syncLiveTicker(false, context.invalidate);
-		component.setBlocks([{ kind: "text", text: style(theme, "toolTitle", title) }]);
+		component.setBlocks([
+			{
+				kind: "text",
+				text: style(theme, "toolTitle", prefixEvalHeading(title, evalHeadingIcon(resolveIcon, status))),
+			},
+		]);
 		return component;
 	}
 	// While the model streams the call, `code` usually arrives before `language` and `summary`; a partial call still
@@ -79,7 +87,7 @@ export function renderEvalCall(
 			summary === undefined
 				? { identity: language === undefined ? "eval" : `eval ${language}` }
 				: { description: summary },
-		status: context.executionStarted ? "running" : "pending",
+		status,
 		body: [
 			...(metadata.length === 0 ? [] : [{ type: "text" as const, role: "muted" as const, lines: [metadata] }]),
 			{
@@ -106,10 +114,11 @@ export function renderEvalCall(
 	if (theme === undefined && context.spinnerFrame === undefined) {
 		const reset = args.reset === true ? " reset" : "";
 		const timeout = args.timeout === undefined ? "" : ` timeout ${args.timeout}s`;
+		const title = `eval${language === undefined ? "" : ` ${language}`}${reset}${timeout}`;
 		component.setBlocks([
 			{
 				kind: "text",
-				text: style(theme, "toolTitle", `eval${language === undefined ? "" : ` ${language}`}${reset}${timeout}`),
+				text: style(theme, "toolTitle", prefixEvalHeading(title, evalHeadingIcon(resolveIcon, status))),
 			},
 			...(displaySummary(args.summary) === undefined
 				? []
@@ -143,6 +152,7 @@ export function renderEvalCall(
 					width,
 					meta: undefined,
 					now: renderNow(context),
+					resolveIcon,
 					...(context.argsComplete ? { repaint: context.invalidate } : {}),
 				};
 				const summary = displaySummary(args.summary);
@@ -173,6 +183,8 @@ export function renderEvalCall(
 
 /** A call whose language has not streamed in yet: the headline row alone, until the full frame can render. */
 function streamingCallLines(summary: string | undefined, code: string, environment: RenderEnvironment): string[] {
-	const icon = environment.spinnerFrame === undefined ? "○" : spinner(environment.spinnerFrame);
+	const icon =
+		evalHeadingIcon(environment.resolveIcon, "running") ??
+		(environment.spinnerFrame === undefined ? "○" : spinner(environment.spinnerFrame));
 	return renderPrefixed(headlined(icon, summary, code, "eval", environment), environment, LIVE_LINE_PREFIX);
 }

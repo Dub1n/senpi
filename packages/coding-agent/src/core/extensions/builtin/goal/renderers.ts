@@ -1,5 +1,6 @@
 import { type DensityCardStructuredView, Text } from "@earendil-works/pi-tui";
 import type { Theme, ThemeColor } from "../../../../modes/interactive/theme/theme.ts";
+import { defaultToolCardIcon } from "../../../default-tool-card-title.ts";
 import type { ToolRenderResultOptions } from "../../types.ts";
 import {
 	formatGoalElapsedSeconds,
@@ -87,6 +88,7 @@ export function renderGoalToolResult(
 	result: ResultLike,
 	options: ToolRenderResultOptions,
 	theme: Theme,
+	context?: object,
 ): GoalResultCard {
 	const text = result.content.find((block) => block.type === "text")?.text ?? "";
 	const details = resolveRenderDetails(result.details, text);
@@ -96,16 +98,19 @@ export function renderGoalToolResult(
 		appendNotice(lines, details.notice, theme);
 		return new GoalResultCard(lines.join("\n"), details);
 	}
-	const lines = goalWidgetLines(details.goal, options.expanded, theme);
+	const goal = details.goal;
+	const glyph = statusGlyph(goalDisplayStatus(goal));
+	const icon = defaultToolCardIcon(context, { kind: "goal", glyph });
+	const lines = goalWidgetLines(goal, options.expanded, theme, icon ?? glyph);
 	appendNotice(lines, details.notice, theme);
 	return new GoalResultCard(lines.join("\n"), details);
 }
 
-function goalWidgetLines(goal: GoalToolSnapshot, expanded: boolean, theme: Theme): string[] {
+function goalWidgetLines(goal: GoalToolSnapshot, expanded: boolean, theme: Theme, glyph: string): string[] {
 	const displayStatus = goalDisplayStatus(goal);
 	const status = theme.fg(
 		statusColor(displayStatus),
-		theme.bold(`${statusGlyph(displayStatus)} ${goalStatusLabel(goal.status, goal.continuationStoppedAt)}`),
+		theme.bold(`${glyph} ${goalStatusLabel(goal.status, goal.continuationStoppedAt)}`),
 	);
 	const usage = ` • ${formatTokensCompact(goal.tokensUsed)} tokens • ${formatGoalElapsedSeconds(goal.timeUsedSeconds)}`;
 	const lines = [`${status}${theme.fg("muted", usage)}`];

@@ -25,8 +25,8 @@ type Outcome = "allow" | "ask" | "deny";
 
 async function decide(
 	preset: PermissionPresetName,
-	command: string | { test_runner: { runner: string; args: string[] } },
-	{ config = {}, approved = [] }: { config?: PermissionConfig; approved?: Rule[] } = {},
+	command: string | { test_runner: { runner: string; args: string[]; launcher?: string } },
+	{ config = {}, approved = [], tool = "bash" }: { config?: PermissionConfig; approved?: Rule[]; tool?: string } = {},
 ): Promise<Outcome> {
 	const service = new PermissionService(
 		[...rulesForPreset(preset), ...fromConfig(config)],
@@ -34,7 +34,7 @@ async function decide(
 		undefined,
 		preset,
 	);
-	for (const request of registry.parse("bash", typeof command === "string" ? { command } : command, cwd)) {
+	for (const request of registry.parse(tool, typeof command === "string" ? { command } : command, cwd)) {
 		const answer = service
 			.ask(
 				{
@@ -61,10 +61,13 @@ async function decide(
 	return "allow";
 }
 
-it("honors an explicit Vitest deny on a direct test launch", async () => {
+it.each(["bash", "monitor"])("honors explicit runner and wrapper denials on %s", async (tool) => {
 	const input = { test_runner: { runner: "vitest", args: ["--testNamePattern", "pass; fail"] } };
-	expect(await decide("full-access", input)).toBe("allow");
-	expect(await decide("full-access", input, { config: { bash: { vitest: "deny" } } })).toBe("deny");
+	expect(await decide("full-access", input, { tool })).toBe("allow");
+	expect(await decide("full-access", input, { tool, config: { bash: { vitest: "deny" } } })).toBe("deny");
+	const wrapped = { test_runner: { ...input.test_runner, launcher: "bun-script" } };
+	expect(await decide("full-access", wrapped, { tool, config: { bash: { "bun *": "deny" } } })).toBe("deny");
+	expect(await decide("full-access", wrapped, { tool, config: { bash: { vitest: "deny" } } })).toBe("deny");
 });
 
 const always = (...prefixes: string[]): Rule[] =>

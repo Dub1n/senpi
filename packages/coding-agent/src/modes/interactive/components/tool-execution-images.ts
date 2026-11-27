@@ -6,6 +6,7 @@ import {
 	Spacer,
 	sanitizeTerminalLabel,
 	Text,
+	type ImageProtocol,
 } from "@earendil-works/pi-tui";
 import { convertToPng } from "../../../utils/image-convert.ts";
 import { theme } from "../theme/theme.ts";
@@ -23,6 +24,7 @@ export type ToolExecutionImageOptions = {
 	readonly showImages: boolean;
 	readonly maxWidthCells: number;
 	readonly showRendererFallback: boolean;
+	readonly readImageMimeType?: string;
 };
 
 export class ToolExecutionImages extends Container {
@@ -30,6 +32,7 @@ export class ToolExecutionImages extends Container {
 	private result?: ToolExecutionResult;
 	private resultGeneration = 0;
 	private readonly convertedImages = new Map<number, ConvertedImageEntry>();
+	private renderedImageProtocol: ImageProtocol | undefined;
 	private options: ToolExecutionImageOptions = {
 		showImages: true,
 		maxWidthCells: 60,
@@ -46,15 +49,19 @@ export class ToolExecutionImages extends Container {
 			...options,
 			maxWidthCells: Math.max(1, Math.floor(options.maxWidthCells)),
 		};
+		const imageProtocolChanged = this.renderedImageProtocol !== getCapabilities().images;
 		if (
+			!imageProtocolChanged &&
 			this.options.showImages === normalizedOptions.showImages &&
 			this.options.maxWidthCells === normalizedOptions.maxWidthCells &&
-			this.options.showRendererFallback === normalizedOptions.showRendererFallback
+			this.options.showRendererFallback === normalizedOptions.showRendererFallback &&
+			this.options.readImageMimeType === normalizedOptions.readImageMimeType
 		) {
 			return;
 		}
 		this.options = normalizedOptions;
 		this.rebuild();
+		if (imageProtocolChanged) this.maybeConvertImagesForKitty();
 	}
 
 	updateResult(result: ToolExecutionResult): void {
@@ -107,8 +114,8 @@ export class ToolExecutionImages extends Container {
 	private rebuild(): void {
 		this.clear();
 		const capabilities = getCapabilities();
+		this.renderedImageProtocol = capabilities.images;
 		if (!this.options.showImages || !capabilities.images) return;
-
 		const imageBlocks = this.imageBlocks();
 		for (let index = 0; index < imageBlocks.length; index += 1) {
 			const image = imageBlocks[index];
@@ -122,9 +129,10 @@ export class ToolExecutionImages extends Container {
 			const imageMimeType = converted?.mimeType ?? image.mimeType;
 			if (capabilities.images === "kitty" && imageMimeType !== "image/png") {
 				if (this.options.showRendererFallback) {
-					this.addImageComponent(
-						new Text(theme.fg("toolOutput", `[image: ${sanitizeTerminalLabel(imageMimeType)}]`), 0, 0),
-					);
+					const fallback = this.options.readImageMimeType
+						? `viewed image file [${sanitizeTerminalLabel(this.options.readImageMimeType)}]`
+						: `[image: ${sanitizeTerminalLabel(imageMimeType)}]`;
+					this.addChild(new Text(theme.fg("toolOutput", fallback), 0, 0));
 				}
 				continue;
 			}

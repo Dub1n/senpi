@@ -105,11 +105,11 @@ export function createBashOutputTool(ctx: TerminalToolContext) {
 				},
 			};
 
+			const testSummary = testSummaryFor(runtime);
+			if (testSummary !== undefined) details.testSummary = testSummary;
 			if (input.view === "screen") {
 				return textResult(`${header}\n${screenView(runtime)}`, { details });
 			}
-			const testSummary = testSummaryFor(runtime);
-			if (testSummary !== undefined) details.testSummary = testSummary;
 
 			const delta = runtime.readDelta();
 			const filteredText = applyFilter(delta.text, input.filter);

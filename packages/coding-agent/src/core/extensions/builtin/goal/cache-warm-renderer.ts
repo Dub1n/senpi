@@ -15,6 +15,7 @@ export const renderGoalCacheWarmupEntry: EntryRenderer<GoalCacheWarmupEntryData>
 	if (data === undefined) return undefined;
 	const warm = warmLine(data);
 	return {
+		defaultIconGlyph: "⚡",
 		title: titleLine(data),
 		why: whyLine(data),
 		extra: warm === undefined ? [] : [{ text: warm, tone: "success" }],
@@ -52,9 +53,9 @@ function titleLine(data: GoalCacheWarmupEntryData): string {
 	const iterationText = iteration === undefined ? "" : ` · iteration ${iteration}`;
 	switch (data.phase) {
 		case "scheduled":
-			return `⚡ Cache-warm wait${iterationText} · ${wakeSources}`;
+			return `Cache-warm wait${iterationText} · ${wakeSources}`;
 		case "resumed":
-			return `⚡ Cache-warm wake${iterationText} · waited ${formatWakeDuration(data.waitedMs ?? data.delayMs)} · ${wakeSources}`;
+			return `Cache-warm wake${iterationText} · waited ${formatWakeDuration(data.waitedMs ?? data.delayMs)} · ${wakeSources}`;
 	}
 }
 

@@ -35,7 +35,9 @@ import {
 	resolveTimeoutMs,
 } from "./monitor-schema.ts";
 import { renderMonitorCall } from "./render.ts";
-import { spawnCommandSession } from "./spawn.ts";
+import { type PreparedTestRun, spawnCommandSession } from "./spawn.ts";
+import { prepareTestRun } from "./test-runner.ts";
+import { classifyTestRunnerCommand } from "./test-runner-contract.ts";
 
 export {
 	bindTerminalManifestWriter,
@@ -66,6 +68,12 @@ async function createMonitor(
 	// Durability needs an absolute directory: a restore runs in a different process whose
 	// process cwd is unrelated, so the spec must carry the resolved path the spawn used.
 	const cwd = resolve(execCtx?.cwd ?? ctx.cwd);
+	const test =
+		input.test_runner ??
+		(input.command !== undefined && input.persistent !== true && input.human_input !== true
+			? classifyTestRunnerCommand(input.command, cwd)
+			: undefined);
+	const command = input.command ?? "vitest run";
 	const timeoutMs = input.persistent ? undefined : resolveTimeoutMs(input.timeout_ms);
 	const deadlineMs = timeoutMs === undefined ? null : Date.now() + timeoutMs;
 	// The stable id is allocated BEFORE the spawn so the command can see it in its environment.
@@ -76,15 +84,33 @@ async function createMonitor(
 		envOverrides[MONITOR_ENV_STATE_DIR] = await ensureMonitorStateDir(terminalDir, monitorId);
 	}
 	const sessionId = manifestSessionKey(ctx);
-	const { id, runtime } = await spawnCommandSession(ctx, {
-		...(sessionId === undefined ? {} : { sessionId }),
-		command: input.command,
-		cols: resolveDimension(undefined, ctx.defaultCols || DEFAULT_COLS),
-		rows: resolveDimension(undefined, ctx.defaultRows || DEFAULT_ROWS),
-		cwd,
-		envOverrides,
-		...(timeoutMs === undefined ? {} : { timeoutMs }),
-	});
+	const testCwd = test?.cwd === undefined ? cwd : resolve(cwd, test.cwd);
+	let testRun: PreparedTestRun | undefined;
+	let spawned: Awaited<ReturnType<typeof spawnCommandSession>>;
+	try {
+		testRun =
+			test === undefined
+				? undefined
+				: await prepareTestRun(test.runner, test.args, testCwd, {
+						launcher: test.launcher ?? "direct",
+						cwd: testCwd,
+					});
+		spawned = await spawnCommandSession(ctx, {
+			...(sessionId === undefined ? {} : { sessionId }),
+			command,
+			...(testRun === undefined ? {} : { testRun }),
+			cols: resolveDimension(undefined, ctx.defaultCols || DEFAULT_COLS),
+			rows: resolveDimension(undefined, ctx.defaultRows || DEFAULT_ROWS),
+			cwd: testCwd,
+			envOverrides,
+			...(timeoutMs === undefined ? {} : { timeoutMs }),
+		});
+	} catch (error) {
+		if (test === undefined) throw error;
+		testRun?.dispose();
+		return errorResult(error instanceof Error ? error.message : String(error));
+	}
+	const { id, runtime } = spawned;
 	ctx.onMonitorRearmed?.(id);
 	registry.register({
 		monitorId,
@@ -92,7 +118,7 @@ async function createMonitor(
 		description: input.description,
 		runtime,
 		filter,
-		command: input.command,
+		command,
 		persistent: input.persistent === true,
 		deadlineMs,
 		...(input.human_input === true ? { humanInput: true } : {}),
@@ -104,24 +130,26 @@ async function createMonitor(
 		...(input.persistent === true ? { expiresAt: Date.now() + DURABLE_MONITOR_EXPIRY_MS } : {}),
 	});
 	ctx.manager.bindMonitorId(monitorId, id);
+	// The manifest's restartable-command contract is shell text, not an adapter invocation.
 	// The tool call site is the only place the branch inputs (command, persistent, filter)
 	// live; hand the captured spec to the session's manifest writer for durable recording.
 	const identity = runtime.identity();
-	await handMonitorSpec(manifestSessionKey(ctx), {
-		monitorId,
-		spec: {
-			kind: "command",
-			description: input.description,
-			command: input.command,
-			filter: input.filter,
-			...(input.human_input === true ? { humanInput: true } : {}),
-			...(input.wakes_per_hour !== undefined ? { wakesPerHour: input.wakes_per_hour } : {}),
-			cwd,
-			persistent: input.persistent === true,
-		},
-		...(identity === undefined ? {} : { runtime: identity }),
-		...(deadlineMs === null ? {} : { deadlineMs }),
-	});
+	if (input.command !== undefined)
+		await handMonitorSpec(manifestSessionKey(ctx), {
+			monitorId,
+			spec: {
+				kind: "command",
+				description: input.description,
+				command,
+				filter: input.filter,
+				...(input.human_input === true ? { humanInput: true } : {}),
+				...(input.wakes_per_hour !== undefined ? { wakesPerHour: input.wakes_per_hour } : {}),
+				cwd,
+				persistent: input.persistent === true,
+			},
+			...(identity === undefined ? {} : { runtime: identity }),
+			...(deadlineMs === null ? {} : { deadlineMs }),
+		});
 	return textResult(`Monitor started with ID: ${monitorId}`, {
 		details: { monitor_id: monitorId, bash_id: id, monitor: true },
 	});
@@ -179,6 +207,8 @@ export function createMonitorTool(ctx: TerminalToolContext) {
 			}
 			const source = monitorSourceOf(input);
 			if (typeof source !== "string") return errorResult(source.error);
+			if (input.test_runner !== undefined && (input.persistent === true || input.human_input === true))
+				return errorResult("test_runner is a one-shot machine-output monitor; omit persistent and human_input.");
 			if (input.wakes_per_hour !== undefined && (source !== "command" || input.persistent !== true))
 				return errorResult(
 					"wakes_per_hour applies to persistent command monitors (command with persistent: true); other watches are not wake-paced.",

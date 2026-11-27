@@ -3,9 +3,11 @@ import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { isImageLine, stripTerminalSequences } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import type { InlineExtension } from "../../src/index.ts";
 import { explorationSurface, invoke, runTool } from "./exploration-surface-harness.ts";
+import { runReadImage, withImageProtocol } from "./read-image-fixtures.ts";
 
 // senpi#2060: a skill load or a memory recall is a semantic card, not file exploration.
 const recallClassifier: InlineExtension = (pi) => {
@@ -121,6 +123,42 @@ describe("semantic reads and the exploration group", () => {
 			expect(text).toContain("Read a.ts, AGENTS.md, b.ts");
 		} finally {
 			surface.cleanup();
+		}
+	});
+
+	it("shows only the MIME fallback in an expanded Explored group without image support", async () => {
+		const restoreCapabilities = withImageProtocol(null);
+		const surface = await explorationSurface();
+		try {
+			await runReadImage(surface, { id: "image", path: "screenshots/a.png" });
+			expect(surface.text()).toContain("Explored");
+			invoke(surface.mode, "setToolsExpanded", true);
+			const lines = surface.chat.render(80);
+			const text = lines.map(stripTerminalSequences).join("\n");
+			expect(text).toContain("viewed image file [image/png]");
+			expect(text).not.toContain("Read image file [image/png]");
+			expect(lines.some(isImageLine)).toBe(false);
+			expect(lines.length).toBeLessThan(20);
+		} finally {
+			surface.cleanup();
+			restoreCapabilities();
+		}
+	});
+
+	it("renders image protocol rows without the stale text note in an expanded Explored group", async () => {
+		const restoreCapabilities = withImageProtocol("kitty");
+		const surface = await explorationSurface();
+		try {
+			await runReadImage(surface, { id: "image", path: "screenshots/a.png" });
+			invoke(surface.mode, "setToolsExpanded", true);
+			const lines = surface.chat.render(80);
+			const text = lines.map(stripTerminalSequences).join("\n");
+			expect(text).not.toContain("Read image file [image/png]");
+			expect(text).not.toContain("viewed image file [image/png]");
+			expect(lines.some(isImageLine)).toBe(true);
+		} finally {
+			surface.cleanup();
+			restoreCapabilities();
 		}
 	});
 

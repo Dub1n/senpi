@@ -1,10 +1,11 @@
 import { type DensityCardStructuredView, sanitizeTerminalLabel, Text } from "@earendil-works/pi-tui";
+import { defaultToolCardTitle } from "../../../default-tool-card-title.ts";
 import { toolResultUserWords } from "../../../tool-result-user-words.ts";
 import type { ToolDefinition } from "../../types.ts";
 import { TOOL_NAMES } from "./family.ts";
 import { resolveUserWordReferences } from "./user-words.ts";
 
-export const renderCall: NonNullable<ToolDefinition["renderCall"]> = (args, theme) => {
+export const renderCall: NonNullable<ToolDefinition["renderCall"]> = (args, theme, context) => {
 	const values = typeof args === "object" && args !== null ? args : {};
 	const headers =
 		"questions" in values && Array.isArray(values.questions)
@@ -17,7 +18,12 @@ export const renderCall: NonNullable<ToolDefinition["renderCall"]> = (args, them
 	const wait =
 		("waitForAnswer" in values && values.waitForAnswer === true) ||
 		("wait_for_answer" in values && values.wait_for_answer === true);
-	return new Text(`${theme.fg("toolTitle", headers)} ${wait ? "wait for answer" : "answer later"}`, 0, 0);
+	const title = defaultToolCardTitle(headers, context, (details) => ({
+		kind: "question",
+		glyph: questionGlyph(details, context?.isError ?? false),
+		status: "done",
+	}));
+	return new Text(`${theme.fg("toolTitle", title)} ${wait ? "wait for answer" : "answer later"}`, 0, 0);
 };
 export const renderResult: NonNullable<ToolDefinition["renderResult"]> = (result) => {
 	const details: unknown = result.details;
@@ -39,7 +45,12 @@ export const renderResult: NonNullable<ToolDefinition["renderResult"]> = (result
 	);
 };
 
-/** Frame both stock question tools in dense mode without changing their Default renderer. */
+function questionGlyph(details: unknown, isError: boolean): string {
+	const status = details && typeof details === "object" && "status" in details ? details.status : undefined;
+	return isError ? "✗" : status === "cancelled" ? "×" : "?";
+}
+
+/** Frame both stock question tools in dense mode. */
 export function questionDensityCard(
 	name: string,
 	result: Parameters<NonNullable<ToolDefinition["renderResult"]>>[0] | undefined,

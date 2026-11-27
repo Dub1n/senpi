@@ -8,6 +8,7 @@ import type {
 	TerminalMonitorEndedEvent as MonitorEndedEvent,
 	TerminalMonitorEndedReason as MonitorEndedReason,
 } from "../monitor-state-event.ts";
+import type { TestSummary } from "./tools/test-summary.ts";
 
 export interface MonitorLineEvent {
 	readonly type: "line";
@@ -23,6 +24,7 @@ export interface MonitorSummaryEvent {
 	readonly id: string;
 	readonly description: string;
 	readonly summary: string;
+	readonly testSummary?: TestSummary;
 }
 
 export type MonitorEvent = MonitorLineEvent | MonitorSummaryEvent;

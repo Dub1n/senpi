@@ -1,3 +1,22 @@
+## 2026-11-27 - Honor Default Eval card icon overrides
+
+### What changed
+
+- `packages/senpi-codemode/src/tool/render-call.ts`, `packages/senpi-codemode/src/tool/render-result.ts`, `packages/senpi-codemode/src/tool/render-live.ts`, and `packages/senpi-codemode/src/tool/render-cell.ts` apply optional host icon overrides in Default Eval titles, before styling and width fitting.
+- `packages/senpi-codemode/src/tool/render-icons.ts` keeps failed, detached, and cancelled icons distinct from a general Eval override. `packages/senpi-codemode/src/tool/render-blocks.ts` carries the resolver only into Default frame rendering.
+
+### Why
+
+- Codemode owns the live and settled frames. An explicit icon should appear in Default without changing unconfigured layout or the semantic icons in Compact and Grouped.
+
+### Why an extension could not handle it
+
+- Codemode itself is the extension that owns the titles. The host supplies the settings through an optional render callback so either package can still load with an older version of the other.
+
+### Expected merge conflict zones
+
+- LOW: Eval title construction and width fitting.
+
 ## 2026-11-26 - Preserve host test summaries on nested eval calls
 
 ### What changed

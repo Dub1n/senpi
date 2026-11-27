@@ -29,6 +29,7 @@ Session runtime, model/provider stack, session persistence, settings, resources.
 | Credential storage | `auth-storage.ts` |
 | Session persistence / branching | `session-manager.ts` |
 | Settings read/write | `settings-manager.ts` |
+| Tool-card display settings and icon/color parsing | `settings-manager.ts`, `tool-display-color.ts`, `tool-card-icons.ts`, `default-tool-card-title.ts` |
 | Bash execution (local or injected remote ops) | `bash-executor.ts` |
 | Skill discovery + prompt formatting | `skills.ts` |
 | Keybinding config + migration | `keybindings.ts` |

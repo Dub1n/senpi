@@ -10,6 +10,7 @@ import { Container, sanitizeTerminalLabel, Text, truncateToWidth, wrapTextWithAn
 import { keyHint } from "../../../modes/interactive/components/keybinding-hints.ts";
 import { truncateToVisualLines } from "../../../modes/interactive/components/visual-truncate.ts";
 import { highlightCode, theme } from "../../../modes/interactive/theme/theme.ts";
+import { defaultToolCardIcon } from "../../default-tool-card-title.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../../extensions/types.ts";
 import type { BashToolDetails } from "../bash.ts";
 import { isModelOnlyText } from "../model-only-text.ts";
@@ -51,7 +52,7 @@ function highlightBashCommand(command: string): string {
 	return highlightCode(replaceTabs(normalizeDisplayText(command)), "bash").join("\n");
 }
 /** The fork renders every shell call with a bold `$ ` prompt and a syntax-highlighted command body. */
-function formatShellCall(args: { command?: string; timeout?: number } | undefined, _prompt: string): string {
+function formatShellCall(args: { command?: string; timeout?: number } | undefined, icon: string | undefined): string {
 	const command = str(args?.command);
 	const timeout = args?.timeout as number | undefined;
 	const timeoutSuffix = timeout ? theme.fg("muted", ` (timeout ${timeout}s)`) : "";
@@ -61,7 +62,7 @@ function formatShellCall(args: { command?: string; timeout?: number } | undefine
 			: command
 				? highlightBashCommand(command)
 				: theme.fg("toolOutput", "...");
-	return theme.fg("toolTitle", theme.bold("$ ")) + commandDisplay + timeoutSuffix;
+	return theme.fg("toolTitle", theme.bold(`${icon ?? "$"} `)) + commandDisplay + timeoutSuffix;
 }
 function rebuildBashResultRenderComponent(
 	component: BashResultRenderComponent,
@@ -130,7 +131,8 @@ export function createShellRenderers(prompt: string): Pick<ToolDefinition<any, a
 				state.endedAt = undefined;
 			}
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-			text.setText(formatShellCall(args as { command?: string; timeout?: number } | undefined, prompt));
+			const icon = defaultToolCardIcon(context, { kind: prompt === "PS>" ? "powershell" : "shell" });
+			text.setText(formatShellCall(args as { command?: string; timeout?: number } | undefined, icon));
 			return Object.assign(text, {
 				renderDensityCard() {
 					if (context.hasResult) return undefined;

@@ -14,6 +14,7 @@ anchor most suites).
 | Cell execution, settlement | `cell-handler.ts`, `cell-execution.ts`, `cell-runtime.ts` |
 | Detached cells | `detached-cell-manager.ts` + `detached-cell-{state,snapshot,notification}.ts`, `detached-notification-queue.ts`, `detached-eval-result.ts` |
 | Call/result rendering | `render.ts`, `runtime-label.ts`, `json-tree.ts`, `image.ts`, `tool-widgets.ts` |
+| Semantic Compact/Grouped eval card | `render-density-card.ts`; returns the shared `DensityCardStructuredView` for the interactive host to frame |
 | Code preview layout | `code-preview.ts` -> `display-code.ts` (JS: `display-js*.ts` Bun-only masked `Bun.Transpiler`; Python: `display-python*.ts` user interpreter, background + repaint) |
 | Status events, execution events | `status-events.ts`, `eval-execution-event.ts` |
 | Interrupt, capture | `interrupt-note.ts`, `call-capture.ts` |
@@ -25,6 +26,7 @@ anchor most suites).
   fields are camelCase. Schemas and shared eval types live only in `types.ts`.
 - Rendering is bounded by explicit line/code-point budgets with an injectable
   render clock; nothing here depends on wall-clock luck.
+- Keep eval-specific status, output sections, and nested-call summaries in the semantic card projection; the host owns shared card framing, folding, and nesting.
 - Detached execution is a first-class state machine — snapshot, notification
   queue, spill-file notice, result conversion — never folded into ordinary
   cell execution.

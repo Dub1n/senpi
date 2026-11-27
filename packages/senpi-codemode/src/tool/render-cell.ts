@@ -14,6 +14,7 @@ import {
 	SUMMARY_PREVIEW_LINES,
 	style,
 } from "./render-blocks.ts";
+import { cellHeadingIcon } from "./render-icons.ts";
 import {
 	type CellBadges,
 	cellElapsedMs,
@@ -107,7 +108,14 @@ function renderTerminalCellLine(cell: EvalCellResult, environment: RenderEnviron
 	const line = style(
 		environment.theme,
 		presentation.color,
-		headlined(presentation.icon, cell.summary, cell.code, rest, environment, { badgelessRest }),
+		headlined(
+			cellHeadingIcon(environment.resolveIcon, cell.status, presentation.icon),
+			cell.summary,
+			cell.code,
+			rest,
+			environment,
+			{ badgelessRest },
+		),
 	);
 	return renderPrefixed(line, environment, LIVE_LINE_PREFIX);
 }

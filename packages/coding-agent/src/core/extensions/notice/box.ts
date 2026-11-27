@@ -7,6 +7,7 @@ import {
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import type { Theme } from "../../../modes/interactive/theme/theme.ts";
+import { prefixToolCardTitle, registerDefaultToolCardTitle } from "../../default-tool-card-title.ts";
 import type { NoticeSpec } from "./spec.ts";
 
 const BOLD = "[1m";
@@ -21,13 +22,45 @@ function noticeText(text: string): Component {
 	};
 }
 
+class NoticeTitle implements Component {
+	private styled: string;
+	private readonly paint: (icon: string | undefined) => string;
+
+	constructor(paint: (icon: string | undefined) => string, glyph: string | undefined) {
+		this.paint = paint;
+		this.styled = paint(glyph);
+	}
+
+	setIcon(glyph: string | undefined): void {
+		this.styled = this.paint(glyph);
+	}
+
+	render(width: number): string[] {
+		return wrapTextWithAnsi(this.styled, Math.max(1, width));
+	}
+
+	invalidate(): void {}
+}
+
 /** Render a NoticeSpec as the shared transcript notice box (loop-guard visual family). */
 export function buildNoticeBox(spec: NoticeSpec, options: { readonly expanded: boolean }, theme: Theme): Component {
 	const box =
 		spec.densityCard !== undefined
 			? new DenseNoticeBox(spec, options, theme)
 			: new Box(1, 1, (text) => theme.bg("customMessageBg", text));
-	box.addChild(noticeText(theme.fg(spec.tone ?? "accent", `${BOLD}${spec.title}${BOLD_OFF}`)));
+	const title = new NoticeTitle(
+		(glyph) => theme.fg(spec.tone ?? "accent", `${BOLD}${prefixToolCardTitle(spec.title, glyph)}${BOLD_OFF}`),
+		spec.defaultIconGlyph,
+	);
+	box.addChild(title);
+	if (spec.defaultIconGlyph !== undefined && spec.densityCard !== undefined) {
+		const { kind, status } = spec.densityCard;
+		registerDefaultToolCardTitle(
+			box,
+			{ kind, status, glyph: spec.densityCard.statusGlyph ?? spec.defaultIconGlyph },
+			(icon) => title.setIcon(icon ?? spec.defaultIconGlyph),
+		);
+	}
 	box.addChild(noticeText(theme.fg("dim", spec.why)));
 	for (const line of spec.extra ?? []) {
 		box.addChild(noticeText(theme.fg(line.tone ?? "dim", line.text)));

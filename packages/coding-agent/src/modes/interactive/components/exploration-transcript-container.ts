@@ -28,6 +28,8 @@ import { CustomMessageComponent } from "./custom-message.ts";
 import { CompactionSummaryMessageComponent } from "./compaction-summary-message.ts";
 import { type DenseProjectRulesMember, DenseProjectRulesRun } from "./dense-project-rules.ts";
 import { DensityFolds } from "./density-fold.ts";
+import type { DensityCardDisplay } from "./density-card-style.ts";
+import type { ToolCardIconOverrides } from "../../../core/tool-card-icons.ts";
 import { denseBashMemberSessionId, denseBashProjection, type DenseBashMember } from "./dense-bash-projection.ts";
 import { DenseBashRun } from "./dense-bash-run.ts";
 import { type DenseReadMember, denseReadProjection, DenseReadRun } from "./dense-read-run.ts";
@@ -35,7 +37,8 @@ import { DenseSearchRun } from "./dense-search-run.ts";
 import { AssistantDensityCard } from "./assistant-density-card.ts";
 import { type ExplorationCall, explorationCall } from "./exploration-call.ts";
 import { ExplorationGroup } from "./exploration-group.ts";
-import { DenseWorkerModels } from "./omo-task-density.ts";
+import { DenseWorkerModels, omoTaskDensityProjection } from "./omo-task-density.ts";
+import { DenseTaskBatch } from "./dense-task-batch.ts";
 import { NotificationCard } from "./notification-card.ts";
 import { projectRulesOfCall } from "./exploration-rules.ts";
 import {
@@ -60,6 +63,27 @@ function isDefaultStatusRow(child: Component | undefined): boolean {
 	);
 }
 
+function isHighReasoningStatus(child: Component | undefined): boolean {
+	return child instanceof TranscriptNotice && child.highReasoningModel !== undefined;
+}
+
+function isReplaceableDenseStatus(child: Component | undefined): boolean {
+	return isHighReasoningStatus(child) || (child instanceof NotificationCard && child.coalescesDefaultStatus);
+}
+
+function applyDefaultCardIcons(child: Component, icons: ToolCardIconOverrides | undefined): void {
+	if (
+		child instanceof ToolExecutionComponent ||
+		child instanceof CompactionSummaryMessageComponent ||
+		child instanceof NotificationCard ||
+		child instanceof TerminalBackgroundNotice ||
+		child instanceof SystemPromptStatus ||
+		child instanceof CustomEntryComponent ||
+		child instanceof CustomMessageComponent
+	)
+		child.setToolCardIconOverrides(icons);
+}
+
 type ExplorationTranscriptOptions = ProgressiveTranscriptOptions & {
 	readonly onDenseToolOpen?: (card: ToolExecutionComponent) => void;
 	readonly needsDenseHandledPress?: () => boolean;
@@ -79,7 +103,7 @@ export class ExplorationTranscriptContainer extends Container {
 	private densityFolds = new DensityFolds();
 	private densityNesting: ToolCardNesting = toolCardNestingDefaults;
 	private pressedDensityRow: ToolDensityRow | undefined;
-	private densityColors: ToolDisplayColors = { colorFrames: false, colorNames: false, colorIcons: false };
+	private densityColors: DensityCardDisplay = { colorFrames: false, colorNames: false, colorIcons: false };
 	private readonly densityRows = new WeakMap<ToolExecutionComponent | DensityCardSource, ToolDensityRow>();
 	private denseBashRuns = new WeakMap<
 		ToolExecutionComponent | TerminalBackgroundNotice | TerminalTestCompletion,
@@ -87,6 +111,7 @@ export class ExplorationTranscriptContainer extends Container {
 	>();
 	private denseReadRuns = new WeakMap<ToolExecutionComponent, DenseReadRun>();
 	private denseSearchRuns = new WeakMap<AssistantDensityCard, DenseSearchRun>();
+	private denseTaskBatches = new WeakMap<ToolExecutionComponent, DenseTaskBatch>();
 	private denseProjectRulesRuns = new WeakMap<CustomEntryComponent, DenseProjectRulesRun>();
 	private readonly patchDensityProjections = new WeakMap<ToolExecutionComponent, PatchDensityProjection>();
 	private patchDensityGroups = new WeakMap<ToolExecutionComponent, PatchDensityCard>();
@@ -124,6 +149,12 @@ export class ExplorationTranscriptContainer extends Container {
 	setToolDisplayDensity(density: ToolDisplayDensity): void {
 		if (this.density === density) return;
 		this.density = density;
+		this.projection = undefined;
+		if (density !== "default") {
+			for (const child of this.children) {
+				applyDefaultCardIcons(child, undefined);
+			}
+		}
 		if (density === "default") {
 			for (const child of this.children) {
 				if (child instanceof ToolExecutionComponent || isDensityCardSource(child))
@@ -141,6 +172,7 @@ export class ExplorationTranscriptContainer extends Container {
 		const defaults = this.densityFolds.defaults;
 		this.densityFolds = new DensityFolds();
 		this.denseSearchRuns = new WeakMap();
+		this.denseTaskBatches = new WeakMap();
 		this.densityFolds.setDefaults(defaults);
 	}
 
@@ -179,8 +211,16 @@ export class ExplorationTranscriptContainer extends Container {
 			this.densityColors.overrides === colors.overrides
 		)
 			return;
-		this.densityColors = colors;
+		const icons = this.densityColors.icons;
+		this.densityColors = icons ? { ...colors, icons } : colors;
 		if (this.density !== "default") this.display.invalidateCache();
+	}
+
+	setToolCardIcons(icons: ToolCardIconOverrides): void {
+		if (this.densityColors.icons === icons) return;
+		this.densityColors = { ...this.densityColors, icons };
+		this.projection = undefined;
+		this.display.invalidateCache();
 	}
 
 	override render(width: number): string[] {
@@ -315,19 +355,27 @@ export class ExplorationTranscriptContainer extends Container {
 		const flushRuleNotices = (): void => {
 			const [first, second] = ruleNotices;
 			if (!first) return;
-			if (second && this.densityNesting.projectRules) {
-				let run = this.denseProjectRulesRuns.get(first.card);
+			const appendRuleRun = (members: readonly DenseProjectRulesMember[]): void => {
+				const [member] = members;
+				if (!member) return;
+				let run = this.denseProjectRulesRuns.get(member.card);
 				if (!run) {
-					run = new DenseProjectRulesRun(this.densityFolds.forNest("projectRules", first.card.customEntry.id));
-					this.denseProjectRulesRuns.set(first.card, run);
+					run = new DenseProjectRulesRun(this.densityFolds.forNest("projectRules", member.card.customEntry.id));
+					this.denseProjectRulesRuns.set(member.card, run);
 				}
 				run.setMembers(
-					ruleNotices,
-					ruleNotices.map(({ card }) => this.densityFoldOf(card)),
+					members,
+					members.map(({ card }) => this.densityFoldOf(card)),
 				);
 				appendRow(run);
+			};
+			if (second && this.densityNesting.projectRules) {
+				appendRuleRun(ruleNotices);
 			} else {
-				for (const { card } of ruleNotices) appendRow(card);
+				for (const member of ruleNotices) {
+					if (member.notice.rules.length > 1) appendRuleRun([member]);
+					else appendRow(member.card);
+				}
 			}
 			ruleNotices = [];
 		};
@@ -362,7 +410,13 @@ export class ExplorationTranscriptContainer extends Container {
 				flushBash();
 				flushReads();
 				flushPatches();
-				ruleNotices.push({ card: child, notice: child.projectRulesNotice });
+				ruleNotices.push({
+					card: child,
+					notice: child.projectRulesNotice,
+					ruleFolds: child.projectRulesNotice.rules.map((_, index) =>
+						this.densityFolds.forNest("projectRules", `${child.customEntry.id}:rule:${index}`),
+					),
+				});
 				return;
 			}
 			flushRuleNotices();
@@ -454,6 +508,21 @@ export class ExplorationTranscriptContainer extends Container {
 				return;
 			}
 			flushPatches();
+			if (child instanceof ToolExecutionComponent && child.summarySnapshot.name === "task") {
+				const { state } = child.presentationSnapshot;
+				const batch = omoTaskDensityProjection({ toolName: "task", args: state.args, result: state.result });
+				if (batch?.type === "members") {
+					flushReads();
+					let card = this.denseTaskBatches.get(child);
+					if (card) card.setBatch(batch);
+					else {
+						card = new DenseTaskBatch(child, this.densityFolds, batch);
+						this.denseTaskBatches.set(child, card);
+					}
+					appendRow(card);
+					return;
+				}
+			}
 			const read = denseReadProjection(child);
 			if (read === "hidden") return;
 			if (read) {
@@ -465,6 +534,20 @@ export class ExplorationTranscriptContainer extends Container {
 			}
 		};
 		for (const [index, child] of this.children.entries()) {
+			const next = this.children[index + 1];
+			const nextStatus = next instanceof Spacer ? this.children[index + 2] : next;
+			if (
+				isReplaceableDenseStatus(child) &&
+				isReplaceableDenseStatus(nextStatus) &&
+				(isHighReasoningStatus(child) || isHighReasoningStatus(nextStatus))
+			) {
+				flushBash();
+				flushReads();
+				flushSearches();
+				flushPatches();
+				flushRuleNotices();
+				continue;
+			}
 			// The density card supplies the outer spacing for a transcript notice.
 			if (child instanceof Spacer && this.children[index + 1] instanceof TerminalBackgroundNotice) continue;
 			if (
@@ -557,6 +640,8 @@ export class ExplorationTranscriptContainer extends Container {
 		let members: Component[] = [];
 		let calls: ExplorationGroup["calls"] = [];
 		let rules: string[] = [];
+		const configuredIcons = this.densityColors.icons;
+		const icons = configuredIcons && Object.keys(configuredIcons).length > 0 ? configuredIcons : undefined;
 		// Members are handed to the group once it is complete: per added member it rescanned the group.
 		const closeGroup = (): void => {
 			group?.setMembers(members, calls, rules);
@@ -564,6 +649,7 @@ export class ExplorationTranscriptContainer extends Container {
 		};
 		for (let index = 0; index < this.children.length; index++) {
 			const child = this.children[index];
+			applyDefaultCardIcons(child, icons);
 			if (child instanceof TerminalTestCompletion) continue;
 			if (child instanceof Spacer) {
 				const notice = this.children[index + 1];

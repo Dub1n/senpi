@@ -1,4 +1,5 @@
 import type { DensityCardRenderOptions, DensityCardSource, DensityCardStructuredView } from "@earendil-works/pi-tui";
+import { type ToolCardIconOverrides, toolCardIconOverride } from "../../../core/tool-card-icons.ts";
 import { theme } from "../theme/theme.ts";
 import { TranscriptStatusText } from "./themed-text.ts";
 
@@ -46,14 +47,27 @@ export class NotificationCard extends TranscriptStatusText implements DensityCar
 	private readonly kind: NotificationKind;
 	private readonly heading: string;
 	private readonly body: string;
+	private defaultIcon: string | undefined;
 
 	constructor(kind: NotificationKind, message: string, options: NotificationCardOptions = {}) {
 		const color = kind === "error" ? "error" : kind === "warning" ? "warning" : "dim";
-		super(options.defaultText ?? (() => theme.fg(color, message)), options.paddingX ?? 1, 0);
+		const defaultText = options.defaultText ?? (() => theme.fg(color, message));
+		super(
+			() => `${this.defaultIcon === undefined ? "" : theme.fg(color, `${this.defaultIcon} `)}${defaultText()}`,
+			options.paddingX ?? 1,
+			0,
+		);
 		this.kind = kind;
 		this.coalescesDefaultStatus = kind === "info" || kind === "hot-reload";
 		this.heading = notificationHeading(kind, message, options.heading);
 		this.body = options.body ?? message;
+	}
+
+	setToolCardIconOverrides(overrides: ToolCardIconOverrides | undefined): void {
+		const icon = toolCardIconOverride(overrides, this.kind === "tool" ? "tool" : "system", statusGlyph(this.kind));
+		if (icon === this.defaultIcon) return;
+		this.defaultIcon = icon;
+		this.invalidate();
 	}
 
 	renderDensitySummary(_width: number, _grouped: boolean): string[] {

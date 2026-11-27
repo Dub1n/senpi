@@ -8,6 +8,7 @@ import {
 	Spacer,
 	Text,
 } from "@earendil-works/pi-tui";
+import { prefixToolCardTitle, registerDefaultToolCardTitle } from "../../../core/default-tool-card-title.ts";
 import {
 	isSessionControlDeliveryDetails,
 	type MessageRenderer,
@@ -20,6 +21,8 @@ import {
 import { sharedMarkdownTheme, theme as interactiveTheme } from "../theme/theme.ts";
 import type { CustomMessage } from "../../../core/messages.ts";
 
+const INCOMING_GLYPH = "←";
+
 /**
  * A message another session delivered renders as its own block - never as the user's own input, so
  * a reader always sees which text came from outside this terminal. A delivery that names its sender
@@ -30,19 +33,35 @@ import type { CustomMessage } from "../../../core/messages.ts";
 export const renderRemoteDelivery: MessageRenderer = (message, _options, theme) => {
 	const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
 	const sender = sessionControlSenderOf(message.details);
+	const isAgentDelivery = message.customType === SESSION_CONTROL_DELIVERY_TYPE && sender?.kind === "agent";
+	const addTitle = (paint: (icon: string | undefined) => string): void => {
+		const heading = new Text(paint(undefined), 0, 0);
+		box.addChild(heading);
+		if (isAgentDelivery) {
+			registerDefaultToolCardTitle(box, { kind: "incoming-message", glyph: INCOMING_GLYPH }, (icon) =>
+				heading.setText(paint(icon)),
+			);
+		}
+	};
 	const origin = sessionControlRemoteOriginOf(message.details);
 	const shown = sender === undefined && origin === undefined ? undefined : displayTextOf(message.details);
 	if (shown !== undefined) {
-		if (origin !== undefined) box.addChild(new Text(theme.fg("dim", originLabel(origin)), 0, 0));
-		if (sender !== undefined) box.addChild(new Text(theme.fg("dim", senderLabel(sender)), 0, 0));
+		if (origin !== undefined) {
+			addTitle((icon) => theme.fg("dim", prefixToolCardTitle(originLabel(origin), icon)));
+			if (sender !== undefined) box.addChild(new Text(theme.fg("dim", senderLabel(sender)), 0, 0));
+		} else if (sender !== undefined) {
+			addTitle((icon) => theme.fg("dim", prefixToolCardTitle(senderLabel(sender), icon)));
+		}
 		box.addChild(new Spacer(1));
 		box.addChild(
 			new Markdown(shown, 0, 0, sharedMarkdownTheme(), { color: (line) => theme.fg("customMessageText", line) }),
 		);
 		return box;
 	}
-	const label = theme.fg("customMessageLabel", theme.bold("remote message"));
-	box.addChild(new Text(`${label}${theme.fg("dim", ` · delivery ${deliveryIdOf(message.details)}`)}`, 0, 0));
+	addTitle((icon) => {
+		const label = theme.fg("customMessageLabel", theme.bold(prefixToolCardTitle("remote message", icon)));
+		return `${label}${theme.fg("dim", ` · delivery ${deliveryIdOf(message.details)}`)}`;
+	});
 	box.addChild(new Spacer(1));
 	const text =
 		typeof message.content === "string"
@@ -100,7 +119,7 @@ export function agentDeliveryDensityCard(
 		format: "structured",
 		kind: "incoming-message",
 		heading: { details },
-		statusGlyph: "←",
+		statusGlyph: INCOMING_GLYPH,
 		body: [
 			{ type: "text", lines: [`id: ${sessionId}`] },
 			{

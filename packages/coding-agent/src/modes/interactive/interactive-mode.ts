@@ -1304,6 +1304,7 @@ export class InteractiveMode {
 		this.chatContainer.setDensitySession(this.sessionManager.getSessionId());
 		this.chatContainer.setToolDisplayDensity(this.settingsManager.getToolDisplayDensity());
 		this.chatContainer.setToolDisplayColors(this.settingsManager.getToolDisplayColors());
+		this.chatContainer.setToolCardIcons(this.settingsManager.getToolCardIconOverrides());
 		this.applyDenseCardPreferences();
 		this.documentContainer = new Container();
 		this.documentContainer.addChild(this.headerContainer);
@@ -2990,6 +2991,7 @@ export class InteractiveMode {
 		this.outputPad = this.settingsManager.getOutputPad();
 		this.chatContainer.setToolDisplayDensity(this.settingsManager.getToolDisplayDensity());
 		this.chatContainer.setToolDisplayColors(this.settingsManager.getToolDisplayColors());
+		this.chatContainer.setToolCardIcons(this.settingsManager.getToolCardIconOverrides());
 		this.applyDenseCardPreferences();
 		this.applySmoothStreamingRenderFps();
 		this.ui.setShowHardwareCursor(this.settingsManager.getShowHardwareCursor());
@@ -6461,6 +6463,8 @@ export class InteractiveMode {
 			case "custom": {
 				const testCompletion = TerminalTestCompletion.from(message, this.toolOutputExpanded);
 				if (testCompletion) this.chatContainer.addChild(testCompletion);
+				for (const completion of TerminalTestCompletion.fromMonitor(message, this.toolOutputExpanded))
+					this.chatContainer.addChild(completion);
 				if (message.display) {
 					const renderer =
 						this.session.extensionRunner.getMessageRenderer(message.customType) ??
@@ -7562,7 +7566,7 @@ export class InteractiveMode {
 		return this.providerErrors;
 	}
 
-	showNoticeBox(spec: NoticeSpec): void {
+	showNoticeBox(spec: NoticeSpec, highReasoningModel?: string): void {
 		const sanitized: NoticeSpec = {
 			...spec,
 			title: sanitizeTuiErrorMessage(spec.title),
@@ -7578,7 +7582,13 @@ export class InteractiveMode {
 			...(spec.expandedLine === undefined ? {} : { expandedLine: sanitizeTuiErrorMessage(spec.expandedLine) }),
 		};
 		this.chatContainer.addChild(new Spacer(1));
-		this.chatContainer.addChild(new TranscriptNotice(sanitized, this.toolOutputExpanded));
+		this.chatContainer.addChild(
+			new TranscriptNotice(
+				sanitized,
+				this.toolOutputExpanded,
+				highReasoningModel === undefined ? undefined : sanitizeTuiErrorMessage(highReasoningModel),
+			),
+		);
 		this.ui.requestRender();
 	}
 
@@ -7619,12 +7629,15 @@ export class InteractiveMode {
 			{ id: event.modelId, provider: event.provider },
 			event.thinkingLevel,
 		);
-		this.showNoticeBox({
-			title,
-			tone: "error",
-			why: body[0] ?? "High reasoning may affect reliability or cost.",
-			extra: body.slice(1).map((text) => ({ text, tone: "error" })),
-		});
+		this.showNoticeBox(
+			{
+				title,
+				tone: "error",
+				why: body[0] ?? "High reasoning may affect reliability or cost.",
+				extra: body.slice(1).map((text) => ({ text, tone: "error" })),
+			},
+			`${event.provider}/${event.modelId} @ ${event.thinkingLevel}`,
+		);
 	}
 
 	showPackageUpdateNotification(packages: string[]): void {
@@ -8099,6 +8112,7 @@ export class InteractiveMode {
 					toolCardFoldDefaults: this.settingsManager.getToolCardFoldDefaults(),
 					toolCardNesting: this.settingsManager.getToolCardNesting(),
 					toolDisplayColorOverrides: this.settingsManager.getToolDisplayColorOverrides(),
+					toolCardIconOverrides: this.settingsManager.getToolCardIconOverrides(),
 					toolDisplayColorFrames: toolDisplayColors.colorFrames,
 					toolDisplayColorNames: toolDisplayColors.colorNames,
 					toolDisplayColorIcons: toolDisplayColors.colorIcons,
@@ -8206,6 +8220,11 @@ export class InteractiveMode {
 					onToolDisplayColorOverrideChange: (name, value) => {
 						this.settingsManager.setToolDisplayColorOverride(name, value);
 						this.chatContainer.setToolDisplayColors(this.settingsManager.getToolDisplayColors());
+						this.ui.requestRender();
+					},
+					onToolCardIconOverrideChange: (id, value) => {
+						this.settingsManager.setToolCardIconOverride(id, value);
+						this.chatContainer.setToolCardIcons(this.settingsManager.getToolCardIconOverrides());
 						this.ui.requestRender();
 					},
 					onToolDisplayColorFramesChange: (enabled) => {
@@ -8420,6 +8439,7 @@ export class InteractiveMode {
 	 * reaches exactly the members the switch uses.
 	 */
 	private static applyThinkingLevel(mode: InteractiveMode, level: ThinkingLevel, persist: boolean): void {
+		const previousTail = mode.chatContainer?.children.at(-1);
 		if (persist) {
 			mode.session.setThinkingLevel(level);
 			if (mode.session.thinkingLevel !== "off" || mode.session.supportsThinking()) {
@@ -8428,6 +8448,17 @@ export class InteractiveMode {
 		} else mode.session.setSessionThinkingLevel(level);
 		mode.footer.invalidate();
 		mode.updateEditorBorderColor();
+		// The session emits the thinking status before its warning. Don't immediately
+		// replace that warning with the command's redundant status confirmation.
+		const last = mode.chatContainer?.children.at(-1);
+		if (
+			mode.chatContainer?.toolDisplayDensity !== "default" &&
+			last !== previousTail &&
+			last instanceof TranscriptNotice &&
+			last.highReasoningModel !== undefined
+		) {
+			return;
+		}
 		mode.showStatus(persist ? `Default thinking level: ${level}` : `Thinking level: ${level}`);
 	}
 
@@ -9973,6 +10004,7 @@ export class InteractiveMode {
 			this.outputPad = this.settingsManager.getOutputPad();
 			this.chatContainer.setToolDisplayDensity(this.settingsManager.getToolDisplayDensity());
 			this.chatContainer.setToolDisplayColors(this.settingsManager.getToolDisplayColors());
+			this.chatContainer.setToolCardIcons(this.settingsManager.getToolCardIconOverrides());
 			this.applyDenseCardPreferences();
 			// Reload replaces the session runner: a genuine ownership boundary, so the
 			// external-owner delegation episode ends here (settings-only rebuilds below

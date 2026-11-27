@@ -55,6 +55,43 @@ function cellOf({ terminal }: Awaited<ReturnType<typeof terminalRows>>, row: num
 describe("semantic density card styling", () => {
 	beforeAll(() => initTheme("dark"));
 
+	it.each([
+		{ status: "done", icon: "界", firstCell: "界", secondCellWidth: 0 },
+		{ status: "failed", icon: "界", firstCell: "!", secondCellWidth: 1 },
+	] as const)("keeps the title column fixed for $status with a two-column configured glyph", async (input) => {
+		const card = {
+			densityExpanded: false,
+			setExpanded() {},
+			getBackgroundPainter: () => undefined,
+			renderDensitySummary: () => [],
+			renderDensityCard: (): DensityCardStructuredView => ({
+				format: "structured",
+				kind: "read",
+				heading: {},
+				status: input.status,
+				body: [],
+				sections: [],
+			}),
+			render: () => [],
+			invalidate() {},
+		};
+		const row = new ToolDensityRow(
+			card,
+			() => {},
+			() => ({
+				colorFrames: false,
+				colorNames: false,
+				colorIcons: false,
+				icons: { read: input.icon, "tool.failed": "!" },
+			}),
+		);
+		using screen = await terminalRows(row.render(width));
+		const heading = screen.terminal.buffer.active.getLine(2);
+		expect(heading?.getCell(4)?.getChars()).toBe(input.firstCell);
+		expect(heading?.getCell(5)?.getWidth()).toBe(input.secondCellWidth);
+		expect(heading?.getCell(6)?.getChars()).toBe("r");
+	});
+
 	it.each([{ colorIcons: false }, { colorIcons: true }, { colorIcons: true, override: "#5e9ad6" }])(
 		"takes the remembered glyph color from the host (icons=$colorIcons, override=$override)",
 		async ({ colorIcons, override }) => {

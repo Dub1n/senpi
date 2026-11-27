@@ -199,6 +199,7 @@ function createSettingsManagerStub() {
 		getShowCacheMissNotices: () => true,
 		getToolDisplayColors: () => ({ colorFrames: false, colorNames: false, colorIcons: false }),
 		getToolDisplayColorOverrides: () => ({}),
+		getToolCardIconOverrides: () => ({}),
 		getToolCardFoldDefaults: () => ({}),
 		getToolCardNesting: () => ({ reads: true, patches: true, bashOutput: true, projectRules: true }),
 		getDefaultProjectTrust: () => "ask",

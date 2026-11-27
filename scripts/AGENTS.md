@@ -18,6 +18,7 @@ cell grid. Prefixes encode role:
 
 ## Key entry points
 
+- Local OmO candidate builds: `omo-local-build.sh`, `omo-local-build-candidate.sh`, and `omo-local-build-stage.mjs`; see `omo-local-build.md` for candidate verification and activation.
 - `package-manager.mjs`: shared npm/Bun/pnpm plumbing — detection (`npm_config_user_agent`, then
   the `npm_execpath` basename), pnpm-only `npm_config_*` scrubbing, execpath-aware spawning that
   forwards SIGINT/SIGTERM/SIGHUP to the child, and per-manager forwarded-argument shaping.

@@ -53,7 +53,7 @@ export function registerGoalTools(pi: ExtensionAPI, deps: GoalToolRegistrationDe
 			return toolText(formatGoalToolResponse(goal, notice), goalToolRenderDetails(goal, notice));
 		},
 		renderCall: (args, theme) => renderGoalToolCall("create_goal", args, theme),
-		renderResult: (result, options, theme) => renderGoalToolResult(result, options, theme),
+		renderResult: renderGoalToolResult,
 	});
 
 	pi.registerTool({
@@ -100,7 +100,7 @@ export function registerGoalTools(pi: ExtensionAPI, deps: GoalToolRegistrationDe
 			return toolText(formatGoalToolResponse(goal), goalToolRenderDetails(goal));
 		},
 		renderCall: (args, theme) => renderGoalToolCall("update_goal", args, theme),
-		renderResult: (result, options, theme) => renderGoalToolResult(result, options, theme),
+		renderResult: renderGoalToolResult,
 	});
 
 	pi.registerTool({
@@ -118,7 +118,7 @@ export function registerGoalTools(pi: ExtensionAPI, deps: GoalToolRegistrationDe
 			return toolText(formatGoalToolResponse(goal), goalToolRenderDetails(goal));
 		},
 		renderCall: (args, theme) => renderGoalToolCall("get_goal", args, theme),
-		renderResult: (result, options, theme) => renderGoalToolResult(result, options, theme),
+		renderResult: renderGoalToolResult,
 	});
 }
 

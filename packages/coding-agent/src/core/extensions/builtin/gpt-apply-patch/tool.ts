@@ -1,4 +1,5 @@
 import { Box, Container, Spacer, Text } from "@earendil-works/pi-tui";
+import { defaultToolCardIcon, prefixToolCardTitle } from "../../../default-tool-card-title.ts";
 import type { AgentToolResult, ToolRenderContext } from "../../types.ts";
 import { defineTool } from "../../types.ts";
 import { applyPatchDetailed, buildPartialFailureText, compactApplyPatchResult } from "./apply.ts";
@@ -169,6 +170,7 @@ export function createApplyPatchTool(variant: "freeform" | "json" = "freeform"):
 			};
 		},
 		renderCall(args, theme, context: ToolRenderContext<ApplyPatchRenderState, { input: string }>) {
+			const icon = defaultToolCardIcon(context, { kind: "patched" });
 			const decorate = <T extends Text>(component: T): T =>
 				Object.assign(component, {
 					renderDensityCard: () =>
@@ -181,7 +183,7 @@ export function createApplyPatchTool(variant: "freeform" | "json" = "freeform"):
 						}),
 				});
 			if (!context.executionStarted) {
-				const streaming = renderStreamingPatchCall(normalizeApplyPatchArguments(args), theme, context.state);
+				const streaming = renderStreamingPatchCall(normalizeApplyPatchArguments(args), theme, context.state, icon);
 				if (streaming)
 					return Object.assign(streaming, {
 						renderDensityCard: () =>
@@ -195,11 +197,13 @@ export function createApplyPatchTool(variant: "freeform" | "json" = "freeform"):
 					});
 			}
 			if (!context.argsComplete)
-				return decorate(new Text(theme.fg("toolTitle", theme.bold("apply_patch: Patching")), 0, 0));
+				return decorate(
+					new Text(theme.fg("toolTitle", theme.bold(prefixToolCardTitle("apply_patch: Patching", icon))), 0, 0),
+				);
 			const normalizedArgs = normalizeApplyPatchArguments(args);
 			const renderState = getApplyPatchRenderState(context.toolCallId, context.cwd, normalizedArgs.input);
 			const text = renderState.callText?.length ? `apply_patch: ${renderState.callText}` : "apply_patch";
-			return decorate(new Text(theme.fg("toolTitle", theme.bold(text)), 0, 0));
+			return decorate(new Text(theme.fg("toolTitle", theme.bold(prefixToolCardTitle(text, icon))), 0, 0));
 		},
 		renderResult(result, options, theme, context) {
 			const decorate = (component: Container): Container =>

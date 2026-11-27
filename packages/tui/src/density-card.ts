@@ -13,6 +13,7 @@ export type DensityCardKind =
 	| "wake"
 	| "loop-guard"
 	| "read"
+	| "viewed"
 	| "todo"
 	| "question"
 	| "goal"

@@ -19,6 +19,7 @@ import { getReadmePath } from "../../../config.ts";
 import { keyHint, keyText } from "../../../modes/interactive/components/keybinding-hints.ts";
 import { getLanguageFromPath, highlightCode, type Theme } from "../../../modes/interactive/theme/theme.ts";
 import { formatPathRelativeToCwdOrAbsolute } from "../../../utils/paths.ts";
+import { defaultToolCardIcon, prefixToolCardTitle } from "../../default-tool-card-title.ts";
 import type { ToolDefinition } from "../../extensions/types.ts";
 import type { TSchema } from "typebox";
 import { resolveToCwd } from "../path-utils.ts";
@@ -57,22 +58,40 @@ function formatReadLineRange(args: ReadRenderArgs | undefined): string {
 	const endLine = args.limit != null ? startLine + args.limit - 1 : "";
 	return `:${startLine}${endLine ? `-${endLine}` : ""}`;
 }
-function formatReadCall(args: ReadRenderArgs | undefined, theme: Theme, cwd: string): string {
+function formatReadCall(args: ReadRenderArgs | undefined, theme: Theme, cwd: string, icon: string | undefined): string {
 	const rawPath = str(args?.file_path ?? args?.path);
 	const skillPath = rawPath ? getSkillReadPath(resolveToCwd(rawPath, cwd), cwd) : undefined;
 	const pathDisplay =
 		rawPath && skillPath
 			? linkPath(theme.fg("accent", skillPath), rawPath, cwd)
 			: renderToolPath(rawPath, theme, cwd);
-	return `${theme.fg("toolTitle", theme.bold("read"))} ${pathDisplay}${theme.fg("warning", formatReadLineRange(args))}`;
+	return `${theme.fg("toolTitle", theme.bold(prefixToolCardTitle("read", icon)))} ${pathDisplay}${theme.fg("warning", formatReadLineRange(args))}`;
 }
 
 function readDensityHeading(
 	args: ReadRenderArgs | undefined,
 	cwd: string,
 	classification: CompactReadClassification | undefined,
+	viewed = false,
 ): Pick<DensityCardStructuredView, "kind" | "heading" | "expandedHeading"> {
 	const path = args?.file_path ?? args?.path ?? "";
+	if (viewed) {
+		const label = (value: string, role?: "dim" | "muted") =>
+			path
+				? [
+						{
+							text: sanitizeTerminalLabel(value),
+							...(role ? { role } : {}),
+							link: pathToFileURL(resolveToCwd(path, cwd)).href,
+						},
+					]
+				: "…";
+		return {
+			kind: "viewed",
+			heading: { details: [label(basename(path))] },
+			expandedHeading: { details: [label(shortenPath(path), "dim")] },
+		};
+	}
 	const skill = classification?.kind === "skill" ? classification.label : undefined;
 	const name = skill === undefined ? "read" : "skill";
 	const label = (value: string) =>
@@ -83,6 +102,7 @@ function readDensityHeading(
 		expandedHeading: { details: [label(`${skill ?? shortenPath(path)}${formatReadLineRange(args)}`)] },
 	};
 }
+
 function toPosixPath(filePath: string): string {
 	return filePath.split(sep).join("/");
 }
@@ -134,11 +154,12 @@ function formatCompactReadCall(
 	classification: CompactReadClassification,
 	args: ReadRenderArgs | undefined,
 	theme: Theme,
+	icon: string | undefined,
 ): string {
 	const expandHint = theme.fg("dim", ` (${keyText("app.tools.expand")} to expand)`);
 	if (classification.kind === "skill") {
 		return (
-			theme.fg("customMessageLabel", `\x1b[1m[skill]\x1b[22m `) +
+			theme.fg("customMessageLabel", `\x1b[1m${prefixToolCardTitle("[skill]", icon)}\x1b[22m `) +
 			theme.fg("customMessageText", classification.label) +
 			theme.fg("warning", formatReadLineRange(args)) +
 			expandHint
@@ -147,7 +168,7 @@ function formatCompactReadCall(
 
 	if (classification.kind === "memory") {
 		return (
-			theme.fg("accent", `\x1b[1m✦ ${classification.headline ?? "Recalled"}\x1b[22m`) +
+			theme.fg("accent", `\x1b[1m${icon ?? "✦"} ${classification.headline ?? "Recalled"}\x1b[22m`) +
 			" " +
 			theme.fg("customMessageText", classification.label) +
 			theme.fg("warning", formatReadLineRange(args)) +
@@ -156,7 +177,7 @@ function formatCompactReadCall(
 	}
 
 	return (
-		theme.fg("toolTitle", theme.bold(`read ${classification.kind}`)) +
+		theme.fg("toolTitle", theme.bold(prefixToolCardTitle(`read ${classification.kind}`, icon))) +
 		" " +
 		theme.fg("accent", classification.label) +
 		theme.fg("warning", formatReadLineRange(args)) +
@@ -169,8 +190,14 @@ export const readRenderers = {
 		const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 		const classify = () => readClassification(args, context);
 		const classification = context.expanded ? undefined : classify();
+		const icon = defaultToolCardIcon(context, () => {
+			const kind = (classification ?? classify())?.kind;
+			return { kind: kind === "memory" || kind === "skill" ? kind : "read" };
+		});
 		text.setText(
-			classification ? formatCompactReadCall(classification, args, theme) : formatReadCall(args, theme, context.cwd),
+			classification
+				? formatCompactReadCall(classification, args, theme, icon)
+				: formatReadCall(args, theme, context.cwd, icon),
 		);
 		return Object.assign(text, {
 			renderDensityCard(): DensityCardView | undefined {
@@ -189,12 +216,30 @@ export const readRenderers = {
 		const { cwd, showImages, imageProtocol, isError, executionStarted } = context;
 		const args = readRenderArgs(context.args);
 		const path = str(args?.file_path ?? args?.path);
+		const image = result.content.find((part) => part.type === "image");
+		const imageRows =
+			!isError && image
+				? [
+						...(showImages && imageProtocol
+							? []
+							: [`viewed image file [${sanitizeTerminalLabel(image.mimeType)}]`]),
+						...result.content.flatMap((part) => {
+							if (part.type !== "text") return [];
+							const rows = part.text.split(/\r?\n/u);
+							// The image or its fallback replaces only the metadata line, not the Read diagnostics.
+							if (rows[0]?.startsWith("Read image file [")) rows.shift();
+							return rows.map(sanitizeTerminalLabel).filter(Boolean);
+						}),
+					]
+				: [];
 		let lines: string[] | undefined;
 		let denseLines: string[] | undefined;
 		function payload(dense = false): string[] {
 			if (dense && denseLines) return denseLines;
 			if (!dense && lines) return lines;
-			const raw = replaceTabs(getTextOutput(result, showImages));
+			const content = isError && image ? result.content.filter((part) => part.type !== "image") : result.content;
+			const outputText = getTextOutput({ content }, showImages);
+			const raw = replaceTabs(outputText);
 			const output = dense ? raw.replace(/(?:\n[^\S\n]*)+$/u, "").replace(/^[^\S\n]*$/u, "") : raw;
 			const lang = !isError && path ? getLanguageFromPath(path) : undefined;
 			const rendered = lang
@@ -209,12 +254,19 @@ export const readRenderers = {
 		return {
 			render(width: number) {
 				if (!expanded && !isError) return [];
+				if (!isError && image) {
+					if (imageRows.length === 0) return [];
+					defaultText ??= new Text(imageRows.map((line) => theme.fg("toolOutput", line)).join("\n"), 0, 0);
+					return defaultText.render(width);
+				}
 				if (!defaultText) {
 					const rows = payload();
 					let end = rows.length;
 					while (end > 0 && rows[end - 1] === "") end--;
 					const shown = expanded ? end : Math.min(end, 10);
-					let text = `\n${rows.slice(0, shown).join("\n")}`;
+					const body = rows.slice(0, shown).join("\n");
+					if (!body && end === 0) return [];
+					let text = `${body ? "\n" : ""}${body}`;
 					if (end > shown) {
 						text += `${theme.fg("muted", `\n... (${end - shown} more lines,`)} ${keyHint("app.tools.expand", "to expand")}${theme.fg("muted", ")")}`;
 					}
@@ -228,9 +280,17 @@ export const readRenderers = {
 				defaultText = undefined;
 			},
 			renderDensityCard(): DensityCardView | undefined {
-				// Inline images live in ToolExecutionImages, outside the read result's text renderer.
-				if (expanded && showImages && imageProtocol && result.content.some((part) => part.type === "image")) {
-					return undefined;
+				if (!isError && image) {
+					const status = isPartial ? (executionStarted ? "running" : "pending") : "done";
+					const statusGlyph = defaultToolCardIcon(context, { kind: "viewed", status });
+					return {
+						format: "structured",
+						...readDensityHeading(args, cwd, undefined, true),
+						...(statusGlyph === undefined ? {} : { statusGlyph }),
+						status,
+						body: expanded && imageRows.length > 0 ? [{ type: "text", lines: imageRows }] : [],
+						sections: [],
+					};
 				}
 				return {
 					format: "structured",

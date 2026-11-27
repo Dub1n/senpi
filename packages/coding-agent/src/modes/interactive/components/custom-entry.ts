@@ -1,5 +1,6 @@
 import type { Component } from "@earendil-works/pi-tui";
 import { Box, Container, isSemanticDensityCardSource, Spacer, Text } from "@earendil-works/pi-tui";
+import { applyDefaultToolCardIconOverrides } from "../../../core/default-tool-card-title.ts";
 import { renderRuleActivationEntry } from "../../../core/extensions/builtin/rule-activation/renderer.ts";
 import {
 	parseRuleActivationDetails,
@@ -7,6 +8,7 @@ import {
 } from "../../../core/extensions/builtin/rule-activation/types.ts";
 import type { EntryRenderer, EntryRendererOptions } from "../../../core/extensions/types.ts";
 import type { CustomEntry } from "../../../core/session-manager.ts";
+import type { ToolCardIconOverrides } from "../../../core/tool-card-icons.ts";
 import { theme } from "../theme/theme.ts";
 import { projectRulesDensityCard } from "./dense-project-rules.ts";
 import {
@@ -27,6 +29,7 @@ export class CustomEntryComponent extends Container {
 	private renderer: EntryRenderer;
 	readonly projectRulesNotice: ProjectRulesActivationDetails | undefined;
 	private customComponent?: Component;
+	private defaultIcons: ToolCardIconOverrides | undefined;
 	private _expanded = false;
 	private densityDetail: boolean | undefined;
 
@@ -85,6 +88,12 @@ export class CustomEntryComponent extends Container {
 		return this.customComponent !== undefined;
 	}
 
+	setToolCardIconOverrides(overrides: ToolCardIconOverrides | undefined): void {
+		if (this.defaultIcons === overrides) return;
+		this.defaultIcons = overrides;
+		applyDefaultToolCardIconOverrides(this.customComponent, overrides);
+	}
+
 	setExpanded(expanded: boolean): void {
 		if (this._expanded !== expanded) {
 			this._expanded = expanded;
@@ -123,6 +132,7 @@ export class CustomEntryComponent extends Container {
 		}
 
 		this.customComponent = component;
+		applyDefaultToolCardIconOverrides(component, this.defaultIcons);
 		this.addChild(new Spacer(1));
 		this.addChild(component);
 	}

@@ -67,6 +67,7 @@ extensions/
 
 - The ~2367-line `types.ts` is "the API"; treat its diffs like a public package release.
 - `ToolRenderContext` now includes `imageProtocol` (terminal image protocol, or null when images can't render) and `hasResult` (lets a call renderer yield to the result renderer).
+- `ToolRenderContext.resolveDefaultToolCardIcon` resolves configured icons only for Default-view tool headings; semantic density cards keep their own status and glyph.
 - `changes.md` already documents major fork-introduced APIs: `ModelSelectEventResult`, `SystemPromptChangeEvent`, `getCompactionSettings`, lazy/shared jiti, default-extension factory resolver. Read it before extending.
 
 ---

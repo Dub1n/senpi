@@ -1,7 +1,14 @@
-import { ProcessTerminal, resetCapabilitiesCache, setCapabilities, TUI } from "@earendil-works/pi-tui";
+import {
+	ProcessTerminal,
+	resetCapabilitiesCache,
+	setCapabilities,
+	type ImageProtocol,
+	TUI,
+} from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { ToolDefinition } from "../src/core/extensions/types.ts";
+import { createReadToolDefinition } from "../src/core/tools/read.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import * as imageConvert from "../src/utils/image-convert.ts";
@@ -12,6 +19,10 @@ const STALE_ONE_PIXEL_PNG =
 const TINY_JPEG =
 	"/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wAARCAACAAIDAREAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAVAQEBAAAAAAAAAAAAAAAAAAAGCf/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AD3VTB3/2Q==";
 const INVALID_JPEG = Buffer.from("not-a-jpeg").toString("base64");
+const stockReadFallbackCases: { label: string; images: ImageProtocol; showImages: boolean }[] = [
+	{ label: "unsupported terminal", images: null, showImages: true },
+	{ label: "disabled previews", images: "iterm2", showImages: false },
+];
 
 describe("eval renderer image integration", () => {
 	beforeAll(() => {
@@ -60,6 +71,67 @@ describe("eval renderer image integration", () => {
 		expect(observedImageProtocol).toBe("kitty");
 		expect(rendered).toContain("\x1b_G");
 	});
+
+	it("Given stock Read on an image-capable terminal when expanded then the preview replaces its MIME row and keeps hints", () => {
+		setCapabilities({ images: "iterm2", trueColor: true, hyperlinks: true });
+		const component = new ToolExecutionComponent(
+			"read",
+			"read-image-preview",
+			{ path: "assets/test-preview.png" },
+			{ showImages: true },
+			createReadToolDefinition(process.cwd()),
+			new TUI(new ProcessTerminal()),
+			process.cwd(),
+		);
+		component.updateResult({
+			content: [
+				{ type: "text", text: "Read image file [image/png]\nImage resized from 2400x1200." },
+				{ type: "image", data: ONE_PIXEL_PNG, mimeType: "image/png" },
+			],
+			details: undefined,
+			isError: false,
+		});
+		component.setExpanded(true);
+
+		const rendered = component.render(80).join("\n");
+
+		expect(rendered).toContain("\x1b]1337;File=");
+		expect(rendered).not.toContain("Read image file [image/png]");
+		expect(rendered).toContain("Image resized from 2400x1200.");
+	});
+
+	it.each(stockReadFallbackCases)(
+		"Given stock Read with $label when expanded then it renders one unpadded fallback and keeps hints",
+		({ images, showImages }) => {
+			setCapabilities({ images, trueColor: true, hyperlinks: true });
+			const component = new ToolExecutionComponent(
+				"read",
+				`read-image-fallback-${showImages}`,
+				{ path: "assets/test-preview.png" },
+				{ showImages },
+				createReadToolDefinition(process.cwd()),
+				new TUI(new ProcessTerminal()),
+				process.cwd(),
+			);
+			component.updateResult({
+				content: [
+					{ type: "text", text: "Read image file [image/png]\nImage resized from 2400x1200." },
+					{ type: "image", data: ONE_PIXEL_PNG, mimeType: "image/png" },
+				],
+				details: undefined,
+				isError: false,
+			});
+			component.setExpanded(true);
+
+			const rendered = component.render(80).join("\n");
+
+			expect(rendered.match(/viewed image file \[image\/png\]/gu)).toHaveLength(1);
+			expect(rendered).not.toContain("Read image file [image/png]");
+			expect(rendered).not.toContain("[Image:");
+			expect(rendered).toContain("Image resized from 2400x1200.");
+			expect(rendered).not.toContain("\x1b]1337;File=");
+		},
+	);
 
 	it("Given Kitty when a valid JPEG conversion completes then the fallback is replaced by the native image", async () => {
 		// Given

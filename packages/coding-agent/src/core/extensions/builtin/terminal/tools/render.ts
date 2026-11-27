@@ -5,6 +5,7 @@ import {
 	Text,
 } from "@earendil-works/pi-tui";
 import { truncateToVisualLines } from "../../../../../modes/interactive/components/visual-truncate.ts";
+import { defaultToolCardTitle } from "../../../../default-tool-card-title.ts";
 import { isModelOnlyText } from "../../../../tools/model-only-text.ts";
 import { formatToolCallWithArgs, getTextOutput } from "../../../../tools/render-utils.ts";
 import { formatJobWidgetLine, type JobWidgetLineStyle, jobWidgetLineStyle } from "../../job-widgets/tui-line.ts";
@@ -291,6 +292,7 @@ class KillBashResultComponent extends Text implements DensityCardSource {
 	#status: "running" | "done" | "failed" = "running";
 	#detail = "killing";
 	#outcome: string | undefined;
+	#testLabel: string | undefined;
 
 	setResult(
 		result: AgentToolResult<BashOutputDetails>,
@@ -316,6 +318,7 @@ class KillBashResultComponent extends Text implements DensityCardSource {
 		const alreadyExited =
 			this.#outcome === "already-exited" ||
 			(context.isError && lines.join("\n") === `Could not kill ${sessionId}: session already exited.`);
+		this.#testLabel = this.#outcome === "already-exited" ? testSummaryLabel(result.details?.testSummary) : undefined;
 		const notFound = context.isError && lines.join("\n") === `No terminal session found with id: ${sessionId}`;
 		this.#status =
 			context.isError || this.#outcome === "failed" || alreadyExited
@@ -354,7 +357,7 @@ class KillBashResultComponent extends Text implements DensityCardSource {
 		return {
 			format: "structured",
 			kind: "bash-output",
-			heading: bashHeading(this.#sessionId, [this.#detail]),
+			heading: bashHeading(this.#sessionId, [this.#detail, ...(this.#testLabel ? [this.#testLabel] : [])]),
 			status: this.#status,
 			body: bodyText.length > 0 ? [{ type: "text", lines: bodyText.split("\n") }] : [],
 			sections: [],
@@ -372,6 +375,7 @@ class BashOutputResultComponent implements DensityCardSource {
 	#sessionId: string | undefined;
 	#bashOutput: BashOutputViewDetails | undefined;
 	#densePoll: DenseBashPollView | undefined;
+	#testLabel: string | undefined;
 	#pollNotices: readonly string[] = [];
 	#lookupLabel: string | undefined;
 
@@ -413,6 +417,11 @@ class BashOutputResultComponent implements DensityCardSource {
 				? legacyProcessHeader(this.#text, args.bash_id, result.details?.monitorMuted === true)
 				: undefined);
 		this.#densePoll = denseBashPoll(result, args ?? {});
+		const processStatus = bashOutputOf(result.details)?.processStatus;
+		this.#testLabel =
+			processStatus === "completed" || processStatus === "exited_1"
+				? testSummaryLabel(result.details?.testSummary)
+				: undefined;
 	}
 
 	renderDensityCard(): DensityCardStructuredView {
@@ -442,7 +451,7 @@ class BashOutputResultComponent implements DensityCardSource {
 		const view = this.#bashOutput;
 		const status = view ? processStatusDetail(view) : undefined;
 		const details = status
-			? [status.detail, ...this.#pollNotices]
+			? [status.detail, ...(this.#testLabel ? [this.#testLabel] : []), ...this.#pollNotices]
 			: [...(this.#lookupLabel === undefined ? [] : [this.#lookupLabel]), ...this.#pollNotices];
 		const output = view ? (bodyAfterStatus(this.#text, view) ?? this.#text) : this.#text;
 
@@ -490,7 +499,18 @@ export function renderBashOutputCall(
 	context?: RenderCallContext,
 ): Text {
 	return new BashOutputCallComponent(
-		theme.fg("toolTitle", theme.bold(`bash_output ${args.bash_id}`)),
+		theme.fg(
+			"toolTitle",
+			theme.bold(
+				defaultToolCardTitle(`bash_output ${args.bash_id}`, context, (details) => {
+					const metadata =
+						details && typeof details === "object" && "bashOutput" in details
+							? bashOutputOf({ bashOutput: details.bashOutput })
+							: undefined;
+					return { kind: "bash-output", ...(metadata && { glyph: processStatusDetail(metadata).statusGlyph }) };
+				}),
+			),
+		),
 		args.bash_id,
 		context?.executionStarted ?? false,
 	);
@@ -501,7 +521,8 @@ export function renderKillBashCall(
 	theme: Parameters<NonNullable<KillBashToolDefinition["renderCall"]>>[1],
 	context: KillBashCallContext,
 ): Text | BashOutputCallComponent {
-	const call = formatToolCallWithArgs("kill_bash", args, theme, context.expanded);
+	const title = defaultToolCardTitle("kill_bash", context, { kind: "bash-output" });
+	const call = formatToolCallWithArgs(title, args, theme, context.expanded);
 	if (args.all === true || args.bash_id === undefined || args.bash_id.length === 0) return new Text(call, 0, 0);
 	return new BashOutputCallComponent(call, args.bash_id, context.executionStarted, ["killing"]);
 }

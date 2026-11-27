@@ -2,7 +2,10 @@ import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { fauxAssistantMessage, type JsonObject } from "@earendil-works/pi-ai";
 import { beforeAll, describe, expect, it } from "vitest";
 import { SESSION_CONTROL_DELIVERY_TYPE } from "../../src/core/extensions/session-control-types.ts";
-import { omoTaskDensityCard } from "../../src/modes/interactive/components/omo-task-density.ts";
+import {
+	omoTaskDensityCard,
+	omoTaskDensityProjection,
+} from "../../src/modes/interactive/components/omo-task-density.ts";
 import { ExplorationTranscriptContainer } from "../../src/modes/interactive/components/exploration-transcript-container.ts";
 import { ToolDensityRow, type DensityCardSource } from "../../src/modes/interactive/components/tool-density-row.ts";
 import { initTheme } from "../../src/modes/interactive/theme/theme.ts";
@@ -252,6 +255,73 @@ describe("OmO tool density cards", () => {
 			if (reversedView?.format !== "structured") throw new Error("Expected structured reversed batch card");
 			expect(reversedView.statusGlyph).toBe("✗");
 			expect(reversedView.sections[0]?.heading).toMatchObject({ statusGlyph: "+" });
+		});
+
+		it("projects structured batch items directly as standalone Task cards", () => {
+			const projection = omoTaskDensityProjection({
+				toolName: "task",
+				args: {
+					tasks: [
+						{ prompt: "Implement the route", task_summary: "Implement" },
+						{ prompt: "Verify the route", task_summary: "Verify" },
+					],
+				},
+				result: {
+					isError: false,
+					details: {
+						mode: "spawn",
+						task_id: "st_123",
+						status: "running",
+						items: [
+							{ task_id: "st_123", nickname: "Deimos", status: "running", task_summary: "Implement" },
+							{
+								task_id: "st_456",
+								nickname: "Io",
+								status: "error",
+								task_summary: "Verify",
+								error_message: "provider unavailable",
+							},
+						],
+					},
+				},
+			});
+			expect(projection?.type).toBe("members");
+			if (projection?.type !== "members") throw new Error("Expected standalone Task members");
+			expect(
+				projection.summary.heading.details?.map((line) => (typeof line === "string" ? line : line[0]?.text)),
+			).toEqual(["Deimos", "Io"]);
+			expect(projection.summary.body).toEqual([]);
+			expect(projection.summary.sections).toEqual([]);
+			expect(
+				projection.members.map(({ heading, statusGlyph, body, sections }) => ({
+					identity: heading.details?.[0],
+					statusGlyph,
+					body: body.flatMap((block) => (block.type === "text" ? block.lines : [])),
+					sections,
+				})),
+			).toEqual([
+				{
+					identity: [{ text: "Deimos", role: "text" }],
+					statusGlyph: "+",
+					body: [
+						[{ text: "id: st_123", role: "text" }],
+						"status: running",
+						[{ text: "Implement the route", role: "dim", italic: true }],
+					],
+					sections: [],
+				},
+				{
+					identity: [{ text: "Io", role: "text" }],
+					statusGlyph: "✗",
+					body: [
+						[{ text: "id: st_456", role: "text" }],
+						"status: error",
+						"detail: provider unavailable",
+						[{ text: "Verify the route", role: "dim", italic: true }],
+					],
+					sections: [],
+				},
+			]);
 		});
 
 		it("uses effective model metadata, keeps Default, and never invents missing effort", () => {

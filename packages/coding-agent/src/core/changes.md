@@ -1,3 +1,22 @@
+## 2026-11-27 - Persist explicit tool card icon overrides
+
+### What changed
+
+- `packages/coding-agent/src/core/settings-manager.ts` stores optional per-role glyphs. An absent override retains each view's original icon, even when the user-visible dense hint is different.
+- `packages/coding-agent/src/core/tool-card-icons.ts` defines the named icon roles and validates a single printable grapheme occupying one or two terminal columns.
+
+### Why
+
+- Users can change card symbols without replacing the terminal theme or changing unconfigured Default cards.
+
+### Why an extension could not handle it
+
+- The host owns settings persistence and card headings, including the shared failure indicator.
+
+### Expected merge conflict zones
+
+- LOW: tool display preferences and settings accessors.
+
 ## 2026-11-26 - Persist dense card fold defaults and nesting switches
 
 ### What changed

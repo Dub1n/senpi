@@ -17,6 +17,7 @@ Rendering engine, input/terminal protocol modules, and the fork-delta ledger. Th
 | Image/paste marker registries, canonicalization | `image-markers.ts`, `paste-markers.ts` |
 | Editor primitives shared with the component `Editor` | `kill-ring.ts`, `undo-stack.ts`, `word-navigation.ts` |
 | Public API surface | `index.ts` — barrel; the coupling point for `coding-agent` and `senpi-codemode` |
+| Semantic transcript-card contract | `density-card.ts` — status, kind, structured heading/section, and source types consumed by interactive renderers |
 | Fork render-behavior history | `changes.md` |
 
 Public exports include `VStack`, `HStack`, `ScrollView`, `Spacer`, `TuiAltScreen`, `TuiMainScreen`, `Container`, `CURSOR_MARKER`, `isViewportTUI`, and `ViewportTUI`.
@@ -30,6 +31,7 @@ Design doc for the alternate-screen layout system (landed 2026-07-31): root `tui
 - Terminal protocols are modeled explicitly: Kitty keyboard, legacy sequences, modifyOtherKeys level detection, tmux focus/passthrough, OSC color queries (`terminal-capabilities.ts`, `native-modifiers.ts`, `tmux-focus.ts`).
 - Native capabilities load lazily and degrade to `undefined`; never a hard dependency.
 - All width/wrap/segment math goes through `utils.ts` primitives (`visibleWidth`, `wrapTextWithAnsi`, `sliceByColumn`, `extractSegments`) — never hand-rolled string slicing.
+- `DensityCardSource` carries semantic card content and section placement across package boundaries; keep framing and theme painting in the consuming renderer.
 - `utils.ts` uses a bounded/rotating width cache and a pooled ANSI style tracker; `__widthCacheStats()` exposes cache diagnostics for tests.
 
 ## ANTI-PATTERNS

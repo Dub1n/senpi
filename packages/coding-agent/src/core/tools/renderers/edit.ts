@@ -18,7 +18,8 @@ import {
 	type DensityCardView,
 } from "@earendil-works/pi-tui";
 import type { Theme } from "../../../modes/interactive/theme/theme.ts";
-import type { ToolDefinition } from "../../extensions/types.ts";
+import { defaultToolCardTitle } from "../../default-tool-card-title.ts";
+import type { ToolDefinition, ToolRenderContext } from "../../extensions/types.ts";
 import { countDiffChanges, renderToolDiff } from "../diff-render.ts";
 import type { EditToolDetails } from "../edit.ts";
 import type { Edit, EditDiffError, EditDiffResult } from "../edit-diff.ts";
@@ -93,11 +94,18 @@ function getRenderablePreviewInput(args: RenderableEditArgs | undefined): { path
 
 	return null;
 }
-function formatEditCall(args: RenderableEditArgs | undefined, theme: Theme, cwd: string, diffText?: string): string {
+function formatEditCall(
+	args: RenderableEditArgs | undefined,
+	theme: Theme,
+	context: ToolRenderContext,
+	diffText?: string,
+): string {
+	const { cwd } = context;
 	const pathDisplay = renderToolPath(str(args?.file_path ?? args?.path), theme, cwd);
 	const counts = diffText === undefined ? undefined : countDiffChanges(diffText);
 	const countTag = counts === undefined ? "" : theme.fg("muted", ` (+${counts.added}/-${counts.removed})`);
-	return `${theme.fg("toolTitle", theme.bold("edit"))} ${pathDisplay}${countTag}`;
+	const title = defaultToolCardTitle("edit", context, { kind: "edit" });
+	return `${theme.fg("toolTitle", theme.bold(title))} ${pathDisplay}${countTag}`;
 }
 function formatEditResult(
 	args: RenderableEditArgs | undefined,
@@ -147,8 +155,9 @@ function buildEditCallComponent(
 	component: EditCallRenderComponent,
 	args: RenderableEditArgs | undefined,
 	theme: Theme,
-	cwd: string,
+	context: ToolRenderContext,
 ): EditCallRenderComponent {
+	const { cwd } = context;
 	component.setBgFn(getEditHeaderBg(component.preview, component.settledError, theme));
 	Object.assign(component, {
 		renderDensityCard(): DensityCardView {
@@ -191,7 +200,7 @@ function buildEditCallComponent(
 			formatEditCall(
 				args,
 				theme,
-				cwd,
+				context,
 				component.preview && !("error" in component.preview) ? component.preview.diff : undefined,
 			),
 			0,
@@ -259,7 +268,7 @@ export const editRenderers: Pick<ToolDefinition<any, any>, "renderCall" | "rende
 			});
 		}
 
-		return buildEditCallComponent(component, args as RenderableEditArgs | undefined, theme, context.cwd);
+		return buildEditCallComponent(component, args as RenderableEditArgs | undefined, theme, context);
 	},
 	renderResult(result, options, theme, context) {
 		const callComponent = context.state.callComponent;
@@ -282,7 +291,7 @@ export const editRenderers: Pick<ToolDefinition<any, any>, "renderCall" | "rende
 				changed = true;
 			}
 			if (changed) {
-				buildEditCallComponent(callComponent, context.args as RenderableEditArgs | undefined, theme, context.cwd);
+				buildEditCallComponent(callComponent, context.args as RenderableEditArgs | undefined, theme, context);
 			}
 		}
 

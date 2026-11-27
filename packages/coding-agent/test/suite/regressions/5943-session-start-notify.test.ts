@@ -60,6 +60,7 @@ type ReloadCommandContext = {
 	chatContainer: {
 		setToolDisplayDensity: (density: ToolDisplayDensity) => void;
 		setToolDisplayColors: (colors: ToolDisplayColors) => void;
+		setToolCardIcons: (icons: Readonly<Record<string, string>>) => void;
 		setDenseCardPreferences: (foldDefaults: ToolCardFoldDefaults, nesting: ToolCardNesting) => void;
 	};
 	session: {
@@ -79,6 +80,7 @@ type ReloadCommandContext = {
 		getOutputPad: () => 0 | 1;
 		getToolDisplayDensity: () => ToolDisplayDensity;
 		getToolDisplayColors: () => ToolDisplayColors;
+		getToolCardIconOverrides: () => Readonly<Record<string, string>>;
 		getToolCardFoldDefaults: () => ToolCardFoldDefaults;
 		getToolCardNesting: () => ToolCardNesting;
 		getEditorPaddingX: () => number;
@@ -143,6 +145,7 @@ function createReloadCommandContext(overrides: ReloadCommandContextOverrides = {
 		chatContainer: overrides.chatContainer ?? {
 			setToolDisplayDensity: () => {},
 			setToolDisplayColors: () => {},
+			setToolCardIcons: () => {},
 			setDenseCardPreferences: () => {},
 		},
 		session: {
@@ -164,6 +167,7 @@ function createReloadCommandContext(overrides: ReloadCommandContextOverrides = {
 			getOutputPad: () => 1,
 			getToolDisplayDensity: () => "default",
 			getToolDisplayColors: () => ({ colorFrames: false, colorNames: false, colorIcons: false }),
+			getToolCardIconOverrides: () => ({}),
 			getToolCardFoldDefaults: () => ({}),
 			getToolCardNesting: () => ({ reads: true, patches: true, bashOutput: true, projectRules: true }),
 			getEditorPaddingX: () => 1,
@@ -448,10 +452,15 @@ describe("regression #5943: session_start transient UI", () => {
 		// oxlint-disable-next-line eslint/prefer-const -- a closure reads it; const would throw in the TDZ if that closure ran before the assignment, so the rewrite is reviewed separately
 		let context: ReloadCommandContext;
 		context = createReloadCommandContext({
-			settingsManager: { getHideThinkingBlock: () => true, getToolDisplayDensity: () => "compact" },
+			settingsManager: {
+				getHideThinkingBlock: () => true,
+				getToolDisplayDensity: () => "compact",
+				getToolCardIconOverrides: () => ({ read: "#" }),
+			},
 			chatContainer: {
 				setToolDisplayDensity: (density) => events.push(`density:${density}`),
 				setToolDisplayColors: () => {},
+				setToolCardIcons: (icons) => events.push(`read-icon:${icons.read}`),
 				setDenseCardPreferences: () => {},
 			},
 			session: {
@@ -470,7 +479,7 @@ describe("regression #5943: session_start transient UI", () => {
 		await interactiveModePrototype.handleReloadCommand.call(context);
 
 		expect(context.hideThinkingBlock).toBe(true);
-		expect(events).toEqual(["reload", "density:compact", "rebuild:true", "start:true"]);
+		expect(events).toEqual(["reload", "density:compact", "read-icon:#", "rebuild:true", "start:true"]);
 	});
 
 	it("keeps the reload blocker focused until async reload completes", async () => {

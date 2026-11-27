@@ -9,6 +9,7 @@
 import { type DensityCardStructuredView, Text } from "@earendil-works/pi-tui";
 import { keyHint } from "../../../modes/interactive/components/keybinding-hints.ts";
 import type { Theme } from "../../../modes/interactive/theme/theme.ts";
+import { defaultToolCardIcon, prefixToolCardTitle } from "../../default-tool-card-title.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../../extensions/types.ts";
 import type { LsToolDetails } from "../ls.ts";
 import { getTextOutput, renderToolPath, shortenPath, str } from "../render-utils.ts";
@@ -24,10 +25,10 @@ function lsRenderArgs(input: unknown): LsRenderArgs | undefined {
 	};
 }
 
-function formatLsCall(args: LsRenderArgs | undefined, theme: Theme, cwd: string): string {
+function formatLsCall(args: LsRenderArgs | undefined, theme: Theme, cwd: string, icon: string | undefined): string {
 	const limit = args?.limit;
 	const pathDisplay = renderToolPath(str(args?.path), theme, cwd, { emptyFallback: "." });
-	let text = `${theme.fg("toolTitle", theme.bold("ls"))} ${pathDisplay}`;
+	let text = `${theme.fg("toolTitle", theme.bold(prefixToolCardTitle("ls", icon)))} ${pathDisplay}`;
 	if (limit !== undefined) {
 		text += theme.fg("toolOutput", ` (limit ${limit})`);
 	}
@@ -70,7 +71,7 @@ export const lsRenderers: Pick<ToolDefinition<any, any>, "renderCall" | "renderR
 	renderCall(rawArgs: unknown, theme, context) {
 		const args = lsRenderArgs(rawArgs);
 		const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-		text.setText(formatLsCall(args as any, theme, context.cwd));
+		text.setText(formatLsCall(args, theme, context.cwd, defaultToolCardIcon(context, { kind: "ls" })));
 		return Object.assign(text, {
 			renderDensityCard(): DensityCardStructuredView {
 				const path = args?.path || ".";

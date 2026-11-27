@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { type Static, Type } from "typebox";
 import { getAgentDir } from "../../../../../config.ts";
 import { annotateShellTrust } from "../../../../../engine-trust/shell-trust.ts";
@@ -27,20 +28,13 @@ import { resolveForegroundWindowSeconds, SLEEP_WAIT_WINDOW_SECONDS } from "./for
 import { classifySleepWait, type SleepWaitClassification } from "./sleep-wait.ts";
 import { describeExit, type PreparedTestRun, type SpawnRequest, spawnCommandSession, testSummaryFor } from "./spawn.ts";
 import { prepareTestRun } from "./test-runner.ts";
+import { testRunnerInputSchema } from "./test-runner-input.ts";
 
 export const ptyBashSchema = Type.Object({
 	command: Type.Optional(
 		Type.String({ description: "Shell command to execute. Mutually exclusive with test_runner." }),
 	),
-	test_runner: Type.Optional(
-		Type.Object(
-			{
-				runner: Type.Literal("vitest"),
-				args: Type.Array(Type.String(), { description: "Vitest run arguments (argv, not shell syntax)." }),
-			},
-			{ description: "Run the local test runner directly and collect attributed test counts. Omit command." },
-		),
-	),
+	test_runner: Type.Optional(testRunnerInputSchema),
 	timeout: Type.Optional(
 		Type.Number({
 			description:
@@ -531,7 +525,10 @@ export function createPtyBashTool(ctx: TerminalToolContext) {
 			}
 			const cols = resolveDimension(input.cols, ctx.defaultCols || DEFAULT_COLS);
 			const rows = resolveDimension(input.rows, ctx.defaultRows || DEFAULT_ROWS);
-			const cwd = execCtx?.cwd;
+			const cwd =
+				input.test_runner?.cwd === undefined
+					? execCtx?.cwd
+					: resolve(execCtx?.cwd ?? ctx.cwd, input.test_runner.cwd);
 			if (input.command !== undefined) {
 				const resolved = { ...input, command: input.command };
 				if (input.run_in_background) return runBackground(ctx, resolved, cols, rows, cwd, toolCallId, execCtx);
@@ -542,7 +539,10 @@ export function createPtyBashTool(ctx: TerminalToolContext) {
 			if (test === undefined) return errorResult("Specify exactly one of command or test_runner.");
 			let testRun: PreparedTestRun;
 			try {
-				testRun = await prepareTestRun(test.runner, test.args, cwd ?? ctx.cwd);
+				testRun = await prepareTestRun(test.runner, test.args, cwd ?? ctx.cwd, {
+					launcher: test.launcher ?? "direct",
+					...(cwd === undefined ? {} : { cwd }),
+				});
 			} catch (error) {
 				return errorResult(error instanceof Error ? error.message : String(error));
 			}

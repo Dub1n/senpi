@@ -105,11 +105,30 @@ describe("tool display density", () => {
 						},
 						"2026-11-26T00:00:00.000Z",
 					),
+					createCustomMessage(
+						"senpi-monitor:notification",
+						"OTHER_MONITOR_OUTPUT",
+						false,
+						{
+							terminalTestCompletions: [
+								{
+									id: "bash_43",
+									testSummary: { ...testSummary, passed: 6, failed: 0, skipped: 0 },
+									body: "MONITOR_TEST_EXIT",
+								},
+								{ id: "bash_44", testSummary: { ...testSummary, version: 2, passed: 77 } },
+							],
+						},
+						"2026-11-26T00:00:01.000Z",
+					),
 				]);
 				surface.chat.setToolDisplayDensity(density);
 				const folded = surface.text(100);
 				expect(folded).not.toContain("1 failed, 2 passed, 3 skipped");
 				expect(folded).toContain("4 passed");
+				expect(folded).toContain("6 passed");
+				expect(folded).not.toContain("77 passed");
+				expect(folded).not.toContain("OTHER_MONITOR_OUTPUT");
 				expect(folded).not.toContain("99 failed");
 				expect(folded).not.toContain("RAW_TEST_DIAGNOSTIC");
 				for (const child of surface.chat.children) {
@@ -123,6 +142,7 @@ describe("tool display density", () => {
 				expect(normal).toContain("RAW_TEST_DIAGNOSTIC");
 				expect(normal).not.toContain("1 failed, 2 passed, 3 skipped");
 				expect(normal).not.toContain("BACKGROUND_OUTPUT");
+				expect(normal).not.toContain("6 passed");
 			} finally {
 				surface.cleanup();
 			}
@@ -167,6 +187,13 @@ describe("tool display density", () => {
 					exitCode: number | null,
 					output: string,
 					isError = false,
+					testSummary?: {
+						readonly version: 1;
+						readonly runner: string;
+						readonly passed: number;
+						readonly failed: number;
+						readonly skipped: number;
+					},
 				) => {
 					await surface.event({
 						type: "tool_execution_start",
@@ -182,6 +209,7 @@ describe("tool display density", () => {
 						result: {
 							content: [{ type: "text", text: `status: ${processStatus}\n${output}` }],
 							details: {
+								...(testSummary === undefined ? {} : { testSummary }),
 								bashOutput: {
 									sessionId: "bash_42",
 									processStatus,
@@ -246,6 +274,14 @@ describe("tool display density", () => {
 				expect(narrow).toContain("LEGACY_BODY");
 				expect(narrow).toContain("ERROR_BODY");
 				expect(narrow.split("\n").every((line) => visibleWidth(line) <= width)).toBe(true);
+				await addOutput("settled-screen", "screen", "completed", 0, "SETTLED_SCREEN", false, {
+					version: 1,
+					runner: "vitest",
+					passed: 8,
+					failed: 0,
+					skipped: 1,
+				});
+				expect(surface.text(100)).toMatch(/(?:╶─|╭─|├─|╰─).*8 passed, 1 skipped/u);
 			} finally {
 				surface.cleanup();
 			}

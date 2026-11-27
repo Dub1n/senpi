@@ -1,4 +1,5 @@
 import { type Component, Text } from "@earendil-works/pi-tui";
+import { prefixToolCardTitle } from "../../../core/default-tool-card-title.ts";
 import { formatToolCallWithArgs, getTextOutput as getRenderedTextOutput } from "../../../core/tools/render-utils.ts";
 import { stripAnsi } from "../../../utils/ansi.ts";
 import { theme } from "../theme/theme.ts";
@@ -110,10 +111,11 @@ function sanitizeCallArgValue(_key: string, value: unknown): unknown {
 }
 
 /** Tools without a call renderer show their arguments on the title line (key=value; one line per key expanded). */
-export function createToolCallFallback(toolName: string, args?: unknown, expanded = false): Component {
+export function createToolCallFallback(toolName: string, args?: unknown, expanded = false, icon?: string): Component {
 	// Tool-call arguments are JSON values (ToolCall.arguments: JsonObject), so the round trip cannot throw.
 	const safeArgs: unknown = args === undefined ? undefined : JSON.parse(JSON.stringify(args, sanitizeCallArgValue));
-	return new Text(formatToolCallWithArgs(sanitizeFallbackString(toolName), safeArgs, theme, expanded), 0, 0);
+	const title = prefixToolCardTitle(sanitizeFallbackString(toolName), icon);
+	return new Text(formatToolCallWithArgs(title, safeArgs, theme, expanded), 0, 0);
 }
 
 export function createToolResultFallback(
@@ -132,8 +134,9 @@ export function formatToolExecutionFallback(
 	args: unknown,
 	result: ToolExecutionResult | undefined,
 	showImages: boolean,
+	icon?: string,
 ): string {
-	let text = theme.fg("toolTitle", theme.bold(sanitizeFallbackString(toolName)));
+	let text = theme.fg("toolTitle", theme.bold(prefixToolCardTitle(sanitizeFallbackString(toolName), icon)));
 	const content = JSON.stringify(args, sanitizeFallbackJsonValue, 2);
 	if (content) {
 		const boundedContent =

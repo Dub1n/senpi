@@ -13,7 +13,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TestSummary } from "./test-summary.ts";
-import { vitestWorkerSource } from "./test-runner-worker-source.ts";
+import { verifyBunTestScript } from "./test-runner-contract.ts";
+import { vitestReporterSource, vitestWorkerSource } from "./test-runner-worker-source.ts";
 
 const MAX_RECEIPT_BYTES = 4096;
 interface RunReceipt {
@@ -158,6 +159,7 @@ export async function prepareTestRun(
 	runner: string,
 	args: readonly string[],
 	cwd: string,
+	options: { readonly launcher?: "direct" | "bun-script"; readonly cwd?: string } = {},
 ): Promise<{
 	readonly command: string;
 	readonly args: readonly string[];
@@ -172,8 +174,16 @@ export async function prepareTestRun(
 	dispose(): void;
 }> {
 	if (runner !== "vitest") throw new Error(`Unsupported test runner: ${runner}`);
+	const launcher = options.launcher ?? "direct";
+	const packageCwd = launcher === "bun-script" ? options.cwd : undefined;
+	if (launcher === "bun-script" && packageCwd === undefined)
+		throw new Error("The bun-script Vitest launcher requires a package cwd.");
+	const scriptPrefix = packageCwd === undefined ? [] : verifyBunTestScript(packageCwd);
+	if (packageCwd !== undefined && scriptPrefix === undefined)
+		throw new Error("The package test script must invoke this repository's run-tests.mjs with Vitest.");
+	const effectiveArgs = [...(scriptPrefix ?? []), ...args];
 	if (
-		args.some(
+		effectiveArgs.some(
 			(arg) => /^--(?:watch|watchAll|ui|open|reporter|outputFile|merge-reports)(?:=|$)/.test(arg) || arg === "-r",
 		)
 	)
@@ -184,9 +194,23 @@ export async function prepareTestRun(
 	const receiptPath = join(directory, "receipt.json");
 	const invocationPath = join(directory, "invocation.json");
 	const workerPath = join(directory, "worker.mjs");
+	const reporterPath = join(directory, "reporter.mjs");
 	try {
 		writeFileSync(workerPath, vitestWorkerSource, { mode: 0o600 });
-		writeFileSync(invocationPath, JSON.stringify({ args, cwd, receiptPath, runId }), { mode: 0o600 });
+		writeFileSync(reporterPath, vitestReporterSource, { mode: 0o600 });
+		writeFileSync(
+			invocationPath,
+			JSON.stringify({
+				args,
+				cwd,
+				launcher,
+				packageCwd,
+				receiptPath,
+				reporterPath,
+				runId,
+			}),
+			{ mode: 0o600 },
+		);
 	} catch (error) {
 		rmSync(directory, { recursive: true, force: true });
 		throw error;

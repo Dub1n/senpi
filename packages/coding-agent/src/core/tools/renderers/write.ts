@@ -11,6 +11,7 @@ import { pathToFileURL } from "node:url";
 import { Container, sanitizeTerminalLabel, Text, wrapTextWithAnsi, type DensityCardView } from "@earendil-works/pi-tui";
 import { keyHint } from "../../../modes/interactive/components/keybinding-hints.ts";
 import { getLanguageFromPath, highlightCode, type Theme } from "../../../modes/interactive/theme/theme.ts";
+import { defaultToolCardTitle } from "../../default-tool-card-title.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../../extensions/types.ts";
 import { renderToolDiff } from "../diff-render.ts";
 import { resolveToCwd } from "../path-utils.ts";
@@ -34,6 +35,7 @@ class WriteCallRenderComponent extends Text {
 const WRITE_PARTIAL_FULL_HIGHLIGHT_LINES = 50;
 type WriteCallRenderOptions = ToolRenderResultOptions & {
 	argsComplete: boolean;
+	title: string;
 };
 function highlightSingleLine(line: string, lang: string): string {
 	const highlighted = highlightCode(line, lang);
@@ -122,7 +124,7 @@ function formatWriteCall(
 	const rawPath = str(args?.file_path ?? args?.path);
 	const fileContent = str(args?.content);
 	const pathDisplay = renderToolPath(rawPath, theme, cwd);
-	let text = `${theme.fg("toolTitle", theme.bold("write"))} ${pathDisplay}`;
+	let text = `${theme.fg("toolTitle", theme.bold(options.title))} ${pathDisplay}`;
 
 	if (fileContent === null) {
 		text += `\n\n${theme.fg("error", "[invalid content arg - expected string]")}`;
@@ -167,10 +169,16 @@ export const writeRenderers: Pick<ToolDefinition<any, any>, "renderCall" | "rend
 		} else {
 			component.cache = undefined;
 		}
+		const title = defaultToolCardTitle("write", context, (details) => ({
+			kind:
+				details && typeof details === "object" && "operation" in details && details.operation === "add"
+					? "added"
+					: "write",
+		}));
 		component.setText(
 			formatWriteCall(
 				renderArgs,
-				{ argsComplete: context.argsComplete, expanded: context.expanded, isPartial: context.isPartial },
+				{ argsComplete: context.argsComplete, expanded: context.expanded, isPartial: context.isPartial, title },
 				theme,
 				component.cache,
 				context.cwd,

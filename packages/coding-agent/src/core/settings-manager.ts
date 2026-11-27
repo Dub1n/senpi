@@ -73,6 +73,7 @@ import {
 import { parseSettingsJson } from "./settings-json.ts";
 import { withoutOverride } from "./settings-overrides.ts";
 import { removeRetiredSettingsKeys, writeRawScopedSettings } from "./settings-retired-keys.ts";
+import { isToolCardIcon, isToolCardIconRole } from "./tool-card-icons.ts";
 import { parseToolDisplayColor } from "./tool-display-color.ts";
 import {
 	ASK_USER_DEFAULT_TIMEOUT_MINUTES,
@@ -243,6 +244,7 @@ export interface Settings {
 	toolDisplayColorNames?: boolean;
 	toolDisplayColorIcons?: boolean;
 	toolDisplayColorOverrides?: Readonly<Record<string, string | number>>;
+	toolCardIconOverrides?: Readonly<Record<string, string>>;
 	smoothStreaming?: boolean; // default: true
 	smoothStreamingFps?: number; // default: 60, clamped to 30-120 when read
 	showCacheMissNotices?: boolean; // default: false - show prompt-cache miss and compaction cost notices
@@ -2302,6 +2304,26 @@ export class SettingsManager {
 		else overrides[name] = value;
 		this.globalSettings.toolDisplayColorOverrides = overrides;
 		this.markModified("toolDisplayColorOverrides", name);
+		this.save();
+	}
+
+	getToolCardIconOverrides(): Readonly<Record<string, string>> {
+		const overrides: unknown = this.settings.toolCardIconOverrides;
+		if (!isMergeableObject(overrides)) return {};
+		return Object.fromEntries(
+			Object.entries(overrides).filter(
+				(entry): entry is [string, string] => isToolCardIconRole(entry[0]) && isToolCardIcon(entry[1]),
+			),
+		);
+	}
+
+	setToolCardIconOverride(id: string, value: string | undefined): void {
+		if (!isToolCardIconRole(id) || (value !== undefined && !isToolCardIcon(value))) return;
+		const overrides = { ...this.globalSettings.toolCardIconOverrides };
+		if (value === undefined) delete overrides[id];
+		else overrides[id] = value;
+		this.globalSettings.toolCardIconOverrides = overrides;
+		this.markModified("toolCardIconOverrides", id);
 		this.save();
 	}
 

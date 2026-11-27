@@ -904,7 +904,7 @@
     "typescript/no-explicit-any": 2
   },
   "packages/coding-agent/src/core/tools/renderers/find.ts": {
-    "typescript/no-explicit-any": 4
+    "typescript/no-explicit-any": 3
   },
   "packages/coding-agent/src/core/tools/renderers/grep.ts": {
     "typescript/no-explicit-any": 3
@@ -913,7 +913,7 @@
     "typescript/no-explicit-any": 2
   },
   "packages/coding-agent/src/core/tools/renderers/ls.ts": {
-    "typescript/no-explicit-any": 4
+    "typescript/no-explicit-any": 3
   },
   "packages/coding-agent/src/core/tools/renderers/write.ts": {
     "typescript/no-explicit-any": 2

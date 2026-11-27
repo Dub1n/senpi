@@ -63,6 +63,7 @@ import type {
 	AutocompleteItem,
 	AutocompleteProvider,
 	Component,
+	DensityCardStatus,
 	EditorComponent,
 	EditorTheme,
 	ImageProtocol,
@@ -997,6 +998,12 @@ export interface ToolRenderContext<TState = any, TArgs = any> {
 	 */
 	hasResult?: boolean;
 	spinnerFrame?: number;
+	/**
+	 * Resolve an explicit user icon for a heading this renderer owns in Default view.
+	 * If absent or unresolved, keep the renderer's original glyph or icon-free title.
+	 * Structured density cards still provide their original semantic status and glyph.
+	 */
+	resolveDefaultToolCardIcon?: (status: DensityCardStatus) => string | undefined;
 }
 
 /**

@@ -2,11 +2,13 @@ import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "nod
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { classifyTestRunnerCommand } from "../../src/core/extensions/builtin/terminal/tools/test-runner-contract.ts";
 import { prepareTestRun } from "../../src/core/extensions/builtin/terminal/tools/test-runner.ts";
 
 const packageRoot = fileURLToPath(new URL("../..", import.meta.url));
+const repositoryRoot = resolve(packageRoot, "../..");
 
 function createProject(
 	testSource: string,
@@ -40,13 +42,22 @@ async function runVitest(
 		readonly cancelled: boolean;
 		readonly timedOut: boolean;
 	},
+	launcher: "direct" | "bun-script" = "direct",
 ) {
-	const prepared = prepareTestRun("vitest", ["--root", directory, "--config", config], packageRoot);
+	const prepared = prepareTestRun(
+		"vitest",
+		["--root", directory, "--config", config],
+		packageRoot,
+		launcher === "direct" ? undefined : { launcher, cwd: packageRoot },
+	);
 	const invocation = await prepared;
 	const child = spawnSync(invocation.command, invocation.args, {
 		cwd: packageRoot,
 		encoding: "utf8",
 		timeout: 30_000,
+		...(launcher === "bun-script"
+			? { env: { ...process.env, OMO_CODING_AGENT_DIR: join(directory, "must-not-inherit") } }
+			: {}),
 	});
 	const exit = {
 		exitCode: child.status,
@@ -59,6 +70,80 @@ async function runVitest(
 }
 
 describe("local Vitest test-runner adapter", () => {
+	it("recognizes only unambiguous direct and Bun test commands", () => {
+		expect(classifyTestRunnerCommand("vitest run --root packages/coding-agent", packageRoot)).toEqual({
+			runner: "vitest",
+			args: ["--root", "packages/coding-agent"],
+		});
+		expect(classifyTestRunnerCommand("vitest --run --root packages/coding-agent", packageRoot)).toEqual({
+			runner: "vitest",
+			args: ["--root", "packages/coding-agent"],
+		});
+		expect(classifyTestRunnerCommand("vitest", packageRoot)).toBeUndefined();
+		expect(
+			classifyTestRunnerCommand("bun run --cwd packages/coding-agent test -- --watch=false", repositoryRoot),
+		).toEqual({
+			runner: "vitest",
+			args: ["--watch=false"],
+			launcher: "bun-script",
+			cwd: resolve(packageRoot),
+		});
+		expect(classifyTestRunnerCommand("bun run test && echo done", packageRoot)).toBeUndefined();
+		expect(classifyTestRunnerCommand("vitest --config '$HOME/vitest.config.ts'", packageRoot)).toBeUndefined();
+		expect(classifyTestRunnerCommand("vitest test/**/*.test.ts", packageRoot)).toBeUndefined();
+		expect(classifyTestRunnerCommand("vitest\nbun run test", packageRoot)).toBeUndefined();
+	});
+
+	it("runs through the verified Bun package script and keeps configured reporters", async () => {
+		const project = createProject(
+			`import { expect, it } from "vitest";
+			it("quarantines inherited agent paths", () => {
+				expect(process.env.OMO_CODING_AGENT_DIR).toBeUndefined();
+				expect(process.env.SENPI_CODING_AGENT_DIR).toBe(process.env.TMPDIR + "/agent");
+			});
+			it("fails", () => expect(1).toBe(2));`,
+		);
+		try {
+			const { child, prepared, summary } = await runVitest(
+				project.directory,
+				project.config,
+				undefined,
+				"bun-script",
+			);
+			expect(summary).toEqual({ version: 1, runner: "vitest", passed: 1, failed: 1, skipped: 0 });
+			expect(`${child.stdout}\n${child.stderr}`).toContain("Test Files");
+			expect(existsSync(project.reporterMarker)).toBe(true);
+			prepared.dispose();
+		} finally {
+			rmSync(project.directory, { recursive: true, force: true });
+		}
+	});
+
+	it("rejects unsupported package scripts and pretest lifecycle hooks", async () => {
+		await expect(
+			prepareTestRun("vitest", [], packageRoot, {
+				launcher: "bun-script",
+				cwd: tmpdir(),
+			}),
+		).rejects.toThrow("The package test script must invoke this repository's run-tests.mjs with Vitest.");
+		const lifecyclePackage = mkdtempSync(join(tmpdir(), "senpi-vitest-lifecycle-"));
+		try {
+			const launcherPath = relative(lifecyclePackage, resolve(repositoryRoot, "scripts/run-tests.mjs"));
+			writeFileSync(
+				join(lifecyclePackage, "package.json"),
+				JSON.stringify({
+					scripts: {
+						test: `node ${launcherPath} vitest --run`,
+						pretest: "echo setup",
+					},
+				}),
+			);
+			expect(classifyTestRunnerCommand(`bun run --cwd ${lifecyclePackage} test`, repositoryRoot)).toBeUndefined();
+		} finally {
+			rmSync(lifecyclePackage, { recursive: true, force: true });
+		}
+	});
+
 	it("returns attributed passing counts and preserves the configured reporter", async () => {
 		const project = createProject(`import { expect, it } from "vitest"; it("passes", () => expect(2 + 2).toBe(4));`);
 		try {

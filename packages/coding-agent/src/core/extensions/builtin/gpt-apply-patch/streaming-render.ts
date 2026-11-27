@@ -1,4 +1,5 @@
 import { Box, Container, Spacer, Text } from "@earendil-works/pi-tui";
+import { prefixToolCardTitle } from "../../../default-tool-card-title.ts";
 import { normalizeApplyPatchArguments } from "./params.ts";
 import { renderPatchLine } from "./preview-format.ts";
 import { StreamingPatchParser } from "./streaming-parser.ts";
@@ -126,14 +127,16 @@ class MemoizedStreamingBox extends Container {
 	private readonly body: string;
 	private readonly hasPartial: boolean;
 	private readonly theme: ApplyPatchTheme;
-	constructor(body: string, hasPartial: boolean, theme: ApplyPatchTheme) {
+	private readonly title: string;
+	constructor(title: string, body: string, hasPartial: boolean, theme: ApplyPatchTheme) {
 		super();
+		this.title = title;
 		this.body = body;
 		this.hasPartial = hasPartial;
 		this.theme = theme;
 	}
 	override render(width: number): string[] {
-		this.built ??= renderBox("Applying patch", this.body, this.theme, this.hasPartial);
+		this.built ??= renderBox(this.title, this.body, this.theme, this.hasPartial);
 		return this.built.render(width);
 	}
 }
@@ -142,11 +145,14 @@ export function renderStreamingPatchCall(
 	args: ApplyPatchParams,
 	theme: ApplyPatchTheme,
 	state: ApplyPatchRenderState,
+	icon?: string,
 ): Container | undefined {
 	const input = normalizeApplyPatchArguments(args).input;
 	if (!input) return undefined;
 	const hunks = updateStreamingState(input, state);
-	if (state.streamingError) return renderBox("Invalid patch stream", state.streamingError, theme, false);
+	if (state.streamingError)
+		return renderBox(prefixToolCardTitle("Invalid patch stream", icon), state.streamingError, theme, false);
+	const title = prefixToolCardTitle("Applying patch", icon);
 	if (hunks.length > 0) {
 		const partialLine = state.streamingParser?.getPartialLine?.() ?? "";
 		const body = formatStreamingHunks(hunks, partialLine);
@@ -154,12 +160,12 @@ export function renderStreamingPatchCall(
 		// A no-change delta keeps the already-rendered box instead of rebuilding it; the box must
 		// still render (returning undefined here would blank the preview on any redraw).
 		if (body === state.streamingLastRenderKey && state.streamingLastRenderKey !== undefined) {
-			return new MemoizedStreamingBox(body, hasPartial, theme);
+			return new MemoizedStreamingBox(title, body, hasPartial, theme);
 		}
 		state.streamingLastRenderKey = body;
-		return renderBox("Applying patch", body, theme, hasPartial);
+		return renderBox(title, body, theme, hasPartial);
 	}
 	const paths = extractPatchedPaths(input);
 	if (paths.length === 0) return undefined;
-	return renderBox("Applying patch", paths.map((filePath) => `• ${filePath}`).join("\n"), theme, false);
+	return renderBox(title, paths.map((filePath) => `• ${filePath}`).join("\n"), theme, false);
 }

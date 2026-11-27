@@ -1,41 +1,16 @@
 import {
 	type DensityCardRenderOptions,
 	type DensityCardStructuredView,
-	getGraphemeSegmenter,
+	type DensityCardStructuredSection,
 	nextRenderRevision,
-	stripTerminalSequences,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
 import type { ProjectRulesActivationDetails } from "../../../core/extensions/builtin/rule-activation/types.ts";
 import type { CustomEntryComponent } from "./custom-entry.ts";
 import type { DensityFold } from "./density-fold.ts";
-import { densityNestView, DensityRunFold } from "./density-nest.ts";
+import { DensityRunFold } from "./density-nest.ts";
+import { projectRulesDensityMembers } from "./project-rules-density-projection.ts";
 import type { DensityCardSource } from "./tool-density-row.ts";
-
-function displayRecordedPath(path: string): string {
-	// Preserve significant filename spaces while keeping paths on one logical line.
-	return stripTerminalSequences(path).replace(/\p{Cc}+/gu, " ");
-}
-
-/** Pre-wrap path lines by cell width, since prose wrapping discards spaces at breaks. */
-function wrapRecordedPathLine(text: string, width: number): string[] {
-	const available = Math.max(1, width);
-	if (visibleWidth(text) <= available) return [text];
-	const lines: string[] = [];
-	let start = 0;
-	let used = 0;
-	for (const { segment, index } of getGraphemeSegmenter().segment(text)) {
-		const cells = visibleWidth(segment);
-		if (used > 0 && used + cells > available) {
-			lines.push(text.slice(start, index));
-			start = index;
-			used = 0;
-		}
-		used += cells;
-	}
-	lines.push(text.slice(start));
-	return lines;
-}
 
 /** Render the recorded rule labels and targets without inferring per-rule match data. */
 export function projectRulesDensityCard(
@@ -44,10 +19,7 @@ export function projectRulesDensityCard(
 	expanded: boolean,
 	member = false,
 ): DensityCardStructuredView {
-	const matches = notices.flatMap(({ rules, targetPath }) => {
-		const target = displayRecordedPath(targetPath);
-		return rules.map((rule) => ({ rule: displayRecordedPath(rule), target }));
-	});
+	const matches = projectRulesDensityMembers(notices, width);
 	const labels = matches.map(({ rule }) => rule).join(" ");
 	const count = matches.length;
 	const noun = count === 1 ? "rule" : "rules";
@@ -55,7 +27,6 @@ export function projectRulesDensityCard(
 	const labelsFit = visibleWidth(`● project rules • ${labels}`) <= titleWidth;
 	const detail = labelsFit ? labels : `${count} ${noun} matched`;
 	const single = count === 1 && labelsFit && !member ? matches[0] : undefined;
-	const matchedOn = (target: string) => wrapRecordedPathLine(`matched on: ${target}`, width - 3);
 	const summary =
 		notices.length === 1 && !member
 			? [`${count} ${count === 1 ? "instruction" : "instructions"} matched and injected for this tool result.`]
@@ -67,14 +38,22 @@ export function projectRulesDensityCard(
 		statusGlyph: "●",
 		body:
 			expanded && !member
-				? [{ type: "text", lines: [...summary, ...(single ? matchedOn(single.target) : [])] }]
+				? [
+						{
+							type: "text",
+							lines: [
+								...summary,
+								...(single?.view.body.flatMap((block) => (block.type === "text" ? block.lines : [])) ?? []),
+							],
+						},
+					]
 				: [],
 		sections:
 			expanded && !single
-				? matches.map(({ rule, target }) => ({
+				? matches.map(({ label, view }) => ({
 						placement: "frame",
-						heading: { label: wrapRecordedPathLine(`rule • ${rule}`, titleWidth).join("\n") },
-						body: [{ type: "text", lines: matchedOn(target) }],
+						heading: { label },
+						body: view.body,
 					}))
 				: [],
 	};
@@ -83,6 +62,7 @@ export function projectRulesDensityCard(
 export interface DenseProjectRulesMember {
 	readonly card: CustomEntryComponent;
 	readonly notice: ProjectRulesActivationDetails;
+	readonly ruleFolds: readonly DensityFold[];
 }
 
 /** Non-owning view of adjacent notices; keep click expansion on the original entries. */
@@ -90,6 +70,7 @@ export class DenseProjectRulesRun implements DensityCardSource {
 	readonly densityGroup = true;
 	private readonly folds: DensityRunFold;
 	private members: readonly DenseProjectRulesMember[] = [];
+	private ruleFoldsInView: readonly DensityFold[] = [];
 	private revision = nextRenderRevision();
 
 	constructor(parent: DensityFold) {
@@ -100,7 +81,11 @@ export class DenseProjectRulesRun implements DensityCardSource {
 		if (
 			this.members.length === members.length &&
 			this.members.every(
-				({ card, notice }, index) => card === members[index].card && notice === members[index].notice,
+				({ card, notice, ruleFolds }, index) =>
+					card === members[index].card &&
+					notice === members[index].notice &&
+					ruleFolds.length === members[index].ruleFolds.length &&
+					ruleFolds.every((fold, ruleIndex) => fold === members[index].ruleFolds[ruleIndex]),
 			)
 		)
 			return;
@@ -110,6 +95,7 @@ export class DenseProjectRulesRun implements DensityCardSource {
 	}
 
 	get densityExpanded(): boolean {
+		if (this.members.length === 1) return this.members[0].card.densityExpanded;
 		return this.folds.open(
 			"project-rules",
 			this.members.some(({ card }) => card.densityExpanded),
@@ -117,25 +103,91 @@ export class DenseProjectRulesRun implements DensityCardSource {
 	}
 
 	setExpanded(expanded: boolean): void {
+		if (this.members.length === 1) {
+			this.members[0].card.setExpanded(expanded);
+			return;
+		}
 		this.folds.set(expanded);
 	}
 
 	toggleDensityMember(index: number): void {
-		this.folds.toggleMember(index, "project-rules");
+		if (index < this.members.length) {
+			if (this.members.length === 1) {
+				this.members[0].card.setExpanded(!this.members[0].card.densityExpanded);
+				return;
+			}
+			this.folds.toggleMember(index, "project-rules");
+			return;
+		}
+		const fold = this.ruleFoldsInView[index - this.members.length];
+		if (fold) fold.set(!this.ruleOpen(fold));
 	}
 
 	renderDensityCard(width: number, { expanded = false }: DensityCardRenderOptions) {
-		if (expanded) {
-			const [first, ...rest] = this.members.map(({ notice }) =>
-				projectRulesDensityCard([notice], width, true, true),
+		if (!expanded) {
+			this.ruleFoldsInView = [];
+			return projectRulesDensityCard(
+				this.members.map(({ notice }) => notice),
+				width,
+				false,
 			);
-			return densityNestView(first, rest, (index) => this.folds.memberOpen(index, "project-rules"));
 		}
-		return projectRulesDensityCard(
-			this.members.map(({ notice }) => notice),
+		const [first, ...rest] = this.members;
+		if (!first) return projectRulesDensityCard([], width, false);
+		const firstSummary = projectRulesDensityCard(
+			[first.notice],
 			width,
-			false,
+			this.members.length === 1,
+			this.members.length > 1,
 		);
+		const firstOpen =
+			this.members.length === 1 ? first.card.densityExpanded : this.folds.memberOpen(0, "project-rules");
+		const sections: DensityCardStructuredSection[] = [];
+		const sectionControls: (number | undefined)[] = [];
+		const ruleFoldsInView: DensityFold[] = [];
+		const appendRuleMembers = (noticeIndex: number): void => {
+			const member = this.members[noticeIndex];
+			if (!member) return;
+			for (const [ruleIndex, rule] of projectRulesDensityMembers([member.notice], width).entries()) {
+				const fold = member.ruleFolds[ruleIndex];
+				const open = fold ? this.ruleOpen(fold) : true;
+				if (fold) ruleFoldsInView.push(fold);
+				sectionControls.push(fold ? this.members.length + ruleFoldsInView.length - 1 : undefined);
+				sections.push({
+					placement: "frame",
+					heading: { label: rule.label },
+					body: open ? rule.view.body : [],
+				});
+			}
+		};
+		if (firstOpen) appendRuleMembers(0);
+		let terminalFoldedSection: number | undefined;
+		for (const [offset, member] of rest.entries()) {
+			const index = offset + 1;
+			const hasRules = member.notice.rules.length > 0;
+			const open = hasRules && this.folds.memberOpen(index, "project-rules");
+			if (hasRules && index === this.members.length - 1 && !open) terminalFoldedSection = sections.length;
+			const noticeCard = projectRulesDensityCard([member.notice], width, true, true);
+			sectionControls.push(hasRules ? index : undefined);
+			sections.push({
+				placement: "frame",
+				heading: { kind: "project-rules", heading: noticeCard.heading, statusGlyph: "●" },
+				body: [],
+			});
+			if (open) appendRuleMembers(index);
+		}
+		this.ruleFoldsInView = ruleFoldsInView;
+		return {
+			...firstSummary,
+			heading: firstSummary.heading,
+			body: firstOpen ? firstSummary.body : [],
+			sections,
+			memberControls: {
+				first: first.notice.rules.length > 0,
+				sections: sectionControls,
+				...(terminalFoldedSection === undefined ? {} : { terminalFoldedSection }),
+			},
+		};
 	}
 
 	renderDensitySummary(width: number, grouped: boolean): string[] {
@@ -157,10 +209,16 @@ export class DenseProjectRulesRun implements DensityCardSource {
 			if (member === undefined) return undefined;
 			revision = Math.max(revision, member);
 		}
+		for (const fold of this.members.flatMap(({ ruleFolds }) => ruleFolds))
+			revision = Math.max(revision, fold.revision);
 		return revision;
 	}
 
 	invalidate(): void {
 		this.revision = nextRenderRevision();
+	}
+
+	private ruleOpen(fold: DensityFold): boolean {
+		return fold.memberChoice ?? fold.defaultOpen("project-rules", true, true);
 	}
 }

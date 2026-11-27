@@ -4,6 +4,7 @@ import {
 	type Component,
 	Container,
 	getCapabilities,
+	Input,
 	type ScrollViewScrollbar,
 	type SelectItem,
 	SelectList,
@@ -39,9 +40,10 @@ import {
 import { DynamicBorder } from "./dynamic-border.ts";
 import { denseCardSettingsItems } from "./dense-card-settings.ts";
 import { ExtensionInputComponent } from "./extension-input.ts";
-import { keyDisplayText } from "./keybinding-hints.ts";
+import { keyDisplayText, keyHint } from "./keybinding-hints.ts";
 import { densityCardColorNames } from "./density-card-style.ts";
 import { parseToolDisplayColor } from "../../../core/tool-display-color.ts";
+import { isToolCardIcon, toolCardIconGroups } from "../../../core/tool-card-icons.ts";
 
 const SETTINGS_SUBMENU_SELECT_LIST_LAYOUT: SelectListLayoutOptions = {
 	minPrimaryColumnWidth: 12,
@@ -95,6 +97,7 @@ export interface SettingsConfig {
 	readonly toolCardFoldDefaults?: ToolCardFoldDefaults;
 	readonly toolCardNesting?: ToolCardNesting;
 	toolDisplayColorOverrides: Readonly<Record<string, string | number>>;
+	toolCardIconOverrides: Readonly<Record<string, string>>;
 	readonly toolDisplayColorFrames: boolean;
 	readonly toolDisplayColorNames: boolean;
 	readonly toolDisplayColorIcons: boolean;
@@ -142,6 +145,7 @@ export interface SettingsCallbacks {
 	readonly onToolCardFoldDefaultChange: (name: string, value: ToolCardFoldDefault) => void;
 	readonly onToolCardNestingChange: (family: keyof ToolCardNesting, enabled: boolean) => void;
 	onToolDisplayColorOverrideChange: (name: string, value: string | undefined) => void;
+	readonly onToolCardIconOverrideChange: (id: string, value: string | undefined) => void;
 	readonly onToolDisplayColorFramesChange: (enabled: boolean) => void;
 	readonly onToolDisplayColorNamesChange: (enabled: boolean) => void;
 	readonly onToolDisplayColorIconsChange: (enabled: boolean) => void;
@@ -621,6 +625,137 @@ class ToolDisplayColorOverridesSubmenu extends Container {
 	}
 }
 
+class ToolCardIconInput extends Container {
+	private readonly input: Input;
+	private errorText: Text | undefined;
+
+	constructor(
+		name: string,
+		currentValue: string,
+		defaultGlyph: string,
+		onSave: (value: string | undefined) => void,
+		onCancel: () => void,
+	) {
+		super();
+		this.input = new Input({
+			prompt: "",
+			placeholder: defaultGlyph,
+			placeholderStyle: (text) => theme.fg("muted", text),
+		});
+		this.input.handleInput(currentValue);
+		this.input.onSubmit = (value) => {
+			const normalized = value.trim();
+			if (normalized && !isToolCardIcon(normalized)) {
+				this.showValidationError();
+				return;
+			}
+			onSave(normalized || undefined);
+		};
+		this.input.onEscape = onCancel;
+
+		this.addChild(new Text(theme.fg("accent", `Icon for ${name}`), 1, 0));
+		this.addChild(new Spacer(1));
+		this.addChild(this.input);
+		this.addChild(new Spacer(1));
+		this.addChild(
+			new Text(`${keyHint("tui.input.submit", "save")}  ${keyHint("tui.select.cancel", "cancel")}`, 1, 0),
+		);
+	}
+
+	handleInput(data: string): void {
+		this.errorText?.setText("");
+		this.input.handleInput(data);
+	}
+
+	private showValidationError(): void {
+		const message = theme.fg("error", "Invalid icon. Enter one printable glyph with width 1 or 2.");
+		if (this.errorText) this.errorText.setText(message);
+		else {
+			this.errorText = new Text(message, 1, 0);
+			this.addChild(this.errorText);
+		}
+	}
+}
+
+type ToolCardIconVariant = (typeof toolCardIconGroups)[number]["variants"][number];
+
+function toolCardIconItem(
+	variant: ToolCardIconVariant,
+	label: string,
+	overrides: Readonly<Record<string, string>>,
+): SettingItem {
+	return {
+		id: variant.id,
+		label,
+		description: `Icon override for ${label} tool cards`,
+		currentValue: overrides[variant.id] ?? "Default",
+		submenu: (currentValue, done) =>
+			new ToolCardIconInput(
+				label,
+				currentValue === "Default" ? "" : currentValue,
+				variant.defaultGlyph,
+				(value) => done(value ?? "Default"),
+				() => done(),
+			),
+	};
+}
+
+class ToolCardIconGroupSubmenu extends Container {
+	private readonly settingsList: SettingsList;
+
+	constructor(
+		group: (typeof toolCardIconGroups)[number],
+		overrides: Record<string, string>,
+		save: (id: string, value: string) => void,
+		onCancel: () => void,
+	) {
+		super();
+		const items = group.variants.map((variant) => toolCardIconItem(variant, variant.label, overrides));
+		this.settingsList = new SettingsList(items, 10, getSettingsListTheme(), save, onCancel, { enableSearch: true });
+		this.addChild(new Text(theme.bold(theme.fg("accent", group.label)), 0, 0));
+		this.addChild(new Spacer(1));
+		this.addChild(this.settingsList);
+	}
+
+	handleInput(data: string): void {
+		this.settingsList.handleInput(data);
+	}
+}
+
+class ToolCardIconOverridesSubmenu extends Container {
+	private readonly settingsList: SettingsList;
+
+	constructor(overrides: Record<string, string>, callbacks: SettingsCallbacks, onCancel: () => void) {
+		super();
+		const save = (id: string, value: string): void => {
+			if (value === "Default") delete overrides[id];
+			else overrides[id] = value;
+			callbacks.onToolCardIconOverrideChange(id, value === "Default" ? undefined : value);
+		};
+		const items: SettingItem[] = toolCardIconGroups.map((group) => {
+			const [variant] = group.variants;
+			if (group.variants.length === 1 && variant) {
+				return toolCardIconItem(variant, group.label, overrides);
+			}
+			return {
+				id: group.label,
+				label: group.label,
+				description: `Configure icons for ${group.label} tool cards`,
+				currentValue: "Configure",
+				submenu: (_currentValue, done) => new ToolCardIconGroupSubmenu(group, overrides, save, () => done()),
+			};
+		});
+		this.settingsList = new SettingsList(items, 10, getSettingsListTheme(), save, onCancel, { enableSearch: true });
+		this.addChild(new Text(theme.bold(theme.fg("accent", "Tool Card Icons")), 0, 0));
+		this.addChild(new Spacer(1));
+		this.addChild(this.settingsList);
+	}
+
+	handleInput(data: string): void {
+		this.settingsList.handleInput(data);
+	}
+}
+
 /**
  * Main settings selector component.
  */
@@ -633,6 +768,7 @@ export class SettingsSelectorComponent extends Container {
 		const supportsImages = getCapabilities().images;
 		const followUpKey = keyDisplayText("app.message.followUp");
 		let currentWarnings = { ...config.warnings };
+		const currentToolCardIcons = { ...config.toolCardIconOverrides };
 
 		const items: SettingItem[] = [
 			{
@@ -687,6 +823,14 @@ export class SettingsSelectorComponent extends Container {
 				currentValue: "Configure",
 				submenu: (_currentValue, done) =>
 					new ToolDisplayColorOverridesSubmenu(config.toolDisplayColorOverrides, callbacks, () => done()),
+			},
+			{
+				id: "tool-card-icon-overrides",
+				label: "Tool card icons",
+				description: "Choose a glyph for individual tool and activity cards",
+				currentValue: "Configure",
+				submenu: (_currentValue, done) =>
+					new ToolCardIconOverridesSubmenu(currentToolCardIcons, callbacks, () => done()),
 			},
 			{
 				id: "tool-display-color-frames",

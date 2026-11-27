@@ -34,7 +34,7 @@ export function denseReadProjection(child: unknown): "hidden" | DenseReadMember 
 			(args && typeof args === "object" && "op" in args ? args.op : undefined);
 		return !snapshot.pending && !snapshot.failed && operation === "view" ? "hidden" : undefined;
 	}
-	if (snapshot.name !== "read" || snapshot.hasVisibleImages || !snapshot.args || typeof snapshot.args !== "object") {
+	if (snapshot.name !== "read" || snapshot.hasImages || !snapshot.args || typeof snapshot.args !== "object") {
 		return undefined;
 	}
 	// A replacement renderer may not provide built-in read sections. Leave it on the original card.

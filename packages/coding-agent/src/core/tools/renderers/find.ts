@@ -9,6 +9,7 @@
 import { type DensityCardStructuredView, Text } from "@earendil-works/pi-tui";
 import { keyHint } from "../../../modes/interactive/components/keybinding-hints.ts";
 import type { Theme } from "../../../modes/interactive/theme/theme.ts";
+import { defaultToolCardIcon, prefixToolCardTitle } from "../../default-tool-card-title.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../../extensions/types.ts";
 import type { FindToolDetails } from "../find.ts";
 import { getTextOutput, invalidArgText, shortenPath, str } from "../render-utils.ts";
@@ -25,14 +26,14 @@ function findRenderArgs(input: unknown): FindRenderArgs | undefined {
 	};
 }
 
-function formatFindCall(args: FindRenderArgs | undefined, theme: Theme): string {
+function formatFindCall(args: FindRenderArgs | undefined, theme: Theme, icon: string | undefined): string {
 	const pattern = str(args?.pattern);
 	const rawPath = str(args?.path);
 	const path = rawPath !== null ? shortenPath(rawPath || ".") : null;
 	const limit = args?.limit;
 	const invalidArg = invalidArgText(theme);
 	let text =
-		theme.fg("toolTitle", theme.bold("find")) +
+		theme.fg("toolTitle", theme.bold(prefixToolCardTitle("find", icon))) +
 		" " +
 		(pattern === null ? invalidArg : theme.fg("accent", pattern || "")) +
 		theme.fg("toolOutput", ` in ${path === null ? invalidArg : path}`);
@@ -78,7 +79,7 @@ export const findRenderers: Pick<ToolDefinition<any, any>, "renderCall" | "rende
 	renderCall(rawArgs: unknown, theme, context) {
 		const args = findRenderArgs(rawArgs);
 		const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-		text.setText(formatFindCall(args as any, theme));
+		text.setText(formatFindCall(args, theme, defaultToolCardIcon(context, { kind: "find" })));
 		return Object.assign(text, {
 			renderDensityCard(): DensityCardStructuredView {
 				const pattern = str(args?.pattern);

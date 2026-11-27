@@ -3354,6 +3354,14 @@
 			"class": "per-copy-safe",
 			"reason": "the proxy server each of this copy's holders started; a holder is activated and released through the same copy, and other copies read only the shared holds (senpi#6820)"
 		},
+		"packages/coding-agent/src/core/default-tool-card-title.ts#componentTitles": {
+			"class": "per-copy-safe",
+			"reason": "weakly keyed by stock transcript components that are configured by the same host copy"
+		},
+		"packages/coding-agent/src/core/default-tool-card-title.ts#presentations": {
+			"class": "per-copy-safe",
+			"reason": "weakly keyed by renderer-owned contexts; stock renderers and their host share one module copy"
+		},
 		"packages/coding-agent/src/core/defaults.ts#THINKING_LEVEL_OPTIONS": {
 			"class": "constant",
 			"reason": "lookup data literal; never written after load"
@@ -4314,6 +4322,14 @@
 		"packages/coding-agent/src/core/extensions/builtin/hooks/stop-adapter.ts#latestStopStates": {
 			"class": "constant",
 			"reason": "lookup data literal; never written after load"
+		},
+		"packages/coding-agent/src/core/tool-card-icons.ts#roles": {
+			"class": "constant",
+			"reason": "icon role lookup built at load and never modified"
+		},
+		"packages/coding-agent/src/core/tool-card-icons.ts#toolCardIconGroups": {
+			"class": "constant",
+			"reason": "read-only icon settings catalog with no mutable state"
 		},
 		"packages/coding-agent/src/extensions/html-render/bootstrap.ts#BOOTSTRAP_SCRIPT": {
 			"class": "constant",
@@ -5710,6 +5726,18 @@
 		"packages/coding-agent/src/core/extensions/builtin/terminal/tools/sleep-wait.ts#SLEEP_CALL": {
 			"class": "per-copy-safe",
 			"reason": "g/y regex; lastIndex is reset or consumed by this copy's own callers only"
+		},
+		"packages/coding-agent/src/core/extensions/builtin/terminal/tools/test-runner-contract.ts#repositoryRoot": {
+			"class": "constant",
+			"reason": "immutable path derived from the location of this module"
+		},
+		"packages/coding-agent/src/core/extensions/builtin/terminal/tools/test-runner-contract.ts#runTestsPath": {
+			"class": "constant",
+			"reason": "immutable path derived from the module-relative repository root"
+		},
+		"packages/coding-agent/src/core/extensions/builtin/terminal/tools/test-runner-input.ts#testRunnerInputSchema": {
+			"class": "constant",
+			"reason": "schema built once at load; never written after load"
 		},
 		"packages/coding-agent/src/core/extensions/builtin/todotools/commands.ts#USAGE": {
 			"class": "constant",

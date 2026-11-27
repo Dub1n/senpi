@@ -1,3 +1,24 @@
+## 2026-11-27 - Carry attributed test outcomes through command monitors
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/terminal/tools/monitor.ts` accepts a one-shot Vitest invocation through the same runner adapter as Bash.
+- `packages/coding-agent/src/core/extensions/builtin/terminal/tools/test-runner.ts` supports direct Vitest and supported Bun package test scripts. The wrapped path runs through `scripts/run-tests.mjs`, so the repository keeps its quarantine and cleanup.
+- `packages/coding-agent/src/core/extensions/builtin/terminal/command-monitor-source.ts` and `packages/coding-agent/src/core/extensions/builtin/terminal/monitor-notify.ts` carry the adapter's validated result on the completion event and persisted notification. Output lines cannot supply counts.
+- `packages/coding-agent/src/core/extensions/builtin/terminal/tools/bash-output.ts`, `packages/coding-agent/src/core/extensions/builtin/terminal/tools/kill-bash.ts`, and `packages/coding-agent/src/core/extensions/builtin/terminal/tools/render.ts` retain the counts on screen snapshots and already-settled kill acknowledgments.
+
+### Why
+
+- Test monitors should report the same counts as Bash without confusing a generic command failure with failed tests.
+
+### Why an extension could not handle it
+
+- The terminal builtin owns the child process, its exit, and attribution of monitor events.
+
+### Expected merge conflict zones
+
+- Command-monitor launch, settlement, and notification metadata.
+
 ## 2026-11-26 - Attribute and persist opt-in test outcomes
 
 ### What changed

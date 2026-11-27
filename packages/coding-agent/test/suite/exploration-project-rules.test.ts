@@ -60,6 +60,22 @@ describe("project rules inside an exploration group", () => {
 	});
 });
 
+it("keeps the default multi-rule project notice rendering", async () => {
+	const surface = await explorationSurface(true, [registerRuleActivationRenderer]);
+	try {
+		await surface.event({
+			type: "entry_appended",
+			entry: projectRules("read-default", ["AGENTS.md", "src/AGENTS.md"], "src/a.ts"),
+		});
+		const text = surface.text();
+		expect(text).toContain("Project rules · src/a.ts");
+		expect(text).toContain("2 instructions matched and injected for this tool result.");
+		expect(text).not.toContain("rule • AGENTS.md");
+	} finally {
+		surface.cleanup();
+	}
+});
+
 describe.each(["compact", "grouped"] as const)("project rules in %s density", (density) => {
 	async function denseSurface() {
 		const surface = await explorationSurface(true, [registerRuleActivationRenderer]);
@@ -116,6 +132,32 @@ describe.each(["compact", "grouped"] as const)("project rules in %s density", (d
 		}
 	});
 
+	it("folds matched rules independently inside one notice", async () => {
+		const surface = await denseSurface();
+		try {
+			const entry = projectRules("read-one", ["AGENTS.md", "src/AGENTS.md"], "src/matched.ts");
+			await surface.event({ type: "entry_appended", entry });
+
+			const initial = expand(surface, 120);
+			expect(initial.match(/matched on: src\/matched\.ts/gu)).toHaveLength(2);
+			expect(click(surface, 120, /├─ rule • AGENTS\.md/u)?.handled).toBe(true);
+			let output = surface.text(120);
+			expect(output.match(/matched on: src\/matched\.ts/gu)).toHaveLength(1);
+			expect(output).toContain("├─ rule • AGENTS.md");
+			expect(output).toContain("├─ rule • src/AGENTS.md");
+
+			expect(click(surface, 120, /├─ rule • src\/AGENTS\.md/u)?.handled).toBe(true);
+			output = surface.text(120);
+			expect(output).not.toContain("matched on: src/matched.ts");
+			expect(output).toContain("● project rules");
+
+			expect(click(surface, 120, /├─ rule • AGENTS\.md/u)?.handled).toBe(true);
+			expect(surface.text(120).match(/matched on: src\/matched\.ts/gu)).toHaveLength(1);
+		} finally {
+			surface.cleanup();
+		}
+	});
+
 	it("merges adjacent notices and preserves their rule-to-target associations at narrow widths", async () => {
 		const surface = await denseSurface();
 		try {
@@ -142,7 +184,10 @@ describe.each(["compact", "grouped"] as const)("project rules in %s density", (d
 			expect(surface.text(45)).toMatch(
 				/├─ ● project rules[^\n]+\n ├─ rule • skills\/visual {2}qa\/AGENTS\.md\s*\n │ matched on: plugin\/skills\/b {2}docs\.md/u,
 			);
-			expect(click(surface, 45, /├─ rule • skills\/visual/u)).toBeUndefined();
+			expect(click(surface, 45, /├─ rule • skills\/visual/u)?.handled).toBe(true);
+			expect(surface.text(45)).not.toContain("matched on: plugin/skills/b  docs.md");
+			expect(click(surface, 45, /├─ rule • skills\/visual/u)?.handled).toBe(true);
+			expect(surface.text(45)).toContain("matched on: plugin/skills/b  docs.md");
 			expect(click(surface, 45, /├─ ● project rules/u)?.handled).toBe(true);
 			expect(click(surface, 45, /╭─ ● project rules/u, 1)?.handled).toBe(true);
 

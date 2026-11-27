@@ -224,7 +224,15 @@ export class MonitorNotifier {
 			reachesBudget ? WAKE_BUDGET_PAUSE_NOTICE : "",
 			settings.maxCharsPerInjection,
 		);
-		const details = { monitors: monitorDetails(selected, injectedIds, this.#overflow) };
+		const terminalTestCompletions = selected.flatMap((event) =>
+			event.type === "summary" && event.testSummary !== undefined
+				? [{ id: event.id, testSummary: event.testSummary, body: event.summary }]
+				: [],
+		);
+		const details = {
+			monitors: monitorDetails(selected, injectedIds, this.#overflow),
+			...(terminalTestCompletions.length === 0 ? {} : { terminalTestCompletions }),
+		};
 		delivery.send(content, reachesBudget ? { forceWake: true, details } : { details });
 		this.#lastWakeAt = now;
 		for (const [id, share] of wake) {

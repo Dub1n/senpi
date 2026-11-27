@@ -11,6 +11,7 @@ import {
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import type { Theme } from "../../../../../modes/interactive/theme/theme.ts";
+import { defaultToolCardTitle } from "../../../../default-tool-card-title.ts";
 import type { AgentToolResult, ToolRenderContext, ToolRenderResultOptions } from "../../../types.ts";
 import { fuzzyResolveTask } from "../fuzzy-match.ts";
 import { sanitizeTodoText } from "../todo-format.ts";
@@ -77,8 +78,34 @@ type TodoRenderState = {
 	readonly options?: ToolRenderResultOptions;
 };
 
+function todoOperationGlyph(operation: TodoParams["op"]): string | undefined {
+	switch (operation) {
+		case "init":
+		case "append":
+			return "+";
+		case "start":
+			return "▶";
+		case "done":
+			return "✓";
+		case "drop":
+			return "×";
+		case "rm":
+		case "view":
+		case undefined:
+			return undefined;
+	}
+}
+
 export function renderTodoCall(args: TodoParams, theme: Theme, context: TodoRenderContext): DensityCardSource {
-	return new TodoCard(theme, { context }, () => theme.fg("toolTitle", theme.bold(renderCallLabel(args))));
+	return new TodoCard(theme, { context }, () => {
+		const title = defaultToolCardTitle(renderCallLabel(args), context, (details) => {
+			const op = details && typeof details === "object" && "op" in details ? details.op : undefined;
+			const operation =
+				op === "init" || op === "append" || op === "start" || op === "done" || op === "drop" ? op : args.op;
+			return { kind: "todo", glyph: todoOperationGlyph(operation) ?? "" };
+		});
+		return theme.fg("toolTitle", theme.bold(title));
+	});
 }
 
 export function renderTodoResult(
@@ -149,12 +176,11 @@ class TodoCard extends Text implements DensityCardSource {
 					? [{ text: target, role: "dim" }]
 					: target;
 		let label: DensityCardText | undefined;
-		let statusGlyph: string | undefined;
+		const statusGlyph = todoOperationGlyph(operation);
 		switch (operation) {
 			case "init": {
 				const counts = countInitItems(args);
 				label = `init (${countLabel(counts.phases, "phase")}, ${countLabel(counts.tasks, "task")})`;
-				statusGlyph = "+";
 				break;
 			}
 			case "append":
@@ -168,19 +194,15 @@ class TodoCard extends Text implements DensityCardSource {
 				} else {
 					label = `append: ${sanitizeTodoText(args.phase ?? "") || "(missing phase)"} (${countLabel(args.items?.length ?? 0, "item")})`;
 				}
-				statusGlyph = "+";
 				break;
 			case "done":
 				label = target ? name : "done";
-				statusGlyph = "✓";
 				break;
 			case "drop":
 				label = target ? name : "drop";
-				statusGlyph = "×";
 				break;
 			case "start":
 				label = target || "start";
-				statusGlyph = "▶";
 				break;
 			case "rm":
 				label = `rm: ${target || "all"}`;

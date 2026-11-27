@@ -326,7 +326,7 @@ export function createBuiltinParserRegistry(): ParserRegistry {
 			return bashPermissionRequests(command, cwd);
 		};
 
-	registry.register("bash", (toolName, input, cwd) => {
+	const parseBashOrTestPermission: ToolPermissionParser = (toolName, input, cwd) => {
 		const test = input.test_runner;
 		if (
 			input.command === undefined &&
@@ -339,13 +339,20 @@ export function createBuiltinParserRegistry(): ParserRegistry {
 			test.args.every((arg): arg is string => typeof arg === "string")
 		) {
 			// This tool path takes argv, so a test filter containing shell operators is still just one argument.
+			const testCwd = "cwd" in test && typeof test.cwd === "string" ? test.cwd : undefined;
+			const effectiveCwd = testCwd === undefined ? cwd : resolve(cwd, testCwd);
 			const paths = test.args
 				.map((arg) => /^--[^=]+=(.*)$/s.exec(arg)?.[1] ?? arg)
-				.filter((arg) => arg.includes("/") || arg.includes("\\") || arg.startsWith("~"));
-			return withExternalDirectoryRequests(bashCommandRequests("vitest run"), paths, cwd, "file", rawTarget);
+				.filter((arg) => arg.includes("/") || arg.includes("\\") || arg.startsWith("~"))
+				.map((arg) => (arg.startsWith("~") ? arg : resolve(effectiveCwd, arg)));
+			if (testCwd !== undefined) paths.push(effectiveCwd);
+			const commands =
+				"launcher" in test && test.launcher === "bun-script" ? "bun run test; vitest run" : "vitest run";
+			return withExternalDirectoryRequests(bashCommandRequests(commands), paths, cwd, "file", rawTarget);
 		}
 		return parseBashLikePermission("command")(toolName, input, cwd);
-	});
+	};
+	registry.register("bash", parseBashOrTestPermission);
 	registry.register("bash_input", parseBashLikePermission("input"));
 	registry.register("monitor", (toolName, input, cwd) => {
 		const path = getString(input, "path");
@@ -362,7 +369,7 @@ export function createBuiltinParserRegistry(): ParserRegistry {
 				rawTarget,
 			);
 		}
-		return parseBashLikePermission("command")(toolName, input, cwd);
+		return parseBashOrTestPermission(toolName, input, cwd);
 	});
 
 	const editParser: ToolPermissionParser = () => {

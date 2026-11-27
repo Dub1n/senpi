@@ -23,6 +23,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 });
 
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createBuiltinParserRegistry } from "../../src/core/extensions/builtin/permission-system/parsers.ts";
 import { TerminalManager } from "../../src/core/extensions/builtin/terminal/manager.ts";
@@ -129,6 +130,44 @@ describe("terminal monitor tool", () => {
 		expect(firstText(result)).toContain("description");
 		expect(firstText(result)).toContain("command");
 	});
+
+	it.each(["direct", "bun-script"] as const)(
+		"carries test counts through Bash, monitor completion, and screen output via %s",
+		async (launcher) => {
+			const project = await mkdtemp(join(tmpdir(), "terminal-test-launch-"));
+			const testFile = join(project, "contract.test.mjs");
+			const config = join(project, "vitest.config.mjs");
+			const testSummary = { version: 1, runner: "vitest", passed: 1, failed: 1, skipped: 0 };
+			try {
+				await writeFile(testFile, 'it("passes", () => expect(1).toBe(1)); it("fails", () => expect(1).toBe(2));');
+				await writeFile(config, "export default { test: { globals: true } };");
+				const args = ["--root", project, "--config", config];
+				const bash = await createPtyBashTool(ctx).execute("structured-bash", {
+					test_runner: { runner: "vitest", args, launcher, cwd: ctx.cwd },
+				});
+				expect(bash.isError).toBe(true);
+				expect(bash.details).toMatchObject({ testSummary });
+
+				const command = `${launcher === "direct" ? "vitest run" : "bun run test --"} ${args.join(" ")}`;
+				const ended = sink.waitFor((event) => event.type === "summary", "structured test completion");
+				const monitor = await createMonitorTool(ctx).execute("structured-monitor", {
+					description: "Vitest",
+					command,
+				});
+				expect(monitor.isError).not.toBe(true);
+				expect(summaryEvent(await ended)).toMatchObject({ testSummary });
+				const id = monitor.details?.bash_id;
+				if (typeof id !== "string") throw new TypeError("Expected a monitor runtime id");
+				const output = await createBashOutputTool(ctx).execute("structured-screen", {
+					bash_id: id,
+					view: "screen",
+				});
+				expect(output.details).toMatchObject({ testSummary });
+			} finally {
+				await rm(project, { recursive: true, force: true });
+			}
+		},
+	);
 
 	it("rearms all paused monitors without bash_id", async () => {
 		let resumedIds: readonly string[] | undefined;
@@ -335,12 +374,20 @@ describe("terminal monitor tool", () => {
 			await outputSeen;
 
 			const screen = await outputTool.execute("peek-muted-screen", { bash_id: bashId, view: "screen" });
-			expect(screen.details).toEqual({ monitorMuted: true, mutedDropped: 2 });
+			expect(screen.details).toMatchObject({
+				monitorMuted: true,
+				mutedDropped: 2,
+				bashOutput: { sessionId: bashId, view: "screen", poll: { notices: { monitorMuted: { dropped: 2 } } } },
+			});
 			expect(firstText(screen)).toMatch(/muted/i);
 			expect(firstText(screen)).toContain("status:");
 
 			const peeked = await outputTool.execute("peek-muted-log", { bash_id: bashId });
-			expect(peeked.details).toEqual({ monitorMuted: true, mutedDropped: 2 });
+			expect(peeked.details).toMatchObject({
+				monitorMuted: true,
+				mutedDropped: 2,
+				bashOutput: { sessionId: bashId, view: "log", poll: { notices: { monitorMuted: { dropped: 2 } } } },
+			});
 			const text = firstText(peeked);
 			expect(text).toMatch(/muted/i);
 			expect(text).toContain("status:");
@@ -363,13 +410,18 @@ describe("terminal monitor tool", () => {
 			expect(registry.resume([bashId])).toEqual([{ id: bashId, mutedDropped: 0 }]);
 
 			const peeked = await outputTool.execute("peek-resumed", { bash_id: bashId });
-			expect(peeked.details).toEqual({ monitorMuted: false, mutedDropped: 0 });
+			expect(peeked.details).toMatchObject({
+				monitorMuted: false,
+				mutedDropped: 0,
+				bashOutput: { sessionId: bashId, processStatus: "running" },
+			});
+			expect(peeked.details).not.toHaveProperty("bashOutput.poll.notices.monitorMuted");
 			expect(firstText(peeked)).not.toMatch(/muted/i);
 			expect(firstText(peeked)).toContain("status:");
 			await createKillBashTool(ctx).execute("kill-bash-output-resume", { bash_id: bashId });
 		});
 
-		it("leaves non-monitor bash_output results unchanged", async () => {
+		it("preserves ordinary bash_output without adding monitor metadata", async () => {
 			const registry = new MonitorRegistry((event) => sink.push(event));
 			const bash = createPtyBashTool({ ...ctx, monitorRegistry: registry });
 			const outputTool = createBashOutputTool({ ...ctx, monitorRegistry: registry });
@@ -382,7 +434,9 @@ describe("terminal monitor tool", () => {
 
 			const peeked = await outputTool.execute("peek-plain", { bash_id: bashId });
 			expect(peeked.isError).not.toBe(true);
-			expect(peeked.details).toBeUndefined();
+			expect(peeked.details).toMatchObject({ bashOutput: { sessionId: bashId, view: "log" } });
+			expect(peeked.details).not.toHaveProperty("monitorMuted");
+			expect(peeked.details).not.toHaveProperty("mutedDropped");
 			expect(firstText(peeked)).toContain("status:");
 			expect(firstText(peeked)).not.toMatch(/muted/i);
 			await createKillBashTool(ctx).execute("kill-plain", { bash_id: bashId });

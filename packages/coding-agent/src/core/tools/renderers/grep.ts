@@ -14,6 +14,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { keyHint } from "../../../modes/interactive/components/keybinding-hints.ts";
 import type { Theme } from "../../../modes/interactive/theme/theme.ts";
+import { defaultToolCardIcon, prefixToolCardTitle } from "../../default-tool-card-title.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../../extensions/types.ts";
 import type { GrepEngineMatch } from "../grep/engine.ts";
 import { displayPath } from "../grep/format.ts";
@@ -67,10 +68,10 @@ function densityPathDetails(path: unknown): string[] {
 	return [str(path) ?? "."];
 }
 
-function formatGrepCall(args: GrepCallArgs | undefined, theme: Theme, cwd: string): string {
+function formatGrepCall(args: GrepCallArgs | undefined, theme: Theme, cwd: string, icon: string | undefined): string {
 	const pattern = str(args?.pattern);
 	const invalidArg = invalidArgText(theme);
-	let text = `${theme.fg("toolTitle", theme.bold("grep"))} ${
+	let text = `${theme.fg("toolTitle", theme.bold(prefixToolCardTitle("grep", icon)))} ${
 		pattern === null ? invalidArg : theme.fg("accent", `/${pattern || ""}/`)
 	}${theme.fg("toolOutput", " in ")}${formatCallPaths(args?.path, theme, cwd)}`;
 	const glob = formatCallGlobs(args?.glob);
@@ -194,7 +195,7 @@ export const grepRenderers: Pick<ToolDefinition<any, any>, "renderCall" | "rende
 	renderCall(rawArgs: unknown, theme, context) {
 		const args = parseGrepCallArgs(rawArgs);
 		const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-		text.setText(formatGrepCall(args, theme, context.cwd));
+		text.setText(formatGrepCall(args, theme, context.cwd, defaultToolCardIcon(context, { kind: "grep" })));
 		return Object.assign(text, {
 			renderDensityCard(): DensityCardStructuredView {
 				const pattern = str(args?.pattern);

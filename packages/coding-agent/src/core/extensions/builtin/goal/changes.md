@@ -1,3 +1,21 @@
+## 2026-11-27 - Honor Goal wait and wake icons in Default
+
+### What changed
+
+- `packages/coding-agent/src/core/extensions/builtin/goal/cache-warm-renderer.ts` supplies the existing lightning glyph separately from the cache-warm title and resolves each phase by its existing semantic role.
+
+### Why
+
+- Wait and wake can be customized independently without changing their unconfigured appearance or persisted data.
+
+### Why an extension could not handle it
+
+- The Goal builtin is the extension that owns the cache-warm notice title.
+
+### Expected merge conflict zones
+
+- LOW: the cache-warm notice title only.
+
 ## 2026-11-22 - Dense cache wait and wake cards use journal facts
 
 ### What changed

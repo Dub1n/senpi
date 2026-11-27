@@ -971,6 +971,35 @@ describe("SettingsManager", () => {
 			});
 		});
 
+		it("persists registered tool card icon overrides and filters invalid saved glyphs", async () => {
+			writeFileSync(
+				join(agentDir, "settings.json"),
+				JSON.stringify({
+					toolCardIconOverrides: {
+						shell: "✓",
+						"tool.failed": "✗",
+						unknown: "x",
+						eval: "ab",
+						search: " ",
+					},
+				}),
+			);
+			const manager = SettingsManager.create(projectDir, agentDir);
+			expect(manager.getToolCardIconOverrides()).toEqual({ shell: "✓", "tool.failed": "✗" });
+
+			manager.setToolCardIconOverride("todo.completed", "✓");
+			manager.setToolCardIconOverride("shell", "!");
+			manager.setToolCardIconOverride("tool.failed", undefined);
+			manager.setToolCardIconOverride("unknown", "x");
+			manager.setToolCardIconOverride("eval", "ab");
+			await manager.flush();
+
+			expect(SettingsManager.create(projectDir, agentDir).getToolCardIconOverrides()).toEqual({
+				shell: "!",
+				"todo.completed": "✓",
+			});
+		});
+
 		it("defaults dense colors off and persists each switch independently", async () => {
 			const manager = SettingsManager.create(projectDir, agentDir);
 			expect(manager.getToolDisplayColors()).toEqual({ colorFrames: false, colorNames: false, colorIcons: false });

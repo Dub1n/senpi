@@ -18,6 +18,7 @@ import {
 import { createEvalDensityCard } from "./render-density-card.ts";
 import { summaryBlock } from "./render-cell.ts";
 import { renderDetailedLines, renderJsonOutputs, toolCallRows } from "./render-detail.ts";
+import { evalHeadingIcon, type EvalIconResolver, prefixEvalHeading } from "./render-icons.ts";
 import { hasLiveCell } from "./render-live.ts";
 import { nestedToolCallBlock } from "./render-nested-tool-calls.ts";
 import { formatThroughputBadge, renderStatusEvents } from "./render-status.ts";
@@ -49,6 +50,7 @@ function resultHeader(
 	details: EvalToolDetails | undefined,
 	status: "running" | "done" | "error",
 	theme: Theme | undefined,
+	resolveIcon: EvalIconResolver | undefined,
 ): string {
 	let color: "warning" | "success" | "error";
 	switch (status) {
@@ -64,7 +66,12 @@ function resultHeader(
 	}
 	const runtimeBadge =
 		details?.runtime === undefined ? "" : ` (${formatRuntimeBadge(details.language, details.runtime)})`;
-	return style(theme, color, `eval ${details?.language ?? "?"}${runtimeBadge} ${status}`);
+	const title = `eval ${details?.language ?? "?"}${runtimeBadge} ${status}`;
+	return style(
+		theme,
+		color,
+		prefixEvalHeading(title, evalHeadingIcon(resolveIcon, status === "error" ? "failed" : status)),
+	);
 }
 
 function resultMetadata(
@@ -96,26 +103,27 @@ export function renderEvalResult(
 	const details = result.details;
 	if (details && "action" in details) {
 		const output = style(theme, "toolOutput", textOutput(result, false));
-		component.setDensityCard(
-			createEvalDensityCard({
-				details: undefined,
-				output: textOutput(result, false),
-				isPartial: options.isPartial,
-				isError: context.isError,
-				theme,
-				context,
-				list: details,
-			}),
-		);
+		const card = createEvalDensityCard({
+			details: undefined,
+			output: textOutput(result, false),
+			isPartial: options.isPartial,
+			isError: context.isError,
+			theme,
+			context,
+			list: details,
+		});
+		component.setDensityCard(card);
+		const icon = evalHeadingIcon(context.resolveDefaultToolCardIcon, card.status ?? "done");
 		component.syncLiveTicker(false, context.invalidate);
 		component.setBlocks([
-			{ kind: "text", text: style(theme, "toolTitle", "eval list") },
+			{ kind: "text", text: style(theme, "toolTitle", prefixEvalHeading("eval list", icon)) },
 			{ kind: "text", text: output },
 		]);
 		return component;
 	}
 	const expanded = options.expanded || context.expanded;
 	const imageProtocol = context.imageProtocol ?? null;
+	const resolveIcon = context.resolveDefaultToolCardIcon;
 	component.syncLiveTicker(hasLiveCell(details), context.invalidate, expanded ? "expanded" : "collapsed");
 	const outputText = textOutput(result, context.showImages && imageProtocol === null);
 	component.setDensityCard(
@@ -143,6 +151,7 @@ export function renderEvalResult(
 							meta: details.meta,
 							now: renderNow(context),
 							repaint: context.invalidate,
+							resolveIcon: resolveIcon && ((status) => resolveIcon(details.isError ? "failed" : status)),
 						},
 						args: context.args,
 						showImageFallback: context.showImages && imageProtocol === null,
@@ -164,7 +173,7 @@ export function renderEvalResult(
 	}
 	const status = resultStatus(details, options, context.isError);
 	const blocks: RenderBlock[] = [
-		{ kind: "text", text: resultHeader(details, status, theme) },
+		{ kind: "text", text: resultHeader(details, status, theme, resolveIcon) },
 		...(details?.summary === undefined ? [] : [summaryBlock(details.summary, theme, expanded)]),
 		...resultMetadata(details, options, theme, status),
 		{ kind: "blank" },

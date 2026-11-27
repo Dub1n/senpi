@@ -1,6 +1,7 @@
 import { type DensityCardKind, type DensityCardStatus, type DensityCardStructuredView } from "@earendil-works/pi-tui";
 import { denseBashPoll } from "../../../core/extensions/builtin/terminal/tools/render.ts";
 import type { DenseBashPollView } from "../../../core/extensions/builtin/terminal/tools/render.ts";
+import { testSummaryLabel } from "../../../core/extensions/builtin/terminal/tools/test-summary.ts";
 import { displayBashSessionId, TerminalBackgroundNotice } from "./terminal-background-notice.ts";
 import { TerminalTestCompletion } from "./terminal-test-completion.ts";
 import { toolDensityKind, toolDensitySummary } from "./tool-density-summary.ts";
@@ -40,6 +41,14 @@ function summaryView(card: ToolExecutionComponent, kind: DensityCardKind): Densi
 	const state = card.presentationSnapshot.state;
 	const sessionId = sessionIdOf(card);
 	const details = [summary.detail, ...(summary.attention ? [summary.attention] : [])].filter(Boolean);
+	const outcome = storedBashOutcome(card);
+	if (outcome?.processStatus === "completed" || outcome?.processStatus === "exited_1") {
+		const metadata = snapshot.details;
+		const label = testSummaryLabel(
+			metadata !== null && typeof metadata === "object" ? Reflect.get(metadata, "testSummary") : undefined,
+		);
+		if (label !== undefined) details.push(label);
+	}
 	let fallback: ReturnType<typeof createToolResultFallback>;
 	let fallbackResolved = false;
 	return {

@@ -20,6 +20,8 @@ Cross-cutting fan-in: `DynamicBorder`, `theme`, and `keybinding-hints` are impor
 |---|---|
 | Assistant streaming render | `assistant-message.ts` (+ `createAssistantRenderDescriptors`) |
 | Tool call/result render | `tool-execution.ts`, `tool-execution-renderer.ts`, `tool-execution-images.ts`, fallback/boundary modules |
+| Compact/grouped tool cards | `tool-density-row.ts`, `density-card-style.ts`, `density-fold.ts`, `density-nest.ts`, `dense-*-run.ts`, `notice-density-source.ts` |
+| Card display settings | `dense-card-settings.ts`, `settings-selector.ts`; persistence and validation live in `core/settings-manager.ts` |
 | Footer/status segments | `footer.ts` (format + layout planning) |
 | Diff rendering in messages | `diff.ts` (`renderDiff`, intra-line helpers) |
 | Markdown/mermaid transforms | `createMarkdownTransform`, `createMermaidMarkdownTransformer` |
@@ -32,6 +34,8 @@ Cross-cutting fan-in: `DynamicBorder`, `theme`, and `keybinding-hints` are impor
 - Components extend `@earendil-works/pi-tui` primitives (`Container`, `Box`, `Loader`, `Editor`, `Component`, `Focusable`) and compose explicit rows/strings styled through `theme`.
 - Selectors are callback-driven: `onSelect`/`onCancel` plus mutation/error callbacks, mutable component state, explicit `invalidate()`/`render()`, and configurable `getKeybindings()`.
 - Layout is width-aware everywhere: `visibleWidth`, `truncateToWidth`, visual-line truncation, footer planning, bounded render signatures, explicit viewport/anchor math.
+- Compact and Grouped share the semantic `DensityCardSource` contract. Keep tool-specific content in its producer, and keep shared frame, fold, and adjacent-card nesting behavior in the transcript renderer.
+- Density changes must preserve live render updates, per-card fold choices, and tool-only turn boundaries; cover both collapsed and expanded output at narrow widths.
 - `ProgressiveTranscriptContainer` hydrates only visible/tail content incrementally; input handling must never block during hydration and the progressive watermark never moves backward.
 - Border color is always passed explicitly — jiti creates a separate module cache, so an implicit default resolves to the wrong theme instance.
 - The barrel re-exports only the public UI classes; many helpers stay direct-file APIs by design.

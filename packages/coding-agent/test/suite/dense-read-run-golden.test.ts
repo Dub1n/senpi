@@ -1,19 +1,21 @@
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import xterm from "@xterm/headless";
-import { stripTerminalSequences } from "@earendil-works/pi-tui";
+import { getCapabilities, isImageLine, setCapabilities, stripTerminalSequences } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import { registerReadClassifier } from "../../src/core/tools/read-classifiers.ts";
 import { readRenderers } from "../../src/core/tools/renderers/read.ts";
 import { ExplorationTranscriptContainer } from "../../src/modes/interactive/components/exploration-transcript-container.ts";
+import { ToolExecutionImages } from "../../src/modes/interactive/components/tool-execution-images.ts";
 import { initTheme, theme } from "../../src/modes/interactive/theme/theme.ts";
 import { loadAllHighlightLanguages } from "../../src/utils/syntax-highlight.ts";
 import { explorationSurface, invoke, runTool } from "./exploration-surface-harness.ts";
+import { runReadImage, TINY_PNG_BASE64, withImageProtocol } from "./read-image-fixtures.ts";
 
 const width = 80;
 const row = (text: string) => text.padEnd(width, " ");
 const markerTheme = { fg: (name: string, text: string) => `<fg:${name}>${text}</fg:${name}>` };
 
-async function fixture(density: "compact" | "grouped") {
+async function fixture(density: "compact" | "grouped" | "default") {
 	const surface = await explorationSurface();
 	if (!(surface.chat instanceof ExplorationTranscriptContainer)) {
 		surface.cleanup();
@@ -128,6 +130,131 @@ describe("dense consecutive read projection", () => {
 		}
 	});
 
+	it.each(["compact", "grouped"] as const)(
+		"renders the viewed image fallback without reserved rows in %s density",
+		async (density) => {
+			const restoreCapabilities = withImageProtocol(null);
+			const surface = await fixture(density);
+			try {
+				await runReadImage(surface, { id: "image", path: "screenshots/a.png" });
+				expect(rows(surface)).toContain(row(" ╶─ ✓ viewed • a.png"));
+				invoke(surface.mode, "setToolsExpanded", true);
+
+				const lines = surface.chat.render(width);
+				const text = lines.map(stripTerminalSequences).join("\n");
+				expect(text).toContain("│ viewed image file [image/png]");
+				expect(text).not.toContain("Read image file [image/png]");
+				expect(lines.some(isImageLine)).toBe(false);
+				expect(lines.length).toBeLessThan(12);
+			} finally {
+				surface.cleanup();
+				restoreCapabilities();
+			}
+		},
+	);
+
+	it.each(["compact", "grouped"] as const)(
+		"keeps a supported Read image protocol row inside the %s frame",
+		async (density) => {
+			const restoreCapabilities = withImageProtocol("kitty");
+			const surface = await fixture(density);
+			try {
+				await runReadImage(surface, { id: "image", path: "screenshots/a.png" });
+				invoke(surface.mode, "setToolsExpanded", true);
+
+				const lines = surface.chat.render(width);
+				const text = lines.map(stripTerminalSequences).join("\n");
+				expect(text).toContain("╭─ ✓ viewed • screenshots/a.png");
+				expect(text).not.toContain("Read image file [image/png]");
+				expect(text).not.toContain("viewed image file [image/png]");
+				const imageLines = lines.filter(isImageLine);
+				expect(imageLines.length).toBeGreaterThan(0);
+				expect(imageLines.every((line) => stripTerminalSequences(line).startsWith(" │ "))).toBe(true);
+				expect(await foregroundAt(lines, "screenshots/a.png")).toEqual(await foregroundAt(lines, "•"));
+				expect(await foregroundAt(lines, "screenshots/a.png")).not.toEqual(await foregroundAt(lines, "viewed"));
+			} finally {
+				surface.cleanup();
+				restoreCapabilities();
+			}
+		},
+	);
+
+	it("renders one viewed image fallback when Default expands Explored", async () => {
+		const restoreCapabilities = withImageProtocol(null);
+		const surface = await fixture("default");
+		try {
+			await runReadImage(surface, { id: "image", path: "screenshots/a.png" });
+			const collapsed = rows(surface);
+			const explored = collapsed.findIndex((line) => line.includes("Explored"));
+			expect(explored).toBeGreaterThanOrEqual(0);
+			expect(click(surface, explored, 3)?.handled).toBe(true);
+
+			const lines = surface.chat.render(width).map(stripTerminalSequences);
+			const text = lines.join("\n");
+			expect(lines.filter((line) => line.includes("viewed image file [image/png]"))).toHaveLength(1);
+			expect(text).not.toContain("Read image file [image/png]");
+			expect(text).not.toContain("[Image:");
+			expect(lines.some(isImageLine)).toBe(false);
+		} finally {
+			surface.cleanup();
+			restoreCapabilities();
+		}
+	});
+
+	it.each(["compact", "grouped"] as const)(
+		"keeps disabled image Reads out of nested %s Read runs",
+		async (density) => {
+			const restoreCapabilities = withImageProtocol(null);
+			const surface = await fixture(density);
+			try {
+				surface.harness.settingsManager.setShowImages(false);
+				await runTool(surface, {
+					id: "before",
+					toolName: "read",
+					args: { path: "before.md" },
+					output: "before",
+				});
+				await runReadImage(surface, { id: "image", path: "screenshots/a.png" });
+				await runTool(surface, { id: "after", toolName: "read", args: { path: "after.md" }, output: "after" });
+
+				const rendered = rows(surface);
+				expect(rendered).toContain(row(" ╶─ ✓ read • before.md"));
+				expect(rendered).toContain(row(" ╶─ ✓ viewed • a.png"));
+				expect(rendered).toContain(row(" ╶─ ✓ read • after.md"));
+			} finally {
+				surface.cleanup();
+				restoreCapabilities();
+			}
+		},
+	);
+
+	it("rebuilds image rows when the terminal protocol becomes available", () => {
+		const previous = getCapabilities();
+		const images = new ToolExecutionImages(() => {});
+		const options = {
+			showImages: true,
+			maxWidthCells: 60,
+			showRendererFallback: true,
+			readImageMimeType: "image/png",
+		} as const;
+		try {
+			setCapabilities({ ...previous, images: null, kittyUnicodePlaceholders: false });
+			images.updateOptions(options);
+			images.updateResult({
+				content: [{ type: "image", data: TINY_PNG_BASE64, mimeType: "image/png" }],
+				isError: false,
+			});
+			expect(images.render(width).some(isImageLine)).toBe(false);
+
+			setCapabilities({ ...previous, images: "kitty", kittyUnicodePlaceholders: false });
+			images.updateOptions(options);
+			expect(images.render(width).some(isImageLine)).toBe(true);
+		} finally {
+			images.dispose();
+			setCapabilities(previous);
+		}
+	});
+
 	it("keeps a mixed-run failure count visible on a narrow terminal", async () => {
 		const surface = await fixture("grouped");
 		try {
@@ -228,6 +355,70 @@ describe("dense consecutive read projection", () => {
 		if (!view || view.format !== "structured") throw new TypeError("Expected a structured read card");
 		const body = view.body.flatMap((block) => (block.type === "rich" ? block.render(width) : [])).join("\n");
 		expect(body).toContain("<fg:text>unchanged</fg:text>");
+	});
+
+	it("projects successful image blocks as viewed cards with a MIME fallback", () => {
+		const component = readRenderers.renderResult?.(
+			{
+				content: [
+					{ type: "text", text: "Read image file [image/png]" },
+					{ type: "image", data: TINY_PNG_BASE64, mimeType: "image/png" },
+				],
+				details: undefined,
+			},
+			{ expanded: true, isPartial: false },
+			markerTheme as never,
+			{
+				args: { path: "screenshots/a.png" },
+				cwd: "/workspace",
+				showImages: true,
+				imageProtocol: null,
+				isError: false,
+				executionStarted: true,
+				state: {},
+			} as never,
+		);
+		if (!component) throw new TypeError("Expected the read result renderer");
+		const view = component.renderDensityCard();
+		if (!view || view.format !== "structured") throw new TypeError("Expected a structured viewed card");
+		expect(view.kind).toBe("viewed");
+		expect(view.status).toBe("done");
+		expect(view.heading.details).toEqual([[{ text: "a.png", link: "file:///workspace/screenshots/a.png" }]]);
+		expect(view.expandedHeading?.details).toEqual([
+			[{ text: "screenshots/a.png", role: "dim", link: "file:///workspace/screenshots/a.png" }],
+		]);
+		expect(view.body).toEqual([{ type: "text", lines: ["viewed image file [image/png]"] }]);
+	});
+
+	it("keeps shared Read failure precedence when an image block is present", () => {
+		const component = readRenderers.renderResult?.(
+			{
+				content: [
+					{ type: "text", text: "Permission denied" },
+					{ type: "image", data: "AQID", mimeType: "image/png" },
+				],
+				details: undefined,
+			},
+			{ expanded: true, isPartial: false },
+			markerTheme as never,
+			{
+				args: { path: "private.png" },
+				cwd: "/workspace",
+				showImages: true,
+				imageProtocol: "kitty",
+				isError: true,
+				executionStarted: true,
+				state: {},
+			} as never,
+		);
+		if (!component) throw new TypeError("Expected the read result renderer");
+		const view = component.renderDensityCard();
+		if (!view || view.format !== "structured") throw new TypeError("Expected a structured failure card");
+		expect(view.kind).toBe("read");
+		expect(view.status).toBe("failed");
+		expect(view.body.flatMap((block) => (block.type === "rich" ? block.render(width) : [])).join("\n")).toContain(
+			"Permission denied",
+		);
 	});
 
 	it.each(["compact", "grouped"] as const)(

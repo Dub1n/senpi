@@ -9,6 +9,7 @@ import {
 	textResult,
 } from "./context.ts";
 import { renderKillBashCall, renderKillBashResult } from "./render.ts";
+import { testSummaryFor } from "./spawn.ts";
 
 export const killBashSchema = Type.Object({
 	bash_id: Type.Optional(Type.String({ description: "Session id to tree-kill." })),
@@ -72,8 +73,10 @@ export function createKillBashTool(ctx: TerminalToolContext) {
 					? "killed"
 					: "already-exited";
 			if (outcome !== "failed") await dropStateDir(monitorId);
+			const testSummary = outcome === "already-exited" ? testSummaryFor(runtime) : undefined;
 			return textResult(`Killed ${input.bash_id}.`, {
 				details: {
+					...(testSummary === undefined ? {} : { testSummary }),
 					killBash: {
 						sessionId: input.bash_id,
 						target: "bash",
