@@ -388,6 +388,7 @@ describe("dense transcript notices", () => {
 				"",
 				row(""),
 				row(" ╭─ ← from • build-worker · Relayed from device laptop"),
+				row(" │ id: peer"),
 				row(" │ Original fixture body."),
 				row(" │"),
 				row(" │ From the checklist: keep this line."),
@@ -422,7 +423,8 @@ describe("dense transcript notices", () => {
 			expect(surface.chat.render(width).map(stripTerminalSequences)).toEqual([
 				"",
 				row(""),
-				row(" ╭─ ← from • peer-7"),
+				row(" ╭─ ← from • id: peer-7"),
+				row(" │ id: peer-7"),
 				row(" │ From the incident log"),
 				row(" │"),
 				row(" │ Do not discard this paragraph."),

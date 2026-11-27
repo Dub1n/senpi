@@ -5,6 +5,7 @@ import type { AgentSessionEvent } from "../../src/core/agent-session.ts";
 import { toolCardNestingDefaults } from "../../src/core/settings-manager.ts";
 import { createWriteDetails } from "../../src/core/tools/write-result.ts";
 import { ExplorationTranscriptContainer } from "../../src/modes/interactive/components/exploration-transcript-container.ts";
+import { ToolExecutionComponent } from "../../src/modes/interactive/components/tool-execution.ts";
 import { explorationSurface, invoke } from "./exploration-surface-harness.ts";
 
 type Surface = Awaited<ReturnType<typeof explorationSurface>>;
@@ -34,7 +35,7 @@ function mouse(
 	target: { readonly tool: string; readonly width: number; readonly type?: TuiMouseEvent["type"] },
 ) {
 	const lines = surface.chat.render(target.width).map(stripTerminalSequences);
-	const row = lines.findIndex((line) => /^[ ]+╶─|^[ ]+╭─/u.test(line) && line.includes(target.tool));
+	const row = lines.findIndex((line) => /^[ ]+[╶╭├╰]─/u.test(line) && line.includes(target.tool));
 	expect(lines[row]).toContain(target.tool);
 	return surface.chat.handleMouse({
 		type: target.type ?? "click",
@@ -138,7 +139,8 @@ describe.each(cases)("$density live tool folds at $width columns", (config) => {
 		const terminal = new VirtualTerminal(width, 40);
 		const tui = new TuiAltScreen(terminal);
 		try {
-			tui.addChild(denseChat(surface, config));
+			const chat = denseChat(surface, config);
+			tui.addChild(chat);
 			Reflect.set(surface.mode, "ui", tui);
 			for (const toolCallId of ["live-a", "live-b"]) {
 				await surface.event({ type: "tool_execution_start", ...shell(toolCallId) });
@@ -146,22 +148,35 @@ describe.each(cases)("$density live tool folds at $width columns", (config) => {
 			tui.start();
 			tui.renderNow();
 			const before = await terminal.flushAndGetViewport();
-			const row = before.findIndex((line) => line.includes("╶─") && line.includes("live-a")) + 1;
-			expect(before[row - 1]).toContain("live-a");
-
-			terminal.sendInput(`\x1b[<0;6;${row}M`);
-			terminal.sendInput(`\x1b[<32;15;${row}M`);
-			terminal.sendInput(`\x1b[<0;15;${row}m`);
+			const parentRow = before.findIndex((line) => line.includes("╶─ ~ bash")) + 1;
+			expect(before[parentRow - 1]).toMatch(/╶─ ~ bash/u);
+			terminal.sendInput(`\x1b[<0;6;${parentRow}M`);
+			terminal.sendInput(`\x1b[<32;15;${parentRow}M`);
+			terminal.sendInput(`\x1b[<0;15;${parentRow}m`);
 			tui.renderNow();
-			expect((await terminal.flushAndGetViewport()).join("\n")).toMatch(/╶─[^\n]*live-a/);
+			expect((await terminal.flushAndGetViewport()).join("\n")).toMatch(/╶─ ~ bash/u);
 
-			terminal.sendInput(`\x1b[<0;6;${row}M`);
-			terminal.sendInput(`\x1b[<0;6;${row}m`);
+			terminal.sendInput(`\x1b[<0;6;${parentRow}M`);
+			terminal.sendInput(`\x1b[<0;6;${parentRow}m`);
+			tui.renderNow();
+			const opened = await terminal.flushAndGetViewport();
+			const secondMemberRow = opened.findIndex((line) => line.includes("echo live-b")) + 1;
+			expect(opened[secondMemberRow - 1]).toMatch(/├─ ○ bash • echo live-b/u);
+			await surface.event({
+				type: "tool_execution_update",
+				...shell("live-a"),
+				partialResult: textResult("output live-a"),
+			});
+			await surface.event({
+				type: "tool_execution_update",
+				...shell("live-b"),
+				partialResult: textResult("output live-b"),
+			});
+			expect(mouse(surface, { tool: "live-b", width })?.handled).toBe(true);
 			tui.renderNow();
 			const after = (await terminal.flushAndGetViewport()).join("\n");
-			expect(after).toMatch(/╭─[^\n]*live-a/u);
-			expect(after).toMatch(/╶─[^\n]*live-b/u);
-			expect(after.match(/^ ╰─\s*$/gmu)).toHaveLength(1);
+			expect(after).toContain("output live-a");
+			expect(after).not.toContain("output live-b");
 		} finally {
 			tui.detachAll();
 			tui.stop();
@@ -177,14 +192,21 @@ describe.each(cases)("$density live tool folds at $width columns", (config) => {
 			const chat = denseChat(surface, config);
 			tui.addChild(chat);
 			Reflect.set(surface.mode, "ui", tui);
+			await surface.event({ type: "tool_execution_start", ...shell("anchor") });
 			const call = shell("going-away");
 			await surface.event({ type: "tool_execution_start", ...call });
 			await surface.event({ type: "tool_execution_start", ...shell("replacement") });
 			tui.start();
 			tui.renderNow();
 			const before = await terminal.flushAndGetViewport();
-			const row = before.findIndex((line) => line.includes("going-away")) + 1;
-			expect(before[row - 1]).toMatch(/╶─.*going-away/u);
+			const parentRow = before.findIndex((line) => line.includes("╶─ ~ bash")) + 1;
+			expect(before[parentRow - 1]).toMatch(/╶─ ~ bash/u);
+			terminal.sendInput(`\x1b[<0;6;${parentRow}M`);
+			terminal.sendInput(`\x1b[<0;6;${parentRow}m`);
+			tui.renderNow();
+			const opened = await terminal.flushAndGetViewport();
+			const row = opened.findIndex((line) => line.includes("echo going-away")) + 1;
+			expect(opened[row - 1]).toMatch(/├─ ○ bash • echo going-away/u);
 			terminal.sendInput(`\x1b[<0;6;${row}M`);
 
 			await surface.event({
@@ -193,14 +215,16 @@ describe.each(cases)("$density live tool folds at $width columns", (config) => {
 				result: textResult("finished"),
 				isError: false,
 			});
-			const outgoing = chat.children[0];
-			if (!outgoing) throw new TypeError("Expected a tool invocation to remove");
+			const outgoing = chat.children.find(
+				(child) => child instanceof ToolExecutionComponent && child.toolCallId === call.toolCallId,
+			);
+			if (!(outgoing instanceof ToolExecutionComponent)) throw new TypeError("Expected the outgoing invocation");
 			chat.removeChild(outgoing);
 			tui.renderNow();
-			expect((await terminal.flushAndGetViewport())[row - 1]).toMatch(/╶─.*replacement/u);
+			expect((await terminal.flushAndGetViewport())[row - 1]).toMatch(/├─ ○ bash • echo replacement/u);
 			terminal.sendInput(`\x1b[<0;6;${row}m`);
 			tui.renderNow();
-			expect((await terminal.flushAndGetViewport())[row - 1]).toMatch(/╶─.*replacement/u);
+			expect((await terminal.flushAndGetViewport())[row - 1]).toMatch(/├─ ○ bash • echo replacement/u);
 		} finally {
 			tui.detachAll();
 			tui.stop();

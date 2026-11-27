@@ -2,7 +2,12 @@ import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { Container, Text } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentSessionEvent } from "../../../src/core/agent-session.ts";
-import type { ToolDisplayDensity } from "../../../src/core/settings-manager.ts";
+import type {
+	ToolCardFoldDefaults,
+	ToolCardNesting,
+	ToolDisplayColors,
+	ToolDisplayDensity,
+} from "../../../src/core/settings-manager.ts";
 import { InteractiveMode } from "../../../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../../../src/modes/interactive/theme/theme.ts";
 import { createHarness, createTestUiContext } from "../harness.ts";
@@ -51,7 +56,12 @@ type RebindContext = {
 
 type ReloadCommandContext = {
 	hideThinkingBlock: boolean;
-	chatContainer: { setToolDisplayDensity: (density: ToolDisplayDensity) => void };
+	applyDenseCardPreferences: () => void;
+	chatContainer: {
+		setToolDisplayDensity: (density: ToolDisplayDensity) => void;
+		setToolDisplayColors: (colors: ToolDisplayColors) => void;
+		setDenseCardPreferences: (foldDefaults: ToolCardFoldDefaults, nesting: ToolCardNesting) => void;
+	};
 	session: {
 		isStreaming: boolean;
 		isCompacting: boolean;
@@ -68,6 +78,9 @@ type ReloadCommandContext = {
 		getHideThinkingBlock: () => boolean;
 		getOutputPad: () => 0 | 1;
 		getToolDisplayDensity: () => ToolDisplayDensity;
+		getToolDisplayColors: () => ToolDisplayColors;
+		getToolCardFoldDefaults: () => ToolCardFoldDefaults;
+		getToolCardNesting: () => ToolCardNesting;
 		getEditorPaddingX: () => number;
 		getAutocompleteMaxVisible: () => number;
 		getShowHardwareCursor: () => boolean;
@@ -98,6 +111,7 @@ type ReloadCommandContext = {
 };
 
 type InteractiveModePrototype = {
+	applyDenseCardPreferences(this: ReloadCommandContext): void;
 	showLoadedResources(
 		this: LoadedResourcesContext,
 		options?: { extensions?: Array<{ path: string }>; force?: boolean; showDiagnosticsWhenQuiet?: boolean },
@@ -125,7 +139,12 @@ function createReloadCommandContext(overrides: ReloadCommandContextOverrides = {
 	const editor = overrides.editor ?? {};
 	return {
 		hideThinkingBlock: overrides.hideThinkingBlock ?? false,
-		chatContainer: overrides.chatContainer ?? { setToolDisplayDensity: () => {} },
+		applyDenseCardPreferences: interactiveModePrototype.applyDenseCardPreferences,
+		chatContainer: overrides.chatContainer ?? {
+			setToolDisplayDensity: () => {},
+			setToolDisplayColors: () => {},
+			setDenseCardPreferences: () => {},
+		},
 		session: {
 			isStreaming: false,
 			isCompacting: false,
@@ -144,6 +163,9 @@ function createReloadCommandContext(overrides: ReloadCommandContextOverrides = {
 			getHideThinkingBlock: () => false,
 			getOutputPad: () => 1,
 			getToolDisplayDensity: () => "default",
+			getToolDisplayColors: () => ({ colorFrames: false, colorNames: false, colorIcons: false }),
+			getToolCardFoldDefaults: () => ({}),
+			getToolCardNesting: () => ({ reads: true, patches: true, bashOutput: true, projectRules: true }),
 			getEditorPaddingX: () => 1,
 			getAutocompleteMaxVisible: () => 10,
 			getShowHardwareCursor: () => false,
@@ -427,7 +449,11 @@ describe("regression #5943: session_start transient UI", () => {
 		let context: ReloadCommandContext;
 		context = createReloadCommandContext({
 			settingsManager: { getHideThinkingBlock: () => true, getToolDisplayDensity: () => "compact" },
-			chatContainer: { setToolDisplayDensity: (density) => events.push(`density:${density}`) },
+			chatContainer: {
+				setToolDisplayDensity: (density) => events.push(`density:${density}`),
+				setToolDisplayColors: () => {},
+				setDenseCardPreferences: () => {},
+			},
 			session: {
 				reload: async (options) => {
 					events.push("reload");
